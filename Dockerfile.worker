@@ -1,7 +1,7 @@
 FROM python:3.13-slim-bullseye
 
 # システムパッケージとLibreOfficeのインストール
-# libreoffice-drawを追加することでPNG変換フィルタを確保
+# poppler-utilsを追加してPDFから画像への変換を可能にする
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-calc \
     libreoffice-draw \
@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
     fonts-liberation \
     curl \
+    poppler-utils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
