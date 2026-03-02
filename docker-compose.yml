@@ -1,32 +1,17 @@
 services:
-  litellm-proxy:
-    image: ghcr.io/berriai/litellm:main
-    container_name: litellm-proxy-new
-    ports:
-      - "4000:4000"
-    volumes:
-      - ./litellm-config.yaml:/app/config.yaml
-    environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - LITELLM_MASTER_KEY=sk-1234
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    restart: always
-
   pipeline-worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    container_name: pipeline-worker-new
-    image: kami-worker:latest # イメージ名を明示
+    container_name: pipeline-worker-final
+    image: kami-worker:final
     volumes:
       - ./src:/app/src
       - ./data/input:/app/data/input
       - ./data/output:/app/data/output
       - ./templates:/app/templates
     environment:
-      - LITELLM_PROXY_URL=http://litellm-proxy-new:4000
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - litellm-proxy
     restart: unless-stopped
