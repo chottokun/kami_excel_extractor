@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   litellm-proxy:
     image: ghcr.io/berriai/litellm:main
@@ -20,8 +18,8 @@ services:
     container_name: pipeline-worker
     volumes:
       - ./src:/app/src
-      - ./data/input:/app/input
-      - ./data/output:/app/output
+      - ./data/input:/app/data/input
+      - ./data/output:/app/data/output
       - ./templates:/app/templates
     environment:
       - LITELLM_PROXY_URL=http://litellm-proxy:4000
