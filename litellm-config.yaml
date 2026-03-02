@@ -1,0 +1,8 @@
+model_list:
+  - model_name: gemini-vision
+    litellm_params:
+      model: "gemini/gemini-2.0-flash" # デフォルト
+      api_key: "os.environ/GEMINI_API_KEY"
+
+general_settings:
+  master_key: sk-1234
