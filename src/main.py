@@ -59,23 +59,31 @@ def process_excel_litellm(excel_path: Path):
     ]
 
     print(f"Requesting via LiteLLM Proxy -> unified-vision-model...")
-    try:
-        response = client.chat.completions.create(
-            model="unified-vision-model",
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
-        
-        result_text = response.choices[0].message.content
-        output_path = OUTPUT_DIR / f"{excel_path.stem}_structured.json"
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(result_text)
-        print(f"Successfully structured: {output_path}")
-        
-    except Exception as e:
-        import traceback
-        print(f"LiteLLM Request Failed: {e}")
-        traceback.print_exc()
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="unified-vision-model",
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+            
+            result_text = response.choices[0].message.content
+            output_path = OUTPUT_DIR / f"{excel_path.stem}_structured.json"
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(result_text)
+            print(f"Successfully structured: {output_path}")
+            break
+            
+        except Exception as e:
+            if "Connection refused" in str(e) and attempt < max_retries - 1:
+                print(f"LiteLLM Proxy not ready (attempt {attempt+1}/{max_retries}). Waiting 10s...")
+                time.sleep(10)
+                continue
+            import traceback
+            print(f"LiteLLM Request Failed: {e}")
+            traceback.print_exc()
+            break
 
 def main():
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
