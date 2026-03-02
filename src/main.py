@@ -32,7 +32,8 @@ def main():
             if f not in processed:
                 try:
                     logger.info(f"Processing: {f.name}")
-                    result = extractor.extract_structured_data(f)
+                    # 確実に動作するモデルを指定
+                    result = extractor.extract_structured_data(f, model="gemini/gemini-2.5-flash")
                     
                     # 結果の保存
                     import json
