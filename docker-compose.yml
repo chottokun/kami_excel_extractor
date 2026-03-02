@@ -1,4 +1,4 @@
-# Kami Excel Extractor - Production Ready Compose
+# Kami Excel Extractor - Optimized Compose
 services:
   litellm-proxy:
     image: ghcr.io/berriai/litellm:main
@@ -6,16 +6,13 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      # マウント先を /app 直下以外にすることで干渉を避ける
-      - ./litellm-config.yaml:/etc/litellm/config.yaml:ro
+      # /app/config.yaml にマウントするのが、このイメージの標準仕様
+      - ./litellm-config.yaml:/app/config.yaml
     env_file:
       - .env
     environment:
-      # LITELLM_CONFIG_PATH を使うのが最も確実な指定方法
-      - LITELLM_CONFIG_PATH=/etc/litellm/config.yaml
       - LITELLM_MASTER_KEY=sk-1234
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-    # 起動時のインストール遅延を考慮し、常に再起動を許可
     restart: always
 
   pipeline-worker:
@@ -33,7 +30,11 @@ services:
       - .env
     environment:
       - LITELLM_PROXY_URL=http://litellm-proxy:4000
+      - MASTER_KEY=sk-1234
+      - PYTHONPATH=. # 確実にカレントディレクトリをパスに含める
       - PYTHONUNBUFFERED=1
     depends_on:
       - litellm-proxy
+    # パッケージとして実行することでModuleNotFoundErrorを回避
+    command: ["uv", "run", "python", "-m", "src.main"]
     restart: unless-stopped
