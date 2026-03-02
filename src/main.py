@@ -41,10 +41,10 @@ def process_excel(excel_path: Path):
     user_content = [
         {
             "type": "text",
-            "text": f"以下の座標マップを画像のガイドとして使用してください。
+            "text": f"""以下の座標マップを画像のガイドとして使用してください。
 
 【座標マップ】
-{json.dumps(cells_map, ensure_ascii=False)}"
+{json.dumps(cells_map, ensure_ascii=False)}"""
         },
         {
             "type": "image_url",
