@@ -1,6 +1,9 @@
 import openpyxl
 import json
+import os
+from pathlib import Path
 from openpyxl.utils import get_column_letter
+import io
 
 def get_border_info(cell):
     borders = {}
@@ -11,51 +14,80 @@ def get_border_info(cell):
         if cell.border.bottom.style: borders["B"] = cell.border.bottom.style
     return borders
 
-def extract_universal_map(filename):
+def extract_media(ws, output_media_dir, sheet_name):
+    """ワークシートから画像を抽出し、座標情報を返す"""
+    media_info = []
+    if not hasattr(ws, "_images"):
+        return media_info
+
+    for idx, img in enumerate(ws._images):
+        row = img.anchor._from.row + 1
+        col = img.anchor._from.col + 1
+        coord = f"{get_column_letter(col)}{row}"
+        
+        image_filename = f"{sheet_name}_img_{coord}_{idx}.png"
+        save_path = output_media_dir / image_filename
+        
+        try:
+            # openpyxlのImageオブジェクトからバイナリを取得
+            # refが直接BytesIOやファイルオブジェクトを指している場合がある
+            if hasattr(img.ref, "read"):
+                data = img.ref.read()
+            elif hasattr(img.ref, "getvalue"):
+                data = img.ref.getvalue()
+            else:
+                # 最終手段としてプロパティを確認
+                data = img.ref
+            
+            with open(save_path, "wb") as f:
+                f.write(data)
+            
+            media_info.append({
+                "coord": coord,
+                "filename": str(image_filename),
+                "type": "image"
+            })
+        except Exception as e:
+            print(f"Failed to extract image at {coord}: {e}")
+            
+    return media_info
+
+def extract_comprehensive_map(filename, output_dir):
     wb = openpyxl.load_workbook(filename, data_only=True)
-    ws = wb.active
+    output_media_dir = Path(output_dir) / "media"
+    output_media_dir.mkdir(parents=True, exist_ok=True)
     
-    merged_ranges = [str(r) for r in ws.merged_cells.ranges]
+    full_map = { "sheets": {} }
     
-    cells_map = []
-    # 有効なデータ範囲を特定
-    max_row = ws.max_row
-    max_col = ws.max_column
-    
-    for r in range(1, max_row + 1):
-        for c in range(1, max_col + 1):
-            cell = ws.cell(row=r, column=c)
-            
-            # 空セルかつスタイルなしはスキップして圧縮
-            has_style = cell.fill and cell.fill.start_color.index != '00000000'
-            has_border = bool(get_border_info(cell))
-            
-            if cell.value is None and not has_style and not has_border:
-                continue
-                
-            cell_info = {
-                "c": cell.coordinate, # coordinate
-                "v": str(cell.value) if cell.value is not None else "", # value
-            }
-            
-            # スタイル情報はヒントとして最小限に
-            if has_style:
-                cell_info["bg"] = str(cell.fill.start_color.index)
-            if has_border:
-                cell_info["b"] = get_border_info(cell)
-            
-            # 結合セルの判定
-            for m_range in merged_ranges:
-                if cell.coordinate in openpyxl.worksheet.cell_range.CellRange(m_range):
-                    cell_info["m"] = m_range # merged range
-                    break
-            
-            cells_map.append(cell_info)
-            
-    return cells_map
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        merged_ranges = [str(r) for r in ws.merged_cells.ranges]
+        
+        cells_map = []
+        for r in range(1, ws.max_row + 1):
+            for c in range(1, ws.max_column + 1):
+                cell = ws.cell(row=r, column=c)
+                has_style = cell.fill and cell.fill.start_color.index != '00000000'
+                has_border = bool(get_border_info(cell))
+                if cell.value is None and not has_style and not has_border: continue
+                cell_info = {"c": cell.coordinate, "v": str(cell.value) if cell.value is not None else ""}
+                if has_style: cell_info["bg"] = str(cell.fill.start_color.index)
+                if has_border: cell_info["b"] = get_border_info(cell)
+                for m_range in merged_ranges:
+                    if cell.coordinate in openpyxl.worksheet.cell_range.CellRange(m_range):
+                        cell_info["m"] = m_range
+                        break
+                cells_map.append(cell_info)
+        
+        media_list = extract_media(ws, output_media_dir, sheet_name)
+        full_map["sheets"][sheet_name] = {
+            "cells": cells_map,
+            "media": media_list
+        }
+    return full_map
 
 if __name__ == "__main__":
-    test_map = extract_universal_map("sample_hoganshi.xlsx")
-    with open("sample_map.json", "w", encoding="utf-8") as f:
-        json.dump(test_map, f, ensure_ascii=False, indent=2)
-    print(f"Extracted {len(test_map)} cells to sample_map.json")
+    res = extract_comprehensive_map("complex_report.xlsx", "data/output")
+    with open("data/output/comprehensive_map.json", "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2)
+    print(f"Extracted data and media to data/output/")
