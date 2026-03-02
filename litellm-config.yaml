@@ -1,10 +1,9 @@
 model_list:
   - model_name: unified-vision-model
     litellm_params:
-      model: "gemini/gemini-1.5-flash"
+      model: "gemini/gemini-1.5-flash" # 安定版に固定
       api_key: "os.environ/GEMINI_API_KEY"
-      # LiteLLMの仕様で、OpenAI形式のresponse_formatをGeminiのmime_typeに変換させる
-      drop_params: True 
+      drop_params: True
 
 general_settings:
   master_key: sk-1234
