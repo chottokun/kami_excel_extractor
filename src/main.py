@@ -8,7 +8,8 @@ from extractor import extract_universal_map
 from converter import convert_to_png
 
 # 環境変数の読み込み
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+raw_key = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = raw_key.strip("'\" ").strip() if raw_key else None
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-2.0-flash")
 INPUT_DIR = Path("data/input")
 OUTPUT_DIR = Path("data/output")
