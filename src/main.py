@@ -3,91 +3,90 @@ import json
 import base64
 import time
 from pathlib import Path
-import google.generativeai as genai
+from openai import OpenAI
 from extractor import extract_comprehensive_map
 from converter import convert_to_png
 
 # 環境変数の読み込み
-raw_key = os.getenv("GEMINI_API_KEY")
-GEMINI_API_KEY = raw_key.strip("'\" ").strip() if raw_key else None
+LITELLM_PROXY_URL = os.getenv("LITELLM_PROXY_URL", "http://litellm-proxy:4000")
 INPUT_DIR = Path("data/input")
 OUTPUT_DIR = Path("data/output")
 
-def get_available_flash_model():
-    """利用可能なFlashモデルを自動的に取得する"""
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods and 'flash' in m.name.lower():
-                print(f"Auto-selected model: {m.name}")
-                return m.name
-    except Exception as e:
-        print(f"Error listing models: {e}")
-    return "models/gemini-1.5-flash" # フォールバック
+def encode_image_to_base64(image_path: Path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
-def process_excel_complex(excel_path: Path):
-    print(f"\n--- Processing Complex: {excel_path.name} ---")
+def process_excel_litellm(excel_path: Path):
+    print(f"\n--- Processing via LiteLLM: {excel_path.name} ---")
     
-    # 1. 総合メタデータとメディアの抽出
-    try:
-        full_map = extract_comprehensive_map(excel_path, OUTPUT_DIR)
-        print(f"Success: Extracted metadata and media from {len(full_map['sheets'])} sheets")
-    except Exception as e:
-        print(f"Error during metadata extraction: {e}")
-        return
+    # 1. 前処理（画像変換とメタデータ抽出）
+    png_path = convert_to_png(excel_path, OUTPUT_DIR)
+    full_map = extract_comprehensive_map(excel_path, OUTPUT_DIR)
+    base64_image = encode_image_to_base64(png_path)
 
-    # 2. 画像レンダリング
-    try:
-        png_path = convert_to_png(excel_path, OUTPUT_DIR)
-        print(f"Success: Full image rendered at {png_path}")
-    except Exception as e:
-        print(f"Error rendering image: {e}")
-        return
+    # 2. LiteLLM Proxy (OpenAI互換) クライアントの初期化
+    client = OpenAI(
+        api_key="sk-1234", # LITELLM_MASTER_KEY
+        base_url=f"{LITELLM_PROXY_URL}/v1"
+    )
 
-    # 3. VLM 呼び出し (自動判別モデル)
-    current_model_name = get_available_flash_model()
-    model = genai.GenerativeModel(current_model_name)
-    
-    with open(png_path, "rb") as f:
-        full_image_data = f.read()
+    system_prompt = """あなたはExcel構造化の専門家です。
+画像と座標マップを照らし合わせ、指定されたJSON形式で正確に抽出してください。
+画像内のOCRは行わず、座標マップの値を『正解』として引用してください。"""
 
-    system_prompt = """あなたは日本の複雑なExcelドキュメントを解析する第一人者です。
-複数のシート、方眼紙レイアウト、埋め込まれた現場写真を含むデータを正確に構造化してください。
-回答は純粋なJSONのみを返してください。"""
-
-    user_content = [
-        f"以下の座標マップ（シート別）をガイドとして使用してください。\n\n【座標マップ】\n{json.dumps(full_map, ensure_ascii=False)}",
-        {"mime_type": "image/png", "data": full_image_data},
-        "全てのシートから情報を抽出し、報告書の内容と写真の説明を統合したJSONを出力してください。"
+    # LiteLLMの仕様に基づくOpenAI形式のマルチモーダルメッセージ
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"座標マップ:\n{json.dumps(full_map, ensure_ascii=False)}"
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{base64_image}"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": "このExcelデータを構造化JSONで出力してください。回答はJSONのみを返してください。"
+                }
+            ]
+        }
     ]
 
-    print(f"Requesting Gemini ({current_model_name})...")
+    print(f"Requesting via LiteLLM Proxy -> unified-vision-model...")
     try:
-        response = model.generate_content([system_prompt] + user_content)
-        result_text = response.text.strip()
-        if "```json" in result_text:
-            result_text = result_text.split("```json")[1].split("```")[0].strip()
+        response = client.chat.completions.create(
+            model="unified-vision-model",
+            messages=messages,
+            response_format={"type": "json_object"}
+        )
         
-        output_path = OUTPUT_DIR / f"{excel_path.stem}_complex_extracted.json"
+        result_text = response.choices[0].message.content
+        output_path = OUTPUT_DIR / f"{excel_path.stem}_structured.json"
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(result_text)
-        print(f"Extraction successful: {output_path}")
+        print(f"Successfully structured: {output_path}")
         
     except Exception as e:
         import traceback
-        print(f"Error during VLM request: {e}")
+        print(f"LiteLLM Request Failed: {e}")
         traceback.print_exc()
 
 def main():
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Monitoring {INPUT_DIR} for new files...")
+    print(f"Gateway Mode: Monitoring {INPUT_DIR}...")
     processed_files = set()
     while True:
         files = list(INPUT_DIR.glob("*.xlsx"))
         for f in files:
             if f not in processed_files:
-                process_excel_complex(f)
+                process_excel_litellm(f)
                 processed_files.add(f)
         time.sleep(10)
 
