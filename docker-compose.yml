@@ -8,7 +8,8 @@ services:
       - ./litellm-config.yaml:/app/config.yaml
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+      - LITELLM_MASTER_KEY=sk-1234
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--detailed_debug"]
     restart: always
 
   pipeline-worker:
