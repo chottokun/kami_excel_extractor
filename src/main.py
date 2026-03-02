@@ -59,7 +59,7 @@ def process_excel_litellm(excel_path: Path):
     ]
 
     print(f"Requesting via LiteLLM Proxy -> unified-vision-model...")
-    max_retries = 5
+    max_retries = 20 # 待機時間を大幅に増加 (約200秒)
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -76,12 +76,12 @@ def process_excel_litellm(excel_path: Path):
             break
             
         except Exception as e:
-            if "Connection refused" in str(e) and attempt < max_retries - 1:
-                print(f"LiteLLM Proxy not ready (attempt {attempt+1}/{max_retries}). Waiting 10s...")
+            if ("Connection refused" in str(e) or "Connection error" in str(e)) and attempt < max_retries - 1:
+                print(f"LiteLLM Proxy still starting (attempt {attempt+1}/{max_retries}). Waiting 10s...")
                 time.sleep(10)
                 continue
             import traceback
-            print(f"LiteLLM Request Failed: {e}")
+            print(f"LiteLLM Request Failed after {attempt+1} attempts: {e}")
             traceback.print_exc()
             break
 
