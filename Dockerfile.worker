@@ -1,8 +1,10 @@
 FROM python:3.13-slim-bullseye
 
 # システムパッケージとLibreOfficeのインストール
+# libreoffice-drawを追加することでPNG変換フィルタを確保
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-calc \
+    libreoffice-draw \
     libreoffice-java-common \
     default-jre \
     fonts-noto-cjk \
