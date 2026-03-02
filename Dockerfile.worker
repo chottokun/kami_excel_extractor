@@ -27,6 +27,7 @@ RUN uv sync --frozen --no-dev
 
 # アプリケーションのコピー
 COPY src/ /app/src/
+COPY tests/ /app/tests/
 COPY templates/ /app/templates/
 
 # アプリケーションの実行
