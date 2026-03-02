@@ -10,7 +10,7 @@ from converter import convert_to_png
 # 環境変数の読み込み
 raw_key = os.getenv("GEMINI_API_KEY")
 GEMINI_API_KEY = raw_key.strip("'\" ").strip() if raw_key else None
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
 INPUT_DIR = Path("data/input")
 OUTPUT_DIR = Path("data/output")
 
@@ -34,8 +34,15 @@ def process_excel(excel_path: Path):
     print(f"Success: XML map extracted ({len(cells_map)} cells)")
     
     # 3. VLM 呼び出し (Direct Google SDK)
+    print(f"DEBUG: Using API Key: {GEMINI_API_KEY[:4]}...{GEMINI_API_KEY[-4:] if GEMINI_API_KEY else 'NONE'}")
+    
+    # モデル名に models/ プレフィックスを確実に付与
+    target_model = GEMINI_MODEL
+    if not target_model.startswith("models/"):
+        target_model = f"models/{target_model}"
+        
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(GEMINI_MODEL)
+    model = genai.GenerativeModel(target_model)
     
     with open(png_path, "rb") as f:
         image_data = f.read()
