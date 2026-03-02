@@ -1,10 +1,24 @@
 services:
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:main
+    container_name: litellm-proxy-v2
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+    env_file:
+      - .env
+    environment:
+      - LITELLM_MASTER_KEY=sk-1234
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    restart: always
+
   pipeline-worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    container_name: pipeline-worker-final
-    image: kami-worker:final
+    container_name: pipeline-worker-v2
+    image: kami-worker:v2
     volumes:
       - ./src:/app/src
       - ./data/input:/app/data/input
@@ -13,5 +27,8 @@ services:
     env_file:
       - .env
     environment:
+      - LITELLM_PROXY_URL=http://litellm-proxy:4000
       - PYTHONUNBUFFERED=1
+    depends_on:
+      - litellm-proxy
     restart: unless-stopped
