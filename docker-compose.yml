@@ -1,40 +1,18 @@
-# Kami Excel Extractor - Optimized Compose
 services:
-  litellm-proxy:
-    image: ghcr.io/berriai/litellm:main
-    container_name: litellm-proxy
-    ports:
-      - "4000:4000"
-    volumes:
-      # /app/config.yaml にマウントするのが、このイメージの標準仕様
-      - ./litellm-config.yaml:/app/config.yaml
-    env_file:
-      - .env
-    environment:
-      - LITELLM_MASTER_KEY=sk-1234
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-    restart: always
-
   pipeline-worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    container_name: pipeline-worker
-    image: kami-worker:latest
+    container_name: pipeline-worker-lib
+    image: kami-worker:lib
     volumes:
       - ./src:/app/src
-      - ./tests:/app/tests
       - ./data/input:/app/data/input
       - ./data/output:/app/data/output
     env_file:
       - .env
     environment:
-      - LITELLM_PROXY_URL=http://litellm-proxy:4000
-      - MASTER_KEY=sk-1234
-      - PYTHONPATH=. # 確実にカレントディレクトリをパスに含める
+      - PYTHONPATH=/app/src # パッケージを読み込めるように設定
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - litellm-proxy
-    # パッケージとして実行することでModuleNotFoundErrorを回避
-    command: ["uv", "run", "python", "-m", "src.main"]
+    command: ["uv", "run", "python", "/app/src/main.py"]
     restart: unless-stopped
