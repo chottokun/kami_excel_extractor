@@ -32,16 +32,30 @@ def main():
             if f not in processed:
                 try:
                     logger.info(f"Processing: {f.name}")
-                    # 確実に動作するモデルを指定
-                    result = extractor.extract_structured_data(f, model="gemini/gemini-2.5-flash")
+                    # 解析の実行（画像概要生成を含む）
+                    rag_chunks, md_content, augmented_data = extractor.extract_rag_chunks(f, model="gemini/gemini-2.5-flash")
                     
-                    # 結果の保存
+                    # 構造化された抽出結果(JSON)の保存
                     import json
-                    output_path = OUTPUT_DIR / f"{f.stem}_lib_result.json"
-                    with open(output_path, "w", encoding="utf-8") as out_f:
-                        json.dump(result, out_f, ensure_ascii=False, indent=2)
+                    result_path = OUTPUT_DIR / f"{f.stem}_lib_result.json"
+                    with open(result_path, "w", encoding="utf-8") as out_f:
+                        json.dump(augmented_data, out_f, ensure_ascii=False, indent=2)
                     
-                    logger.info(f"Success: {output_path}")
+                    # RAG用チャンクの保存
+                    rag_output_path = OUTPUT_DIR / f"{f.stem}_rag_chunks.json"
+                    with open(rag_output_path, "w", encoding="utf-8") as out_f:
+                        json.dump(rag_chunks, out_f, ensure_ascii=False, indent=2)
+                    
+                    # Markdown形式の保存（画像概要付き）
+                    md_output_path = OUTPUT_DIR / f"{f.stem}_rag.md"
+                    with open(md_output_path, "w", encoding="utf-8") as out_f:
+                        out_f.write(md_content)
+                    
+                    # PDFレポートの生成
+                    logger.info(f"Generating PDF report for {f.name}...")
+                    extractor.doc_generator.generate_pdf(md_content, f"{f.stem}_report")
+
+                    logger.info(f"Success: {result_path}, {rag_output_path}, and PDF report")
                     processed.add(f)
                 except Exception as e:
                     logger.error(f"Failed to process {f.name}: {e}")
