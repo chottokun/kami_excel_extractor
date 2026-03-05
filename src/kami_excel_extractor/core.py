@@ -140,14 +140,42 @@ class KamiExcelExtractor:
             logger.error(f"Failed to generate visual summary: {e}")
             return "[画像概要] 解析に失敗しました。"
 
-    def extract_rag_chunks(self, excel_path: str, model: str = "gemini/gemini-1.5-flash"):
+    def extract_rag_chunks(self, excel_path: str, model: str = "gemini/gemini-1.5-flash", list_format: str = "kv"):
         """Excelを解析してRAG用のチャンクを生成する"""
-        # 画像概要込みで構造化データを取得
-        structured_data = self.extract_structured_data(Path(excel_path), model=model, include_visual_summaries=True)
+        excel_path = Path(excel_path)
+
+        # 1. 物理抽出
+        raw_data = self.extractor.extract(excel_path)
+
+        # 単純な表が含まれているかチェック
+        has_simple_table = any(s.get("is_simple") for s in raw_data.get("sheets", {}).values())
         
-        markdown_text = self.rag_converter.convert(structured_data)
+        # 2. 構造化データの取得
+        # 画像概要込みで構造化データを取得（VLMによる全体解析）
+        structured_data = self.extract_structured_data(excel_path, model=model, include_visual_summaries=True)
+
+        # 単純な表がある場合は、その構造化データをVLMの結果に統合または優先させる
+        if has_simple_table:
+            for sheet_name, sheet_data in raw_data.get("sheets", {}).items():
+                if sheet_data.get("is_simple"):
+                    # VLMの出力にこのシートのデータが含まれているか確認し、あれば上書き、なければ追加
+                    # 一般的にVLMの出力はシート名に基づいたキーを持っていることを期待
+                    if sheet_name in structured_data:
+                        logger.info(f"Replacing VLM output for simple table sheet '{sheet_name}' with direct extraction.")
+                        structured_data[sheet_name] = sheet_data["structured_data"]
+                    else:
+                        logger.info(f"Adding direct extraction for simple table sheet '{sheet_name}'.")
+                        structured_data[sheet_name] = sheet_data["structured_data"]
+
+        # 3. Markdown変換 (KV形式などの指定を反映)
+        original_format = self.rag_converter.list_format
+        self.rag_converter.list_format = list_format
+        try:
+            markdown_text = self.rag_converter.convert(structured_data)
+        finally:
+            self.rag_converter.list_format = original_format
         
-        # メタデータの付与
+        # 4. メタデータの付与
         metadata = {
             "source_file": Path(excel_path).name,
             "extraction_model": model

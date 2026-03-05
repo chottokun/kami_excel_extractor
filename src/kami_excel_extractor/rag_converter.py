@@ -5,6 +5,13 @@ from pathlib import Path
 class JsonToMarkdownConverter:
     """JSONをRAGに適したMarkdown形式に変換するクラス"""
 
+    def __init__(self, list_format: str = "table"):
+        """
+        Args:
+            list_format: リストの変換形式 ('table' または 'kv')
+        """
+        self.list_format = list_format
+
     def convert(self, data: Any, level: int = 1) -> str:
         if isinstance(data, dict):
             return self._convert_dict(data, level)
@@ -31,11 +38,14 @@ class JsonToMarkdownConverter:
         if not data:
             return ""
         
-        # リストの要素が辞書で、かつ同じキーを持っている場合はテーブル化を試みる
+        # リストの要素が辞書で、かつ同じキーを持っている場合はテーブル化またはKV化を試みる
         if all(isinstance(item, dict) for item in data) and len(data) > 0:
             keys = data[0].keys()
             if all(item.keys() == keys for item in data):
-                return self._convert_to_table(data, keys)
+                if self.list_format == "kv":
+                    return self._convert_to_kv(data)
+                else:
+                    return self._convert_to_table(data, keys)
         
         lines = []
         for item in data:
@@ -54,6 +64,13 @@ class JsonToMarkdownConverter:
             row = "| " + " | ".join(str(item.get(k, "")) for k in keys) + " |"
             rows.append(row)
         return "\n".join([header_line, separator_line] + rows)
+
+    def _convert_to_kv(self, data: List[Dict[str, Any]]) -> str:
+        lines = []
+        for item in data:
+            kv_pairs = [f"{k}: {v}" for k, v in item.items()]
+            lines.append("- " + ", ".join(kv_pairs))
+        return "\n".join(lines)
 
     def _convert_media(self, media_list: List[Dict[str, Any]]) -> str:
         lines = []

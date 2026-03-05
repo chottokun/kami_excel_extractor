@@ -22,7 +22,7 @@ def test_json_to_markdown_nested():
     assert "- B" in result
 
 def test_json_to_markdown_table_success():
-    converter = JsonToMarkdownConverter()
+    converter = JsonToMarkdownConverter(list_format="table")
     data = [
         {"ID": 1, "Name": "Alice"},
         {"ID": 2, "Name": "Bob"}
@@ -31,6 +31,16 @@ def test_json_to_markdown_table_success():
     assert "| ID | Name |" in result
     assert "| 1 | Alice |" in result
     assert "| 2 | Bob |" in result
+
+def test_json_to_markdown_kv_success():
+    converter = JsonToMarkdownConverter(list_format="kv")
+    data = [
+        {"ID": 1, "Name": "Alice"},
+        {"ID": 2, "Name": "Bob"}
+    ]
+    result = converter.convert(data)
+    assert "- ID: 1, Name: Alice" in result
+    assert "- ID: 2, Name: Bob" in result
 
 def test_json_to_markdown_table_inconsistent_keys():
     """キーが一致しないリストはテーブル化されず、箇条書きになることを確認"""
