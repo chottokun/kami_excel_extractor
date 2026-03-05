@@ -43,6 +43,48 @@ class MetadataExtractor:
                 pass # ロギング等
         return media_info
 
+    def is_simple_table(self, ws) -> bool:
+        """シートが単純な表（ヘッダー＋データ）であるかを簡易判定する"""
+        # 結合セルがある場合は単純な表ではないとみなす（Kamiの出番）
+        if ws.merged_cells.ranges:
+            return False
+
+        # 値が入っているセルの密度や配置をチェック
+        # ここでは簡易的に、1行目に複数の値があり、それ以降も連続してデータがある場合にTrueとする
+        max_r = ws.max_row
+        max_c = ws.max_column
+
+        if max_r < 2 or max_c < 1:
+            return False
+
+        # ヘッダー候補（1行目）のチェック
+        header_values = [ws.cell(row=1, column=c).value for c in range(1, max_c + 1) if ws.cell(row=1, column=c).value is not None]
+        if len(header_values) < 2:
+            return False
+
+        return True
+
+    def extract_simple_table(self, ws) -> List[Dict[str, Any]]:
+        """単純な表をリスト形式の辞書として抽出する"""
+        data = []
+        max_r = ws.max_row
+        max_c = ws.max_column
+
+        # 1行目をヘッダーとする
+        headers = [str(ws.cell(row=1, column=c).value or f"Column{c}") for c in range(1, max_c + 1)]
+
+        for r in range(2, max_r + 1):
+            row_dict = {}
+            has_value = False
+            for c in range(1, max_c + 1):
+                val = ws.cell(row=r, column=c).value
+                if val is not None:
+                    has_value = True
+                row_dict[headers[c-1]] = str(val) if val is not None else ""
+            if has_value:
+                data.append(row_dict)
+        return data
+
     def extract(self, excel_path: Path):
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         full_map = { "sheets": {} }
@@ -71,6 +113,9 @@ class MetadataExtractor:
             
             full_map["sheets"][sheet_name] = {
                 "cells": cells_map,
-                "media": self._extract_media(ws, sheet_name)
+                "media": self._extract_media(ws, sheet_name),
+                "is_simple": self.is_simple_table(ws)
             }
+            if full_map["sheets"][sheet_name]["is_simple"]:
+                full_map["sheets"][sheet_name]["structured_data"] = self.extract_simple_table(ws)
         return full_map
