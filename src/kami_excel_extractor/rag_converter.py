@@ -69,8 +69,8 @@ class JsonToMarkdownConverter:
                 if not summary.startswith("[画像概要]"):
                     summary = f"**[画像概要]**: {summary}"
                 else:
-                    # Bold the prefix for better readability
-                    summary = summary.replace("[画像概要]", "**[画像概要]**", 1)
+                    # Bold the prefix and ensure colon for consistency
+                    summary = summary.replace("[画像概要]", "**[画像概要]**:", 1)
                 lines.append(f"{summary}\n")
         return "\n".join(lines)
 

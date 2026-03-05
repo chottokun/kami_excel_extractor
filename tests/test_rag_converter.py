@@ -15,15 +15,13 @@ def test_json_to_markdown_nested():
             "Details": ["A", "B"]
         }
     }
-    # level 1 dict -> # Project
-    # ID/Details -> level 2
     result = converter.convert(data)
     assert "## Project" in result
     assert "- **ID**: 123" in result
     assert "- A" in result
     assert "- B" in result
 
-def test_json_to_markdown_table():
+def test_json_to_markdown_table_success():
     converter = JsonToMarkdownConverter()
     data = [
         {"ID": 1, "Name": "Alice"},
@@ -34,7 +32,39 @@ def test_json_to_markdown_table():
     assert "| 1 | Alice |" in result
     assert "| 2 | Bob |" in result
 
-def test_rag_chunker():
+def test_json_to_markdown_table_inconsistent_keys():
+    """キーが一致しないリストはテーブル化されず、箇条書きになることを確認"""
+    converter = JsonToMarkdownConverter()
+    data = [
+        {"ID": 1, "Name": "Alice"},
+        {"ID": 2, "Age": 30}
+    ]
+    result = converter.convert(data)
+    assert "|" not in result
+    assert "- **ID**: 1" in result
+    assert "- **Age**: 30" in result
+
+def test_json_to_markdown_empty_data():
+    converter = JsonToMarkdownConverter()
+    assert converter.convert({}) == ""
+    assert converter.convert([]) == ""
+    assert converter.convert(None) == "None"
+
+def test_json_to_markdown_media():
+    converter = JsonToMarkdownConverter()
+    data = {
+        "media": [
+            {"filename": "img1.png", "visual_summary": "[画像概要] グラフの要約"},
+            {"filename": "img2.png", "visual_summary": "概要prefixなし"}
+        ]
+    }
+    result = converter.convert(data)
+    assert "## 関連メディア" in result
+    assert "![画像](media/img1.png)" in result
+    assert "**[画像概要]**: グラフの要約" in result
+    assert "**[画像概要]**: 概要prefixなし" in result
+
+def test_rag_chunker_basic():
     chunker = RagChunker(metadata={"file": "test.xlsx"})
     markdown = "# Section 1\nContent A\n# Section 2\nContent B"
     chunks = chunker.chunk(markdown, "test.xlsx")
@@ -45,3 +75,26 @@ def test_rag_chunker():
     assert chunks[1]["metadata"]["section"] == "Section 2"
     assert "Content B" in chunks[1]["content"]
     assert chunks[0]["metadata"]["file"] == "test.xlsx"
+
+def test_rag_chunker_no_headers():
+    chunker = RagChunker()
+    markdown = "Just plain text\nNo headers here"
+    chunks = chunker.chunk(markdown, "test.xlsx")
+    assert len(chunks) == 1
+    assert chunks[0]["metadata"]["section"] == ""
+    assert "Just plain text" in chunks[0]["content"]
+
+def test_rag_chunker_complex_headers():
+    chunker = RagChunker()
+    markdown = """# Title
+Intro
+## Subtitle
+Details
+# Another Section
+End"""
+    chunks = chunker.chunk(markdown, "test.xlsx")
+    # 現状の実装は "# " (トップレベル) のみで分割
+    assert len(chunks) == 2
+    assert chunks[0]["metadata"]["section"] == "Title"
+    assert "## Subtitle" in chunks[0]["content"]
+    assert chunks[1]["metadata"]["section"] == "Another Section"
