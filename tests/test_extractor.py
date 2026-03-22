@@ -21,6 +21,9 @@ def sample_html_excel(tmp_path):
     yellow_fill = PatternFill(start_color="00FFFF00", end_color="00FFFF00", fill_type="solid")
     ws["A3"].fill = yellow_fill
     ws["A3"] = "Colored Cell"
+
+    # 4. 改行を含むセル
+    ws["A4"] = "Line 1\nLine 2"
     
     excel_path = tmp_path / "html_test.xlsx"
     wb.save(excel_path)
@@ -50,3 +53,6 @@ def test_extract_html_table(tmp_path, sample_html_excel):
     # 3. 背景色付きセル (00FFFF00 -> FFFF00 に変換される)
     assert 'style="background-color: #FFFF00"' in html_content
     assert ">Colored Cell</td>" in html_content
+
+    # 4. 改行を含むセル (\n が <br> に置換されていること)
+    assert "<td>Line 1<br>Line 2</td>" in html_content
