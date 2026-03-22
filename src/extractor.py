@@ -61,7 +61,14 @@ def extract_comprehensive_map(filename, output_dir):
     
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        merged_ranges = [str(r) for r in ws.merged_cells.ranges]
+
+        merged_cells_map = {}
+        for m_range in ws.merged_cells.ranges:
+            m_range_str = str(m_range)
+            for r in range(m_range.min_row, m_range.max_row + 1):
+                for c in range(m_range.min_col, m_range.max_col + 1):
+                    coord = f"{get_column_letter(c)}{r}"
+                    merged_cells_map[coord] = m_range_str
         
         cells_map = []
         for r in range(1, ws.max_row + 1):
@@ -73,10 +80,10 @@ def extract_comprehensive_map(filename, output_dir):
                 cell_info = {"c": cell.coordinate, "v": str(cell.value) if cell.value is not None else ""}
                 if has_style: cell_info["bg"] = str(cell.fill.start_color.index)
                 if has_border: cell_info["b"] = get_border_info(cell)
-                for m_range in merged_ranges:
-                    if cell.coordinate in openpyxl.worksheet.cell_range.CellRange(m_range):
-                        cell_info["m"] = m_range
-                        break
+
+                if cell.coordinate in merged_cells_map:
+                    cell_info["m"] = merged_cells_map[cell.coordinate]
+
                 cells_map.append(cell_info)
         
         media_list = extract_media(ws, output_media_dir, sheet_name)
