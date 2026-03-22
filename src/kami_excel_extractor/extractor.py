@@ -13,15 +13,6 @@ class MetadataExtractor:
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_border_info(self, cell):
-        borders = {}
-        if cell.border:
-            if cell.border.left.style: borders["L"] = cell.border.left.style
-            if cell.border.right.style: borders["R"] = cell.border.right.style
-            if cell.border.top.style: borders["T"] = cell.border.top.style
-            if cell.border.bottom.style: borders["B"] = cell.border.bottom.style
-        return borders
-
     def _extract_media(self, ws, sheet_name):
         media_info = []
         if not hasattr(ws, "_images"):
