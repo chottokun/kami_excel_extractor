@@ -2,7 +2,6 @@ import os
 import sys
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
 import json
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
