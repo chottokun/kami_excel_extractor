@@ -208,17 +208,17 @@ class DocumentGenerator:
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
         """Markdownの画像パスを解決し、画像をtmp_dirにコピーし、相対パスに書き換える"""
+        # 画像ファイルの探索先
+        search_dirs = [
+            self.output_dir / "media",
+            self.output_dir,
+            Path("/app/data/output/media"),
+            Path("data/output/media"),
+        ]
+
         def resolve_and_copy(match):
             rel_path = match.group(1)
             filename = Path(rel_path).name
-            
-            # 画像ファイルの探索先
-            search_dirs = [
-                self.output_dir / "media",
-                self.output_dir,
-                Path("/app/data/output/media"),
-                Path("data/output/media"),
-            ]
             
             for search_dir in search_dirs:
                 src = search_dir / filename
