@@ -1,6 +1,7 @@
 import json
 import logging
 import base64
+import asyncio
 from pathlib import Path
 import litellm
 from .extractor import MetadataExtractor
@@ -44,8 +45,15 @@ class KamiExcelExtractor:
         """
         Excelを解析して構造化データを取得する
         """
+        return asyncio.run(self.aextract_structured_data(excel_path, model=model, system_prompt=system_prompt, include_visual_summaries=include_visual_summaries))
+
+    async def aextract_structured_data(self, excel_path: str, model: str = "gemini/gemini-1.5-flash", system_prompt: str = None, include_visual_summaries: bool = False):
+        """
+        Excelを解析して構造化データを取得する（非同期版）
+        """
         import os
-        import time
+        import re
+        import yaml
         
         excel_path = Path(excel_path)
         logger.info(f"Extracting structured data from {excel_path.name}...")
@@ -56,19 +64,17 @@ class KamiExcelExtractor:
         image_url = self._encode_image_to_base64_url(png_path)
         
         rpm_limit = int(os.getenv("GEMINI_RPM_LIMIT", "15"))
-        sleep_time = 60.0 / rpm_limit if rpm_limit > 0 else 0
+        semaphore = asyncio.Semaphore(rpm_limit) if rpm_limit > 0 else None
         
         # 2. メッセージの構築
         if not system_prompt:
             system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをYAML形式で出力してください。出力は必ず ```yaml と ``` で囲んだブロック内のみとしてください。"
 
-        structured_sheets = {}
         sheets_data = raw_data.get("sheets", {})
-        
-        sheet_names = list(sheets_data.keys())
-        for i, sheet_name in enumerate(sheet_names):
-            sheet_content = sheets_data[sheet_name]
-            logger.info(f"Processing sheet: {sheet_name} ({i+1}/{len(sheet_names)})")
+        structured_sheets = {}
+
+        async def process_sheet(sheet_name, sheet_content):
+            logger.info(f"Processing sheet: {sheet_name}")
             
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -82,18 +88,27 @@ class KamiExcelExtractor:
                 }
             ]
 
-            # 3. LLM呼び出し
+            async def _call_llm():
+                if semaphore:
+                    async with semaphore:
+                        return await litellm.acompletion(
+                            model=model,
+                            messages=messages,
+                            api_key=self.api_key,
+                            base_url=self.base_url
+                        )
+                else:
+                    return await litellm.acompletion(
+                        model=model,
+                        messages=messages,
+                        api_key=self.api_key,
+                        base_url=self.base_url
+                    )
+
+            yaml_str = ""
             try:
-                response = litellm.completion(
-                    model=model,
-                    messages=messages,
-                    api_key=self.api_key,
-                    base_url=self.base_url
-                )
-                
+                response = await _call_llm()
                 raw_content = response.choices[0].message.content
-                import yaml
-                import re
                 
                 yaml_str = raw_content
                 yaml_match = re.search(r'```(?:yaml|yml)\n(.*?)\n```', raw_content, re.DOTALL)
@@ -107,18 +122,21 @@ class KamiExcelExtractor:
                     sheet_data = {"data": sheet_data}
                     
                 if "sheets" in sheet_data and sheet_name in sheet_data["sheets"]:
-                    structured_sheets[sheet_name] = sheet_data["sheets"][sheet_name]
+                    res = sheet_data["sheets"][sheet_name]
                 else:
-                    structured_sheets[sheet_name] = sheet_data
+                    res = sheet_data
                     
-                structured_sheets[sheet_name]["_raw_yaml"] = yaml_str
+                res["_raw_yaml"] = yaml_str
+                return sheet_name, res
                     
             except Exception as e:
                 logger.error(f"Structured extraction (YAML) failed for sheet {sheet_name}: {e}")
-                structured_sheets[sheet_name] = {"error": str(e), "_raw_yaml": yaml_str}
-                
-            if sleep_time > 0 and i < len(sheet_names) - 1:
-                 time.sleep(sleep_time)
+                return sheet_name, {"error": str(e), "_raw_yaml": yaml_str}
+
+        sheet_tasks = [process_sheet(name, content) for name, content in sheets_data.items()]
+        sheet_results = await asyncio.gather(*sheet_tasks)
+        for name, res in sheet_results:
+            structured_sheets[name] = res
 
         structured_data = {"sheets": structured_sheets}
         
@@ -126,26 +144,46 @@ class KamiExcelExtractor:
         if include_visual_summaries:
             all_media = []
             logger.info(f"raw_data sheets: {list(sheets_data.keys())}")
+
+            async def process_media_item(media_item, sheet_name):
+                media_path = self.output_dir / "media" / media_item["filename"]
+                if media_path.exists():
+                    logger.info(f"Found media file: {media_path}. Generating summary...")
+
+                    async def _call_vsum():
+                        if semaphore:
+                            async with semaphore:
+                                return await self.aget_visual_summary(media_path, model=model)
+                        else:
+                            return await self.aget_visual_summary(media_path, model=model)
+
+                    summary = await _call_vsum()
+                    media_item["visual_summary"] = summary
+                    return media_item, sheet_name
+                else:
+                    logger.error(f"Media file NOT FOUND: {media_path}")
+                    return None, sheet_name
+
+            media_tasks = []
             for sheet_name, sheet_data in sheets_data.items():
                 media_list = sheet_data.get("media", [])
                 logger.info(f"Sheet '{sheet_name}' has {len(media_list)} media items.")
-                
-                sheet_added_media = []
                 for media_item in media_list:
-                    media_path = self.output_dir / "media" / media_item["filename"]
-                    if media_path.exists():
-                        logger.info(f"Found media file: {media_path}. Generating summary...")
-                        if sleep_time > 0:
-                            time.sleep(sleep_time)
-                        summary = self.get_visual_summary(media_path, model=model)
-                        media_item["visual_summary"] = summary
-                        sheet_added_media.append(media_item)
-                        all_media.append(media_item)
-                    else:
-                        logger.error(f"Media file NOT FOUND: {media_path}")
-                        
-                if sheet_added_media and sheet_name in structured_sheets:
-                    structured_sheets[sheet_name]["media"] = sheet_added_media
+                    media_tasks.append(process_media_item(media_item, sheet_name))
+
+            media_results = await asyncio.gather(*media_tasks)
+
+            sheet_to_media = {}
+            for media_item, sheet_name in media_results:
+                if media_item:
+                    all_media.append(media_item)
+                    if sheet_name not in sheet_to_media:
+                        sheet_to_media[sheet_name] = []
+                    sheet_to_media[sheet_name].append(media_item)
+
+            for sheet_name, items in sheet_to_media.items():
+                if sheet_name in structured_sheets:
+                    structured_sheets[sheet_name]["media"] = items
             
             if all_media:
                 structured_data["media"] = all_media
@@ -157,6 +195,10 @@ class KamiExcelExtractor:
 
     def get_visual_summary(self, image_path: Path, model: str = "gemini/gemini-1.5-flash") -> str:
         """画像を個別に解析して要約文を生成する"""
+        return asyncio.run(self.aget_visual_summary(image_path, model=model))
+
+    async def aget_visual_summary(self, image_path: Path, model: str = "gemini/gemini-1.5-flash") -> str:
+        """画像を個別に解析して要約文を生成する(非同期版)"""
         logger.info(f"Generating visual summary for {image_path.name}...")
         image_url = self._encode_image_to_base64_url(image_path)
         
@@ -173,7 +215,7 @@ class KamiExcelExtractor:
         ]
         
         try:
-            response = litellm.completion(
+            response = await litellm.acompletion(
                 model=model,
                 messages=messages,
                 api_key=self.api_key,
