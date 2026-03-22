@@ -23,7 +23,7 @@ async def test_extract_structured_data_basic(mock_litellm, mock_open, mock_extra
     mock_response.choices[0].message.content = "```yaml\nkey: value\n```"
     mock_litellm.return_value = mock_response
     
-    # テスト環境では非同期版を直接 await する (asyncio.run の競合を避ける)
+    # 非同期版を直接呼び出す
     result = await extractor.aextract_structured_data(sample_excel_path)
     
     assert result["sheets"]["Sheet1"]["key"] == "value"
@@ -32,11 +32,7 @@ async def test_extract_structured_data_basic(mock_litellm, mock_open, mock_extra
 @pytest.mark.asyncio
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
 @patch("kami_excel_extractor.core.MetadataExtractor.extract")
-<<<<<<< HEAD
-@patch("kami_excel_extractor.core.KamiExcelExtractor.aget_visual_summary")
-=======
 @patch("litellm.acompletion")
->>>>>>> 7c30b98 (feat: integrate all improvements (Async, RAG optimization, Security, Image/JSON robustness) and cleanup redundant scripts)
 @patch("builtins.open", new_callable=MagicMock)
 async def test_extract_structured_data_with_visual_summaries(mock_open, mock_litellm, mock_extract, mock_convert, extractor, sample_excel_path, output_dir):
     mock_convert.return_value = Path("dummy.png")
@@ -55,19 +51,11 @@ async def test_extract_structured_data_with_visual_summaries(mock_open, mock_lit
         }
     }
     
-<<<<<<< HEAD
-
-    async def mock_aget_vsum(*args, **kwargs):
-        return "[画像概要] 要約テキスト"
-    mock_vsum.side_effect = mock_aget_vsum
-    mock_litellm.return_value.choices[0].message.content = "```yaml\ndata: structured\n```"
-=======
     mock_res_sheet = MagicMock()
     mock_res_sheet.choices[0].message.content = "```yaml\ndata: structured\n```"
     mock_res_media = MagicMock()
     mock_res_media.choices[0].message.content = "[画像概要] 要約テキスト"
     mock_litellm.side_effect = [mock_res_sheet, mock_res_media]
->>>>>>> 7c30b98 (feat: integrate all improvements (Async, RAG optimization, Security, Image/JSON robustness) and cleanup redundant scripts)
     
     result = await extractor.aextract_structured_data(sample_excel_path, include_visual_summaries=True)
     
