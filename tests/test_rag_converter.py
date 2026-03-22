@@ -7,6 +7,21 @@ def test_json_to_markdown_simple():
     expected = "- **name**: Test Service\n- **status**: active"
     assert converter.convert(data) == expected
 
+def test_json_to_markdown_non_string_types():
+    """辞書内の非文字列型（bool, int, float, None）が正しく変換されることを確認"""
+    converter = JsonToMarkdownConverter()
+    data = {
+        "is_active": True,
+        "count": 42,
+        "ratio": 0.5,
+        "empty": None
+    }
+    result = converter.convert(data)
+    assert "- **is_active**: True" in result
+    assert "- **count**: 42" in result
+    assert "- **ratio**: 0.5" in result
+    assert "- **empty**: None" in result
+
 def test_json_to_markdown_nested():
     converter = JsonToMarkdownConverter()
     data = {
