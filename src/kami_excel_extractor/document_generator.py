@@ -1,4 +1,8 @@
 import subprocess
+<<<<<<< HEAD
+=======
+import os
+>>>>>>> 7c30b98 (feat: integrate all improvements (Async, RAG optimization, Security, Image/JSON robustness) and cleanup redundant scripts)
 import tempfile
 from pathlib import Path
 import re
@@ -9,6 +13,12 @@ logger = logging.getLogger(__name__)
 
 class DocumentGenerator:
     """MarkdownからHTMLを経由してPDFを生成するクラス"""
+
+    # PR #9: Pre-compiled regexes
+    RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
+    RE_HEADER = re.compile(r'^#+')
+    RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
+    RE_IMAGE = re.compile(r'!\[.*?\]\((.*?)\)')
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
@@ -24,19 +34,18 @@ class DocumentGenerator:
         for line in lines:
             stripped = line.strip()
             
-            # テーブルの開始/継続判定: パイプで始まりパイプで終わる行
+            # テーブルの開始/継続判定
             if stripped.startswith("|") and stripped.endswith("|"):
-                if not in_list:
-                    if in_list:
-                        html_output.append("</ul>")
-                        in_list = False
+                if in_list:
+                    html_output.append("</ul>")
+                    in_list = False
                 if not in_table:
                     in_table = True
                     table_rows = []
-                # 区切り行を判定: | --- | --- | のような行はスキップ
-                # セル内容を取得して、すべてが ---/:---/:---:/---: パターンかチェック
+                
+                # 区切り行判定
                 cells = [c.strip() for c in stripped.split("|")[1:-1]]
-                if all(re.match(r'^:?-{2,}:?$', cell) for cell in cells):
+                if all(self.RE_TABLE_SEP.match(cell) for cell in cells):
                     continue
                 table_rows.append(stripped)
                 continue
@@ -58,7 +67,8 @@ class DocumentGenerator:
                 if in_list:
                     html_output.append("</ul>")
                     in_list = False
-                level = len(re.match(r'^#+', stripped).group())
+                header_match = self.RE_HEADER.match(stripped)
+                level = len(header_match.group()) if header_match else 1
                 content = stripped.lstrip("#").strip()
                 html_output.append(f"<h{level}>{self._apply_inline_styles(content)}</h{level}>")
             # Lists
@@ -68,12 +78,12 @@ class DocumentGenerator:
                     in_list = True
                 content = stripped[2:].strip()
                 html_output.append(f"<li>{self._apply_inline_styles(content)}</li>")
-            # Images — ![alt](src) 形式
-            elif re.match(r'!\[.*?\]\((.*?)\)', stripped):
+            # Images
+            elif self.RE_IMAGE.match(stripped):
                 if in_list:
                     html_output.append("</ul>")
                     in_list = False
-                img_match = re.search(r'!\[.*?\]\((.*?)\)', stripped)
+                img_match = self.RE_IMAGE.search(stripped)
                 img_path = img_match.group(1)
                 html_output.append(f'<div class="image-container"><img src="{img_path}" alt="画像"></div>')
             # Text
@@ -83,14 +93,12 @@ class DocumentGenerator:
                     in_list = False
                 html_output.append(f"<p>{self._apply_inline_styles(stripped)}</p>")
 
-        # 末尾のテーブル/リスト処理
+        # 末尾処理
         if in_table:
             html_output.append(self._render_table(table_rows))
         if in_list:
             html_output.append("</ul>")
 
-        final_html = "\n".join(html_output)
-        
         template = f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -103,91 +111,31 @@ class DocumentGenerator:
             color: #333;
             font-size: 14px;
         }}
-        h1 {{
-            border-bottom: 3px solid #336699;
-            padding-bottom: 10px;
-            color: #336699;
-            margin-top: 40px;
-            font-size: 24px;
-        }}
-        h2 {{
-            border-left: 5px solid #336699;
-            padding-left: 12px;
-            margin-top: 30px;
-            color: #336699;
-            font-size: 20px;
-        }}
-        h3 {{
-            color: #444;
-            margin-top: 25px;
-            font-size: 16px;
-        }}
-        p {{
-            margin: 8px 0;
-        }}
+        h1 {{ border-bottom: 3px solid #336699; padding-bottom: 10px; color: #336699; margin-top: 40px; font-size: 24px; }}
+        h2 {{ border-left: 5px solid #336699; padding-left: 12px; margin-top: 30px; color: #336699; font-size: 20px; }}
+        h3 {{ color: #444; margin-top: 25px; font-size: 16px; }}
+        p {{ margin: 8px 0; }}
         b {{ color: #000; }}
-        ul {{
-            margin: 5px 0;
-            padding-left: 20px;
-        }}
-        li {{
-            margin-bottom: 4px;
-        }}
-        .image-container {{
-            text-align: center;
-            margin: 20px 0;
-            page-break-inside: avoid;
-        }}
-        img {{
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 5px;
-            background: #fff;
-            max-width: 80%;
-            height: auto;
-        }}
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-            margin: 15px 0;
-            table-layout: auto;
-            page-break-inside: avoid;
-        }}
-        th, td {{
-            border: 1px solid #aaa;
-            padding: 8px 12px;
-            text-align: left;
-            font-size: 13px;
-        }}
-        th {{
-            background-color: #e8eef5;
-            font-weight: bold;
-            color: #333;
-        }}
-        tr:nth-child(even) td {{
-            background-color: #f9f9f9;
-        }}
-        .visual-summary {{
-            background: #fdf6e3;
-            border-left: 4px solid #b58900;
-            padding: 12px 15px;
-            font-size: 0.95em;
-            color: #586e75;
-            margin: 10px 0 20px 0;
-            page-break-inside: avoid;
-        }}
+        ul {{ margin: 5px 0; padding-left: 20px; }}
+        li {{ margin-bottom: 4px; }}
+        .image-container {{ text-align: center; margin: 20px 0; page-break-inside: avoid; }}
+        img {{ border: 1px solid #ccc; border-radius: 4px; padding: 5px; background: #fff; max-width: 80%; height: auto; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 15px 0; table-layout: auto; page-break-inside: avoid; }}
+        th, td {{ border: 1px solid #aaa; padding: 8px 12px; text-align: left; font-size: 13px; }}
+        th {{ background-color: #e8eef5; font-weight: bold; color: #333; }}
+        tr:nth-child(even) td {{ background-color: #f9f9f9; }}
+        .visual-summary {{ background: #fdf6e3; border-left: 4px solid #b58900; padding: 12px 15px; font-size: 0.95em; color: #586e75; margin: 10px 0 20px 0; page-break-inside: avoid; }}
     </style>
 </head>
 <body>
-    {final_html}
+    {"\n".join(html_output)}
 </body>
 </html>"""
         return template
 
     def _apply_inline_styles(self, text: str) -> str:
-        # Bold
-        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-        # 画像概要の強調表示
+        # PR #9: Use pre-compiled bold regex
+        text = self.RE_BOLD.sub(r'<b>\1</b>', text)
         if "[画像概要]" in text:
             text = f'<div class="visual-summary">{text}</div>'
         return text
@@ -207,38 +155,22 @@ class DocumentGenerator:
         return "\n".join(html)
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
-        """Markdownの画像パスを解決し、画像をtmp_dirにコピーし、相対パスに書き換える"""
         def resolve_and_copy(match):
             rel_path = match.group(1)
             filename = Path(rel_path).name
-            
-            # 画像ファイルの探索先
-            search_dirs = [
-                self.output_dir / "media",
-                self.output_dir,
-                Path("/app/data/output/media"),
-                Path("data/output/media"),
-            ]
-            
+            search_dirs = [self.output_dir / "media", self.output_dir]
             for search_dir in search_dirs:
                 src = search_dir / filename
                 if src.exists():
                     dst = tmp_dir / filename
-                    try:
-                        shutil.copy2(str(src), str(dst))
-                        abs_dst = dst.absolute()
-                        logger.info(f"Copied image to tmp: {src} -> {abs_dst}")
-                        # sofficeはCWDからの相対パスで解決するため、絶対パスを使う
-                        return f'![画像](file://{abs_dst})'
-                    except Exception as e:
-                        logger.error(f"Failed to copy image {src}: {e}")
-            
-            logger.warning(f"Image not found for: {rel_path}")
+                    shutil.copy2(str(src), str(dst))
+                    return f'![画像](file://{dst.absolute()})'
             return match.group(0)
         
-        return re.sub(r'!\[.*?\]\((.*?)\)', resolve_and_copy, md_content)
+        return self.RE_IMAGE.sub(resolve_and_copy, md_content)
 
     def generate_pdf(self, md_content: str, output_name: str) -> Path:
+<<<<<<< HEAD
         """Markdown内容からPDFを生成する"""
         # Permission問題を避けるため、作業は一時ディレクトリで行う
         with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
@@ -289,3 +221,31 @@ class DocumentGenerator:
             except Exception as e:
                 logger.error(f"Error during PDF generation: {e}")
                 return None
+=======
+        """Markdown内容からPDFを生成する (PR #22: Use secure tempfile)"""
+        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            md_content_resolved = self._resolve_images_to_tmpdir(md_content, tmp_dir)
+            html_content = self._simple_md_to_html(md_content_resolved)
+            
+            temp_html = tmp_dir / f"{output_name}.html"
+            with open(temp_html, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            
+            pdf_path = self.output_dir / f"{output_name}.pdf"
+            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if res.returncode != 0:
+                    return None
+                
+                pdfs = list(tmp_dir.rglob("*.pdf"))
+                if pdfs:
+                    shutil.move(str(pdfs[0]), str(pdf_path))
+                    return pdf_path
+            except Exception:
+                return None
+        return None
+>>>>>>> 7c30b98 (feat: integrate all improvements (Async, RAG optimization, Security, Image/JSON robustness) and cleanup redundant scripts)
