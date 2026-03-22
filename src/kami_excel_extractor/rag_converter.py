@@ -32,9 +32,9 @@ class JsonToMarkdownConverter:
             return ""
         
         # リストの要素が辞書で、かつ同じキーを持っている場合はテーブル化を試みる
-        if all(isinstance(item, dict) for item in data) and len(data) > 0:
+        if data and isinstance(data[0], dict):
             keys = data[0].keys()
-            if all(item.keys() == keys for item in data):
+            if all(isinstance(item, dict) and item.keys() == keys for item in data):
                 return self._convert_to_table(data, keys)
         
         lines = []
