@@ -32,6 +32,30 @@ def test_json_to_markdown_table_success():
     assert "| 1 | Alice |" in result
     assert "| 2 | Bob |" in result
 
+def test_json_to_markdown_table_edge_cases():
+    """_convert_to_table のエッジケース（キー不足、様々なデータ型）のテスト"""
+    converter = JsonToMarkdownConverter()
+    # _convert_to_table を直接呼び出して、キー不足や型混在をテスト
+    # convert() 経由だとキーが完全一致しないと _convert_to_table が呼ばれないため
+    keys = ["ID", "Name", "Note"]
+    data = [
+        {"ID": 1, "Name": "Alice", "Note": "Active"},
+        {"ID": 2, "Name": "Bob"}, # Note が欠落
+        {"ID": 3, "Name": None, "Note": True} # None や bool
+    ]
+    result = converter._convert_to_table(data, keys)
+
+    # ヘッダーの確認
+    assert "| ID | Name | Note |" in result
+    assert "| --- | --- | --- |" in result
+
+    # 各行の確認
+    # 欠落したキーは空文字列になるはず
+    assert "| 1 | Alice | Active |" in result
+    assert "| 2 | Bob |  |" in result
+    # None は "None" 文字列になり、True は "True" 文字列になるはず
+    assert "| 3 | None | True |" in result
+
 def test_json_to_markdown_table_inconsistent_keys():
     """キーが一致しないリストはテーブル化されず、箇条書きになることを確認"""
     converter = JsonToMarkdownConverter()
