@@ -115,7 +115,7 @@ class KamiExcelExtractor:
                     
             except Exception as e:
                 logger.error(f"Structured extraction (YAML) failed for sheet {sheet_name}: {e}")
-                structured_sheets[sheet_name] = {"error": str(e), "_raw_yaml": "Parsing Error"}
+                structured_sheets[sheet_name] = {"error": str(e), "_raw_yaml": yaml_str}
                 
             if sleep_time > 0 and i < len(sheet_names) - 1:
                  time.sleep(sleep_time)
@@ -129,6 +129,8 @@ class KamiExcelExtractor:
             for sheet_name, sheet_data in sheets_data.items():
                 media_list = sheet_data.get("media", [])
                 logger.info(f"Sheet '{sheet_name}' has {len(media_list)} media items.")
+                
+                sheet_added_media = []
                 for media_item in media_list:
                     media_path = self.output_dir / "media" / media_item["filename"]
                     if media_path.exists():
@@ -137,9 +139,13 @@ class KamiExcelExtractor:
                             time.sleep(sleep_time)
                         summary = self.get_visual_summary(media_path, model=model)
                         media_item["visual_summary"] = summary
+                        sheet_added_media.append(media_item)
                         all_media.append(media_item)
                     else:
                         logger.error(f"Media file NOT FOUND: {media_path}")
+                        
+                if sheet_added_media and sheet_name in structured_sheets:
+                    structured_sheets[sheet_name]["media"] = sheet_added_media
             
             if all_media:
                 structured_data["media"] = all_media
