@@ -43,10 +43,10 @@ def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
     # shutil.move をモックするか、あるいは glob の結果を操作する。
     
     with patch("shutil.move") as mock_move, \
-         patch("pathlib.Path.glob") as mock_glob:
+         patch("pathlib.Path.rglob") as mock_rglob:
         
         mock_pdf = MagicMock(spec=Path)
-        mock_glob.return_value = [mock_pdf]
+        mock_rglob.return_value = [mock_pdf]
         
         result = doc_gen.generate_pdf("# Test Content", "test_report")
         
