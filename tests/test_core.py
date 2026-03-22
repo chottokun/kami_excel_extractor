@@ -29,7 +29,7 @@ def test_extract_structured_data_basic(mock_open, mock_extract, mock_convert, ex
 
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
 @patch("kami_excel_extractor.core.MetadataExtractor.extract")
-@patch("kami_excel_extractor.core.KamiExcelExtractor.get_visual_summary")
+@patch("kami_excel_extractor.core.KamiExcelExtractor.aget_visual_summary")
 @patch("builtins.open", new_callable=MagicMock)
 def test_extract_structured_data_with_visual_summaries(mock_open, mock_vsum, mock_extract, mock_convert, extractor, mock_litellm, sample_excel_path, output_dir):
     mock_convert.return_value = Path("dummy.png")
@@ -50,7 +50,9 @@ def test_extract_structured_data_with_visual_summaries(mock_open, mock_vsum, moc
     }
     
 
-    mock_vsum.return_value = "[画像概要] 要約テキスト"
+    async def mock_aget_vsum(*args, **kwargs):
+        return "[画像概要] 要約テキスト"
+    mock_vsum.side_effect = mock_aget_vsum
     mock_litellm.return_value.choices[0].message.content = "```yaml\ndata: structured\n```"
     
     result = extractor.extract_structured_data(sample_excel_path, include_visual_summaries=True)
