@@ -1,6 +1,4 @@
-import json
 from typing import Any, Dict, List, Optional
-from pathlib import Path
 
 class JsonToMarkdownConverter:
     """JSONをRAGに適したMarkdown形式に変換するクラス"""
