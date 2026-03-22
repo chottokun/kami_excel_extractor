@@ -14,13 +14,13 @@ graph TD
         Worker --> |3. Multi-modal Request| LiteLLM[LiteLLM Library Integration]
         
         LO --> |PDF -> PNG Image| Worker
-        OPX --> |JSON Map + Extracted Media| Worker
+        OPX --> |HTML Table + Extracted Media| Worker
     end
     
     LiteLLM --> |4. Standardized API Call| VLM[VLM: Gemini / OpenAI / Azure]
-    VLM --> |5. Structured JSON| LiteLLM
-    LiteLLM --> |6. Final Result| Worker
-    Worker --> Output([Structured JSON Data])
+    VLM --> |5. Structured YAML| LiteLLM
+    LiteLLM --> |6. Final Parsed JSON| Worker
+    Worker --> Output([Structured JSON/YAML Data])
 ```
 
 ## **2. 実装済みコンポーネントの役割**
@@ -31,8 +31,8 @@ graph TD
 - **並行処理:** UUIDベースの一時プロファイル（UserInstallation）による隔離実行。
 
 ### **B. MetadataExtractor (openpyxl + Media Logic)**
-- **論理抽出:** セルの値、結合状態、背景色、罫線情報を座標付きで抽出。
-- **メディア抽出:** シート内に埋め込まれた画像（現場写真等）を物理ファイルとして抽出し、座標マップに記録。
+- **論理抽出:** セル結合やスタイルを維持したまま、巨大なシートも軽量な **HTMLの `<table>` タグ** として構造化抽出（Promptのトークン量を約90%削減）。
+- **メディア抽出:** シート内に埋め込まれた画像（現場写真等）を物理ファイルとして抽出し、紐付け。
 
 ### **C. KamiExcelExtractor (Core Orchestrator)**
 - **統合ロジック:** 視覚情報と論理情報を統合し、マルチモーダル・プロンプト（OpenAI互換形式）を構成。
@@ -47,6 +47,6 @@ graph TD
 1.  **入力:** Excelファイル（方眼紙、複数シート、写真入り等）を検知。
 2.  **前処理:** 
     - PDFを経由して高品質なPNGを生成。
-    - XMLをパースして全シートの「情報の地図」と「写真ファイル」を抽出。
-3.  **VLM推論:** LiteLLMを介して、画像と「情報の地図」を統合したプロンプトを送信。
-4.  **出力:** 文脈（例：写真No.1は特記事項の不具合を示す、等）を理解した精緻な構造化JSONを出力。
+    - XMLをパースして全シートの「HTMLテーブル（情報の地図）」と「写真ファイル」を抽出。
+3.  **VLM推論:** LiteLLMを介して、画像とHTMLを統合したプロンプトを送信。出力形式には軽量でトークン溢れを防ぐ**YAML**を指定。
+4.  **出力:** 文脈を理解した精緻な構造化YAMLを出力し、プログラム側でJSONや専用ディレクトリへ安全に保存。

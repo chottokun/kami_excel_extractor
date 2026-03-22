@@ -251,7 +251,10 @@ class DocumentGenerator:
         html_content = self._simple_md_to_html(md_content_resolved)
         
         temp_html = tmp_dir / f"{output_name}.html"
+        temp_html.parent.mkdir(parents=True, exist_ok=True)
+        
         pdf_path = self.output_dir / f"{output_name}.pdf"
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
         
         # HTMLを保存
         with open(temp_html, "w", encoding="utf-8") as f:
@@ -274,7 +277,7 @@ class DocumentGenerator:
                 return None
             
             # 生成されたPDFを探す
-            pdfs = list(tmp_dir.glob("*.pdf"))
+            pdfs = list(tmp_dir.rglob("*.pdf"))
             if pdfs:
                 generated_pdf = pdfs[0]
                 shutil.move(str(generated_pdf), str(pdf_path))

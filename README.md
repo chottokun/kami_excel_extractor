@@ -14,9 +14,9 @@
 ## 🏗 アーキテクチャ
 
 1.  **Rendering**: LibreOffice Headless (PDF) -> Poppler (PNG)
-2.  **Extraction**: openpyxl による座標・スタイル・結合セル・画像データの抽出
-3.  **Reasoning**: Gemini 1.5/2.0/2.5 Flash によるマルチモーダル推論
-4.  **Output**: Pydantic スキーマ等に準拠可能な構造化 JSON
+2.  **Extraction**: openpyxlによるHTML Table生成（トークン量9割削減の最適化）および画像データ抽出
+3.  **Reasoning**: Gemini 2.5 Flash / 3.1 Flash Lite などの最新モデルによる推論
+4.  **Output**: トークン溢れを防ぐ軽量なYAML形式出力 → 解析後 JSON/Markdown 化
 
 ## 🚀 セットアップ
 
@@ -25,7 +25,8 @@
 
 ```env
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=models/gemini-1.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite-preview
+GEMINI_RPM_LIMIT=4
 ```
 
 ### 2. 起動
