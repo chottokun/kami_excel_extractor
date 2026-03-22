@@ -29,6 +29,7 @@ class KamiExcelExtractor:
         self.converter = ExcelConverter(self.output_dir)
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
+        self._image_cache = {}
         
         if api_key:
             # LiteLLMは環境変数を優先するため、明示的にセット
@@ -37,9 +38,15 @@ class KamiExcelExtractor:
             self.api_key = None
 
     def _encode_image_to_base64_url(self, image_path: Path):
+        abs_path = str(image_path.absolute())
+        if abs_path in self._image_cache:
+            return self._image_cache[abs_path]
+
         with open(image_path, "rb") as image_file:
             encoded = base64.b64encode(image_file.read()).decode("utf-8")
-            return f"data:image/png;base64,{encoded}"
+            result = f"data:image/png;base64,{encoded}"
+            self._image_cache[abs_path] = result
+            return result
 
     def extract_structured_data(self, excel_path: str, model: str = "gemini/gemini-1.5-flash", system_prompt: str = None, include_visual_summaries: bool = False):
         """
