@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 class DocumentGenerator:
     """MarkdownからHTMLを経由してPDFを生成するクラス"""
 
+    # Pre-compiled regexes for performance
+    RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
+    RE_HEADER = re.compile(r'^#+')
+    RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
+    RE_IMAGE = re.compile(r'!\[.*?\]\((.*?)\)')
+
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
 
@@ -36,7 +42,7 @@ class DocumentGenerator:
                 # 区切り行を判定: | --- | --- | のような行はスキップ
                 # セル内容を取得して、すべてが ---/:---/:---:/---: パターンかチェック
                 cells = [c.strip() for c in stripped.split("|")[1:-1]]
-                if all(re.match(r'^:?-{2,}:?$', cell) for cell in cells):
+                if all(self.RE_TABLE_SEP.match(cell) for cell in cells):
                     continue
                 table_rows.append(stripped)
                 continue
@@ -58,7 +64,7 @@ class DocumentGenerator:
                 if in_list:
                     html_output.append("</ul>")
                     in_list = False
-                level = len(re.match(r'^#+', stripped).group())
+                level = len(self.RE_HEADER.match(stripped).group())
                 content = stripped.lstrip("#").strip()
                 html_output.append(f"<h{level}>{self._apply_inline_styles(content)}</h{level}>")
             # Lists
@@ -69,11 +75,11 @@ class DocumentGenerator:
                 content = stripped[2:].strip()
                 html_output.append(f"<li>{self._apply_inline_styles(content)}</li>")
             # Images — ![alt](src) 形式
-            elif re.match(r'!\[.*?\]\((.*?)\)', stripped):
+            elif self.RE_IMAGE.match(stripped):
                 if in_list:
                     html_output.append("</ul>")
                     in_list = False
-                img_match = re.search(r'!\[.*?\]\((.*?)\)', stripped)
+                img_match = self.RE_IMAGE.search(stripped)
                 img_path = img_match.group(1)
                 html_output.append(f'<div class="image-container"><img src="{img_path}" alt="画像"></div>')
             # Text
@@ -186,7 +192,7 @@ class DocumentGenerator:
 
     def _apply_inline_styles(self, text: str) -> str:
         # Bold
-        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+        text = self.RE_BOLD.sub(r'<b>\1</b>', text)
         # 画像概要の強調表示
         if "[画像概要]" in text:
             text = f'<div class="visual-summary">{text}</div>'
@@ -236,7 +242,7 @@ class DocumentGenerator:
             logger.warning(f"Image not found for: {rel_path}")
             return match.group(0)
         
-        return re.sub(r'!\[.*?\]\((.*?)\)', resolve_and_copy, md_content)
+        return self.RE_IMAGE.sub(resolve_and_copy, md_content)
 
     def generate_pdf(self, md_content: str, output_name: str) -> Path:
         """Markdown内容からPDFを生成する"""
