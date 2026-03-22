@@ -1,5 +1,5 @@
 import subprocess
-import os
+import tempfile
 from pathlib import Path
 import re
 import logging
@@ -240,59 +240,52 @@ class DocumentGenerator:
 
     def generate_pdf(self, md_content: str, output_name: str) -> Path:
         """Markdown内容からPDFを生成する"""
-        # Permission問題を避けるため、作業は/tmpで行う
-        tmp_dir = Path(f"/tmp/pdf_gen_{os.getpid()}")
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 画像をtmp_dirにコピーし、パスを書き換え
-        md_content_resolved = self._resolve_images_to_tmpdir(md_content, tmp_dir)
-        
-        # Markdown→HTML変換
-        html_content = self._simple_md_to_html(md_content_resolved)
-        
-        temp_html = tmp_dir / f"{output_name}.html"
-        temp_html.parent.mkdir(parents=True, exist_ok=True)
-        
-        pdf_path = self.output_dir / f"{output_name}.pdf"
-        pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # HTMLを保存
-        with open(temp_html, "w", encoding="utf-8") as f:
-            f.write(html_content)
-        
-        logger.info(f"Generated HTML at {temp_html}, size: {temp_html.stat().st_size} bytes")
-        
-        try:
-            # sofficeを使ってPDF変換
-            cmd = [
-                "soffice", "--headless", "--convert-to", "pdf",
-                "--outdir", str(tmp_dir), str(temp_html)
-            ]
-            
-            logger.info(f"PDF conversion cmd: {' '.join(cmd)}")
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            
-            if res.returncode != 0:
-                logger.error(f"soffice failed: stdout={res.stdout}, stderr={res.stderr}")
-                return None
-            
-            # 生成されたPDFを探す
-            pdfs = list(tmp_dir.rglob("*.pdf"))
-            if pdfs:
-                generated_pdf = pdfs[0]
-                shutil.move(str(generated_pdf), str(pdf_path))
-                logger.info(f"Successfully generated PDF: {pdf_path}")
-                return pdf_path
-            else:
-                logger.error(f"No PDF found in {tmp_dir}. Contents: {list(tmp_dir.glob('*'))}")
-                return None
-        except Exception as e:
-            logger.error(f"Error during PDF generation: {e}")
-            return None
-        finally:
-            # 一時ファイルの削除
+        # Permission問題を避けるため、作業は一時ディレクトリで行う
+        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+
+            # 画像をtmp_dirにコピーし、パスを書き換え
+            md_content_resolved = self._resolve_images_to_tmpdir(md_content, tmp_dir)
+
+            # Markdown→HTML変換
+            html_content = self._simple_md_to_html(md_content_resolved)
+
+            temp_html = tmp_dir / f"{output_name}.html"
+            temp_html.parent.mkdir(parents=True, exist_ok=True)
+
+            pdf_path = self.output_dir / f"{output_name}.pdf"
+            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # HTMLを保存
+            with open(temp_html, "w", encoding="utf-8") as f:
+                f.write(html_content)
+
+            logger.info(f"Generated HTML at {temp_html}, size: {temp_html.stat().st_size} bytes")
+
             try:
-                if tmp_dir.exists():
-                    shutil.rmtree(tmp_dir)
+                # sofficeを使ってPDF変換
+                cmd = [
+                    "soffice", "--headless", "--convert-to", "pdf",
+                    "--outdir", str(tmp_dir), str(temp_html)
+                ]
+
+                logger.info(f"PDF conversion cmd: {' '.join(cmd)}")
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+                if res.returncode != 0:
+                    logger.error(f"soffice failed: stdout={res.stdout}, stderr={res.stderr}")
+                    return None
+
+                # 生成されたPDFを探す
+                pdfs = list(tmp_dir.rglob("*.pdf"))
+                if pdfs:
+                    generated_pdf = pdfs[0]
+                    shutil.move(str(generated_pdf), str(pdf_path))
+                    logger.info(f"Successfully generated PDF: {pdf_path}")
+                    return pdf_path
+                else:
+                    logger.error(f"No PDF found in {tmp_dir}. Contents: {list(tmp_dir.glob('*'))}")
+                    return None
             except Exception as e:
-                logger.warning(f"Failed to cleanup tmp_dir: {e}")
+                logger.error(f"Error during PDF generation: {e}")
+                return None
