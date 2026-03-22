@@ -1,7 +1,12 @@
 import json
 import logging
 import base64
+import re
+import yaml
+import time
+import os
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import litellm
 from .extractor import MetadataExtractor
 from .converter import ExcelConverter
@@ -44,9 +49,6 @@ class KamiExcelExtractor:
         """
         Excelを解析して構造化データを取得する
         """
-        import os
-        import time
-        
         excel_path = Path(excel_path)
         logger.info(f"Extracting structured data from {excel_path.name}...")
         
@@ -65,10 +67,9 @@ class KamiExcelExtractor:
         structured_sheets = {}
         sheets_data = raw_data.get("sheets", {})
         
-        sheet_names = list(sheets_data.keys())
-        for i, sheet_name in enumerate(sheet_names):
+        def process_sheet(sheet_name, i):
             sheet_content = sheets_data[sheet_name]
-            logger.info(f"Processing sheet: {sheet_name} ({i+1}/{len(sheet_names)})")
+            logger.info(f"Processing sheet: {sheet_name} ({i+1}/{len(sheets_data)})")
             
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -82,6 +83,7 @@ class KamiExcelExtractor:
                 }
             ]
 
+            yaml_str = ""
             # 3. LLM呼び出し
             try:
                 response = litellm.completion(
@@ -92,8 +94,6 @@ class KamiExcelExtractor:
                 )
                 
                 raw_content = response.choices[0].message.content
-                import yaml
-                import re
                 
                 yaml_str = raw_content
                 yaml_match = re.search(r'```(?:yaml|yml)\n(.*?)\n```', raw_content, re.DOTALL)
@@ -107,49 +107,74 @@ class KamiExcelExtractor:
                     sheet_data = {"data": sheet_data}
                     
                 if "sheets" in sheet_data and sheet_name in sheet_data["sheets"]:
-                    structured_sheets[sheet_name] = sheet_data["sheets"][sheet_name]
+                    res = sheet_data["sheets"][sheet_name]
                 else:
-                    structured_sheets[sheet_name] = sheet_data
+                    res = sheet_data
                     
-                structured_sheets[sheet_name]["_raw_yaml"] = yaml_str
+                res["_raw_yaml"] = yaml_str
+                return sheet_name, res
                     
             except Exception as e:
                 logger.error(f"Structured extraction (YAML) failed for sheet {sheet_name}: {e}")
-                structured_sheets[sheet_name] = {"error": str(e), "_raw_yaml": yaml_str}
+                return sheet_name, {"error": str(e), "_raw_yaml": yaml_str}
+
+        sheet_names = list(sheets_data.keys())
+        if sheet_names:
+            with ThreadPoolExecutor(max_workers=min(len(sheet_names), 10)) as executor:
+                futures = []
+                for i, sheet_name in enumerate(sheet_names):
+                    futures.append(executor.submit(process_sheet, sheet_name, i))
+                    if sleep_time > 0 and i < len(sheet_names) - 1:
+                        time.sleep(sleep_time)
                 
-            if sleep_time > 0 and i < len(sheet_names) - 1:
-                 time.sleep(sleep_time)
+                for future in futures:
+                    name, data = future.result()
+                    structured_sheets[name] = data
 
         structured_data = {"sheets": structured_sheets}
         
         # 4. 画像概要の付与 (必要に応じて)
         if include_visual_summaries:
-            all_media = []
             logger.info(f"raw_data sheets: {list(sheets_data.keys())}")
+
+            media_to_process = []
             for sheet_name, sheet_data in sheets_data.items():
-                media_list = sheet_data.get("media", [])
-                logger.info(f"Sheet '{sheet_name}' has {len(media_list)} media items.")
-                
-                sheet_added_media = []
-                for media_item in media_list:
+                for media_item in sheet_data.get("media", []):
                     media_path = self.output_dir / "media" / media_item["filename"]
                     if media_path.exists():
-                        logger.info(f"Found media file: {media_path}. Generating summary...")
-                        if sleep_time > 0:
-                            time.sleep(sleep_time)
-                        summary = self.get_visual_summary(media_path, model=model)
-                        media_item["visual_summary"] = summary
-                        sheet_added_media.append(media_item)
-                        all_media.append(media_item)
+                        media_to_process.append((sheet_name, media_item, media_path))
                     else:
                         logger.error(f"Media file NOT FOUND: {media_path}")
-                        
-                if sheet_added_media and sheet_name in structured_sheets:
-                    structured_sheets[sheet_name]["media"] = sheet_added_media
-            
-            if all_media:
-                structured_data["media"] = all_media
-                logger.info(f"Successfully integrated {len(all_media)} media summaries.")
+
+            if media_to_process:
+                def process_media(item_info):
+                    sheet_name, media_item, media_path = item_info
+                    summary = self.get_visual_summary(media_path, model=model)
+                    media_item["visual_summary"] = summary
+                    return sheet_name, media_item
+
+                with ThreadPoolExecutor(max_workers=min(len(media_to_process), 10)) as executor:
+                    futures = []
+                    for i, item_info in enumerate(media_to_process):
+                        futures.append(executor.submit(process_media, item_info))
+                        if sleep_time > 0 and i < len(media_to_process) - 1:
+                            time.sleep(sleep_time)
+
+                    all_media = []
+                    sheet_media_map = {}
+                    for future in futures:
+                        sheet_name, media_item = future.result()
+                        all_media.append(media_item)
+                        if sheet_name not in sheet_media_map:
+                            sheet_media_map[sheet_name] = []
+                        sheet_media_map[sheet_name].append(media_item)
+
+                    for sheet_name, media_list in sheet_media_map.items():
+                        if sheet_name in structured_sheets:
+                            structured_sheets[sheet_name]["media"] = media_list
+
+                    structured_data["media"] = all_media
+                    logger.info(f"Successfully integrated {len(all_media)} media summaries.")
             else:
                 logger.warning("No media items were collected for visual summaries.")
                 
