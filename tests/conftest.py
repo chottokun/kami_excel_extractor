@@ -16,7 +16,11 @@ def mock_litellm(monkeypatch):
     ]
     mock.return_value = mock_response
     
+    async def async_mock(*args, **kwargs):
+        return mock(*args, **kwargs)
+
     monkeypatch.setattr("litellm.completion", mock)
+    monkeypatch.setattr("litellm.acompletion", async_mock)
     return mock
 
 @pytest.fixture
