@@ -54,6 +54,39 @@ def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
         assert result == tmp_path / "test_report.pdf"
         assert mock_move.called
 
+@patch("subprocess.run")
+def test_generate_pdf_returncode_error(mock_run, doc_gen):
+    # subprocess.run が 0 以外を返す場合
+    mock_run.return_value = MagicMock(returncode=1)
+
+    result = doc_gen.generate_pdf("# Test Content", "test_report_fail")
+
+    assert mock_run.called
+    assert result is None
+
+@patch("subprocess.run")
+def test_generate_pdf_exception(mock_run, doc_gen):
+    # subprocess.run が例外を投げる場合
+    mock_run.side_effect = Exception("Subprocess error")
+
+    result = doc_gen.generate_pdf("# Test Content", "test_report_exception")
+
+    assert mock_run.called
+    assert result is None
+
+@patch("subprocess.run")
+def test_generate_pdf_no_output_file(mock_run, doc_gen):
+    # subprocess.run は成功したが、PDFが生成されなかった場合
+    mock_run.return_value = MagicMock(returncode=0)
+
+    with patch("pathlib.Path.rglob") as mock_rglob:
+        mock_rglob.return_value = []
+
+        result = doc_gen.generate_pdf("# Test Content", "test_report_no_pdf")
+
+        assert mock_run.called
+        assert result is None
+
 def test_resolve_images_to_tmpdir(doc_gen, tmp_path):
     # 画像ファイルを作成
     media_dir = tmp_path / "media"
