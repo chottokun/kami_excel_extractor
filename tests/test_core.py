@@ -108,3 +108,17 @@ async def test_extraction_yaml_parsing_failure(mock_open, mock_extract, mock_con
     sheet_data = result["sheets"]["Sheet1"]
     assert "error" in sheet_data
     assert "key: [unclosed list" in sheet_data["_raw_yaml"]
+
+@pytest.mark.asyncio
+@patch("litellm.acompletion")
+@patch("builtins.open", new_callable=MagicMock)
+async def test_aget_visual_summary_failure(mock_open, mock_litellm, extractor, tmp_path):
+    img_path = tmp_path / "test_fail.png"
+    img_path.write_text("binary data")
+    mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
+
+    # Mock litellm to raise an exception
+    mock_litellm.side_effect = Exception("LiteLLM API error")
+
+    summary = await extractor.aget_visual_summary(img_path)
+    assert summary == "[画像概要] 解析に失敗しました。"
