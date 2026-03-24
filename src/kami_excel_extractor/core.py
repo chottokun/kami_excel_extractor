@@ -54,16 +54,19 @@ class KamiExcelExtractor:
             return data.isoformat()
         return data
 
-    def _encode_image_to_base64_url(self, image_path: Path):
+    async def _encode_image_to_base64_url(self, image_path: Path):
         cache_key = str(image_path)
         if cache_key in self._image_cache:
             return self._image_cache[cache_key]
             
-        with open(image_path, "rb") as image_file:
-            encoded = base64.b64encode(image_file.read()).decode("utf-8")
-            result = f"data:image/png;base64,{encoded}"
-            self._image_cache[cache_key] = result
-            return result
+        def _read_and_encode():
+            with open(image_path, "rb") as image_file:
+                encoded = base64.b64encode(image_file.read()).decode("utf-8")
+                return f"data:image/png;base64,{encoded}"
+
+        result = await asyncio.to_thread(_read_and_encode)
+        self._image_cache[cache_key] = result
+        return result
 
     def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False):
         """Excelを解析して構造化データを取得する (同期版ラッパー)"""
@@ -85,7 +88,7 @@ class KamiExcelExtractor:
         
         png_path = self.converter.convert(excel_path)
         raw_data = self.extractor.extract(excel_path)
-        image_url = self._encode_image_to_base64_url(png_path)
+        image_url = await self._encode_image_to_base64_url(png_path)
         
         rpm_limit = int(os.getenv("GEMINI_RPM_LIMIT", "15"))
         semaphore = asyncio.Semaphore(rpm_limit) if rpm_limit > 0 else None
@@ -184,7 +187,7 @@ class KamiExcelExtractor:
     async def aget_visual_summary(self, image_path: Path, model: str = None) -> str:
         """画像を個別に解析して要約文を生成する (非同期版)"""
         model = model or self.default_model
-        image_url = self._encode_image_to_base64_url(image_path)
+        image_url = await self._encode_image_to_base64_url(image_path)
         prompt = "この画像・グラフの内容を詳細に説明してください。回答の冒頭に [画像概要] と付けて出力してください。"
         
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
