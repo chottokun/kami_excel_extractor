@@ -25,3 +25,58 @@ def test_generate_pdf_uses_secure_temp_dir(tmp_path):
             
             mock_temp.assert_called_once()
             assert mock_temp.call_args[1].get("prefix") == "pdf_gen_"
+import pytest
+import html
+from pathlib import Path
+from kami_excel_extractor.document_generator import DocumentGenerator
+
+@pytest.fixture
+def doc_gen(tmp_path):
+    return DocumentGenerator(output_dir=tmp_path)
+
+def test_html_injection_in_text(doc_gen):
+    md = "<script>alert('xss')</script>"
+    html_out = doc_gen._simple_md_to_html(md)
+    expected = html.escape("<script>alert('xss')</script>")
+    assert f"<p>{expected}</p>" in html_out
+    assert "<script>" not in html_out
+
+def test_html_injection_in_header(doc_gen):
+    md = "# <img src=x onerror=alert(1)>"
+    html_out = doc_gen._simple_md_to_html(md)
+    expected = html.escape("<img src=x onerror=alert(1)>")
+    assert f"<h1>{expected}</h1>" in html_out
+    assert "<img src=x" not in html_out
+
+def test_html_injection_in_list(doc_gen):
+    md = "- <svg onload=alert(1)>"
+    html_out = doc_gen._simple_md_to_html(md)
+    expected = html.escape("<svg onload=alert(1)>")
+    assert f"<li>{expected}</li>" in html_out
+    assert "<svg" not in html_out
+
+def test_html_injection_in_table(doc_gen):
+    md = "| <script> | alert(1) |\n| --- | --- |\n| </td> | </tr> |"
+    html_out = doc_gen._simple_md_to_html(md)
+    assert f"<th>{html.escape('<script>')}</th>" in html_out
+    assert f"<td>{html.escape('</td>')}</td>" in html_out
+    assert f"<td>{html.escape('</tr>')}</td>" in html_out
+
+def test_html_injection_in_image_path(doc_gen):
+    md = '![alt](some_path)'
+    html_out = doc_gen._simple_md_to_html(md)
+    assert 'src="some_path"' in html_out
+
+    md2 = '![alt](" onerror="alert(1)")'
+    html_out2 = doc_gen._simple_md_to_html(md2)
+    # The (.*?) matches up to the first ')'
+    # '![alt](" onerror="alert(1)")'
+    #           ^^^^^^^^^^^^^^ matched by (.*?)
+    # html.escape('" onerror="alert(1', quote=True) -> '&quot; onerror=&quot;alert(1'
+    assert 'src="&quot; onerror=&quot;alert(1"' in html_out2
+
+def test_inline_styles_with_html(doc_gen):
+    md = "**bold <script>**"
+    html_out = doc_gen._simple_md_to_html(md)
+    # We want <b>bold &lt;script&gt;</b>
+    assert f"<b>bold {html.escape('<script>')}</b>" in html_out
