@@ -33,9 +33,7 @@ class DocumentGenerator:
             
             # テーブルの開始/継続判定
             if stripped.startswith("|") and stripped.endswith("|"):
-                if in_list:
-                    html_output.append("</ul>")
-                    in_list = False
+                in_list = self._close_list_if_needed(html_output, in_list)
                 if not in_table:
                     in_table = True
                     table_rows = []
@@ -54,49 +52,66 @@ class DocumentGenerator:
             
             # 空行
             if not stripped:
-                if in_list:
-                    html_output.append("</ul>")
-                    in_list = False
+                in_list = self._close_list_if_needed(html_output, in_list)
                 continue
                 
             # Headers
             if stripped.startswith("#"):
-                if in_list:
-                    html_output.append("</ul>")
-                    in_list = False
-                header_match = self.RE_HEADER.match(stripped)
-                level = len(header_match.group()) if header_match else 1
-                content = stripped.lstrip("#").strip()
-                html_output.append(f"<h{level}>{self._apply_inline_styles(content)}</h{level}>")
+                in_list = self._close_list_if_needed(html_output, in_list)
+                html_output.append(self._render_header(stripped))
             # Lists
             elif stripped.startswith("- "):
                 if not in_list:
                     html_output.append("<ul>")
                     in_list = True
-                content = stripped[2:].strip()
-                html_output.append(f"<li>{self._apply_inline_styles(content)}</li>")
+                html_output.append(self._render_list_item(stripped))
             # Images
             elif self.RE_IMAGE.match(stripped):
-                if in_list:
-                    html_output.append("</ul>")
-                    in_list = False
-                img_match = self.RE_IMAGE.search(stripped)
-                img_path = img_match.group(1)
-                html_output.append(f'<div class="image-container"><img src="{img_path}" alt="画像"></div>')
+                in_list = self._close_list_if_needed(html_output, in_list)
+                html_output.append(self._render_image_element(stripped))
             # Text
             else:
-                if in_list:
-                    html_output.append("</ul>")
-                    in_list = False
-                html_output.append(f"<p>{self._apply_inline_styles(stripped)}</p>")
+                in_list = self._close_list_if_needed(html_output, in_list)
+                html_output.append(self._render_paragraph(stripped))
 
         # 末尾処理
         if in_table:
             html_output.append(self._render_table(table_rows))
+        self._close_list_if_needed(html_output, in_list)
+
+        return self._get_html_template("\n".join(html_output))
+
+    def _close_list_if_needed(self, html_output: list, in_list: bool) -> bool:
+        """リストが開始されている場合、閉じタグを追加する"""
         if in_list:
             html_output.append("</ul>")
+        return False
 
-        template = f"""<!DOCTYPE html>
+    def _render_header(self, stripped_line: str) -> str:
+        """ヘッダー要素をレンダリングする"""
+        header_match = self.RE_HEADER.match(stripped_line)
+        level = len(header_match.group()) if header_match else 1
+        content = stripped_line.lstrip("#").strip()
+        return f"<h{level}>{self._apply_inline_styles(content)}</h{level}>"
+
+    def _render_list_item(self, stripped_line: str) -> str:
+        """リストアイテムをレンダリングする"""
+        content = stripped_line[2:].strip()
+        return f"<li>{self._apply_inline_styles(content)}</li>"
+
+    def _render_image_element(self, stripped_line: str) -> str:
+        """画像要素をレンダリングする"""
+        img_match = self.RE_IMAGE.search(stripped_line)
+        img_path = img_match.group(1)
+        return f'<div class="image-container"><img src="{img_path}" alt="画像"></div>'
+
+    def _render_paragraph(self, stripped_line: str) -> str:
+        """段落要素をレンダリングする"""
+        return f"<p>{self._apply_inline_styles(stripped_line)}</p>"
+
+    def _get_html_template(self, body_html: str) -> str:
+        """HTMLテンプレートを生成する"""
+        return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -125,10 +140,9 @@ class DocumentGenerator:
     </style>
 </head>
 <body>
-    {"\n".join(html_output)}
+    {body_html}
 </body>
 </html>"""
-        return template
 
     def _apply_inline_styles(self, text: str) -> str:
         # PR #9: Use pre-compiled bold regex
