@@ -44,6 +44,17 @@ def test_json_to_markdown_table_inconsistent_keys():
     assert "- **ID**: 1" in result
     assert "- **Age**: 30" in result
 
+def test_json_to_markdown_kv_format():
+    """list_format='kv' の場合に、リストがキー・値形式の箇条書きに変換されることを確認"""
+    converter = JsonToMarkdownConverter(list_format="kv")
+    data = [
+        {"ID": 1, "Name": "Alice"},
+        {"ID": 2, "Name": "Bob"}
+    ]
+    result = converter.convert(data)
+    expected = "- ID: 1, Name: Alice\n- ID: 2, Name: Bob"
+    assert result == expected
+
 def test_json_to_markdown_empty_data():
     converter = JsonToMarkdownConverter()
     assert converter.convert({}) == ""
