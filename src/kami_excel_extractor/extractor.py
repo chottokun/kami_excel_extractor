@@ -7,6 +7,7 @@ import io
 from typing import List, Dict, Any
 from datetime import date, datetime
 from PIL import Image
+from .utils import secure_filename
 
 class MetadataExtractor:
     """Excelからメタデータとメディアを抽出するクラス"""
@@ -34,7 +35,8 @@ class MetadataExtractor:
             row = img.anchor._from.row + 1
             col = img.anchor._from.col + 1
             coord = f"{get_column_letter(col)}{row}"
-            image_filename = f"{sheet_name}_img_{coord}_{idx}.png"
+            safe_sheet_name = secure_filename(sheet_name)
+            image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
             save_path = self.media_dir / image_filename
             
             try:
