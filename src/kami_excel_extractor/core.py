@@ -27,6 +27,7 @@ class KamiExcelExtractor:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.base_url = base_url
         self._image_cache = {} # PR #16: Image cache
+        self._visual_summary_cache = {} # Visual summary cache
         
         self.extractor = MetadataExtractor(self.output_dir)
         self.converter = ExcelConverter(self.output_dir)
@@ -185,13 +186,21 @@ class KamiExcelExtractor:
         """画像を個別に解析して要約文を生成する (非同期版)"""
         model = model or self.default_model
         image_url = self._encode_image_to_base64_url(image_path)
+
+        cache_key = (model, image_url)
+        if cache_key in self._visual_summary_cache:
+            return self._visual_summary_cache[cache_key]
+
         prompt = "この画像・グラフの内容を詳細に説明してください。回答の冒頭に [画像概要] と付けて出力してください。"
         
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
         
         try:
             response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url)
-            return response.choices[0].message.content or ""
+            content = response.choices[0].message.content or ""
+            if content:
+                self._visual_summary_cache[cache_key] = content
+            return content
         except Exception as e:
             logger.error(f"Failed to generate visual summary: {e}")
             return "[画像概要] 解析に失敗しました。"
