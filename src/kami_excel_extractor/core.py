@@ -3,6 +3,8 @@ import logging
 import base64
 import asyncio
 import os
+import re
+import yaml
 from pathlib import Path
 from datetime import date, datetime
 import litellm
@@ -65,6 +67,100 @@ class KamiExcelExtractor:
             self._image_cache[cache_key] = result
             return result
 
+    def _build_extraction_messages(self, system_prompt: str, sheet_name: str, sheet_html: str, image_url: str) -> list:
+        """構造化データ抽出用のメッセージを構築する"""
+        return [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"対象シート: {sheet_name}\nデータソース:\n{sheet_html}"},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                    {"type": "text", "text": "提供されたExcelシートのデータを構造化データとしてYAMLで出力してください。Markdownのコードブロック(```yaml)を含めてください。"}
+                ]
+            }
+        ]
+
+    def _parse_yaml_response(self, raw_content: str, sheet_name: str) -> tuple[dict, str]:
+        """LLMの応答からYAMLを抽出し、辞書形式に変換する"""
+        yaml_match = re.search(r'```(?:yaml|yml)\n(.*?)\n```', raw_content, re.DOTALL)
+        yaml_str = yaml_match.group(1) if yaml_match else raw_content
+
+        try:
+            sheet_data = yaml.safe_load(yaml_str) or {}
+            if not isinstance(sheet_data, dict):
+                sheet_data = {"data": sheet_data}
+
+            if "sheets" in sheet_data and sheet_name in sheet_data["sheets"]:
+                result = sheet_data["sheets"][sheet_name]
+            else:
+                result = sheet_data
+
+            result["_raw_yaml"] = yaml_str
+            return result, yaml_str
+        except Exception:
+            # YAMLパース失敗時は生テキストを保持
+            return {"_raw_yaml": yaml_str, "error": "YAML parsing failed"}, yaml_str
+
+    async def _aprocess_sheet(self, sheet_name: str, sheet_content: dict, system_prompt: str, image_url: str, model: str, semaphore: asyncio.Semaphore = None):
+        """1つのシートを処理する"""
+        async with (semaphore if semaphore else asyncio.Lock()):
+            logger.info(f"Processing sheet: {sheet_name}")
+
+            messages = self._build_extraction_messages(
+                system_prompt=system_prompt,
+                sheet_name=sheet_name,
+                sheet_html=sheet_content.get('html', ''),
+                image_url=image_url
+            )
+
+            yaml_str = ""
+            try:
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=messages,
+                    api_key=self.api_key,
+                    base_url=self.base_url
+                )
+
+                raw_content = response.choices[0].message.content
+                result, yaml_str = self._parse_yaml_response(raw_content, sheet_name)
+                return sheet_name, result
+            except Exception as e:
+                logger.error(f"Structured extraction (YAML) failed for sheet {sheet_name}: {e}")
+                return sheet_name, {"error": str(e), "_raw_yaml": yaml_str}
+
+    async def _aprocess_all_media(self, sheets_data: dict, structured_sheets: dict, model: str, semaphore: asyncio.Semaphore = None) -> list:
+        """全てのメディア（画像・グラフ）を処理し、構造化データに統合する"""
+        async def process_media(media_item, sheet_name):
+            media_path = self.output_dir / "media" / media_item["filename"]
+            if media_path.exists():
+                async with (semaphore if semaphore else asyncio.Lock()):
+                    summary = await self.aget_visual_summary(media_path, model=model)
+                    media_item["visual_summary"] = summary
+                    return media_item
+            return None
+
+        all_media_tasks = []
+        for sheet_name, sheet_data in sheets_data.items():
+            for media_item in sheet_data.get("media", []):
+                all_media_tasks.append(process_media(media_item, sheet_name))
+
+        if not all_media_tasks:
+            return []
+
+        media_results = await asyncio.gather(*all_media_tasks)
+        all_media = [m for m in media_results if m]
+
+        for m in all_media:
+            sheet_name_part = m["filename"].split("_img_")[0] if "_img_" in m["filename"] else m["filename"].split("_")[0]
+            if sheet_name_part in structured_sheets:
+                if "media" not in structured_sheets[sheet_name_part]:
+                    structured_sheets[sheet_name_part]["media"] = []
+                structured_sheets[sheet_name_part]["media"].append(m)
+
+        return all_media
+
     def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False):
         """Excelを解析して構造化データを取得する (同期版ラッパー)"""
         return asyncio.run(self.aextract_structured_data(
@@ -73,8 +169,6 @@ class KamiExcelExtractor:
 
     async def aextract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False):
         """Excelを解析して構造化データを取得する (非同期版)"""
-        import re
-        import yaml
         
         model = model or self.default_model
         if not any(model.startswith(p) for p in ["gemini/", "openai/", "azure/"]):
@@ -94,85 +188,20 @@ class KamiExcelExtractor:
             system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをYAML形式で出力してください。出力は必ず ```yaml と ``` で囲んだブロック内のみとしてください。"
 
         sheets_data = raw_data.get("sheets", {})
-        structured_sheets = {}
 
-        async def process_sheet(sheet_name, sheet_content):
-            async with (semaphore if semaphore else asyncio.Lock()):
-                logger.info(f"Processing sheet: {sheet_name}")
-                
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": f"対象シート: {sheet_name}\nデータソース:\n{sheet_content.get('html', '')}"},
-                            {"type": "image_url", "image_url": {"url": image_url}},
-                            {"type": "text", "text": "提供されたExcelシートのデータを構造化データとしてYAMLで出力してください。Markdownのコードブロック(```yaml)を含めてください。"}
-                        ]
-                    }
-                ]
-
-                yaml_str = ""
-                try:
-                    response = await litellm.acompletion(
-                        model=model,
-                        messages=messages,
-                        api_key=self.api_key,
-                        base_url=self.base_url
-                    )
-                    
-                    raw_content = response.choices[0].message.content
-                    yaml_match = re.search(r'```(?:yaml|yml)\n(.*?)\n```', raw_content, re.DOTALL)
-                    yaml_str = yaml_match.group(1) if yaml_match else raw_content
-                    
-                    sheet_data = yaml.safe_load(yaml_str) or {}
-                    if not isinstance(sheet_data, dict):
-                        sheet_data = {"data": sheet_data}
-                        
-                    if "sheets" in sheet_data and sheet_name in sheet_data["sheets"]:
-                        result = sheet_data["sheets"][sheet_name]
-                    else:
-                        result = sheet_data
-                    
-                    result["_raw_yaml"] = yaml_str
-                    return sheet_name, result
-                except Exception as e:
-                    logger.error(f"Structured extraction (YAML) failed for sheet {sheet_name}: {e}")
-                    return sheet_name, {"error": str(e), "_raw_yaml": yaml_str}
-
-        tasks = [process_sheet(name, content) for name, content in sheets_data.items()]
+        # 各シートを並列処理
+        tasks = [
+            self._aprocess_sheet(name, content, system_prompt, image_url, model, semaphore)
+            for name, content in sheets_data.items()
+        ]
         results = await asyncio.gather(*tasks)
-        for name, res in results:
-            structured_sheets[name] = res
+        structured_sheets = dict(results)
 
         structured_data = {"sheets": structured_sheets}
         
+        # メディア処理
         if include_visual_summaries:
-            async def process_media(media_item, sheet_name):
-                media_path = self.output_dir / "media" / media_item["filename"]
-                if media_path.exists():
-                    async with (semaphore if semaphore else asyncio.Lock()):
-                        summary = await self.aget_visual_summary(media_path, model=model)
-                        media_item["visual_summary"] = summary
-                        return media_item
-                return None
-
-            all_media_tasks = []
-            for sheet_name, sheet_data in sheets_data.items():
-                for media_item in sheet_data.get("media", []):
-                    all_media_tasks.append(process_media(media_item, sheet_name))
-            
-            if all_media_tasks:
-                media_results = await asyncio.gather(*all_media_tasks)
-                all_media = [m for m in media_results if m]
-                structured_data["media"] = all_media
-                
-                for m in all_media:
-                    sheet_name_part = m["filename"].split("_img_")[0] if "_img_" in m["filename"] else m["filename"].split("_")[0]
-                    if sheet_name_part in structured_sheets:
-                        if "media" not in structured_sheets[sheet_name_part]:
-                            structured_sheets[sheet_name_part]["media"] = []
-                        structured_sheets[sheet_name_part]["media"].append(m)
+            structured_data["media"] = await self._aprocess_all_media(sheets_data, structured_sheets, model, semaphore)
                 
         # 最終出力をJSONシリアライズ可能な形式に変換
         return self._make_json_serializable(structured_data)
