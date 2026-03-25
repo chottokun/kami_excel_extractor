@@ -8,6 +8,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+      - ./run_test.py:/app/run_test.py
       - ./data/input:/app/data/input
       - ./data/output:/app/data/output
     env_file:
