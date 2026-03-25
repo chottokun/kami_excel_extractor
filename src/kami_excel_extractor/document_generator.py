@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import logging
 import shutil
+import html
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +68,18 @@ class DocumentGenerator:
                 header_match = self.RE_HEADER.match(stripped)
                 level = len(header_match.group()) if header_match else 1
                 content = stripped.lstrip("#").strip()
-                html_output.append(f"<h{level}>{self._apply_inline_styles(content)}</h{level}>")
+                # 🔒 Security Fix: HTML escape before applying inline styles
+                escaped_content = html.escape(content)
+                html_output.append(f"<h{level}>{self._apply_inline_styles(escaped_content)}</h{level}>")
             # Lists
             elif stripped.startswith("- "):
                 if not in_list:
                     html_output.append("<ul>")
                     in_list = True
                 content = stripped[2:].strip()
-                html_output.append(f"<li>{self._apply_inline_styles(content)}</li>")
+                # 🔒 Security Fix: HTML escape before applying inline styles
+                escaped_content = html.escape(content)
+                html_output.append(f"<li>{self._apply_inline_styles(escaped_content)}</li>")
             # Images
             elif self.RE_IMAGE.match(stripped):
                 if in_list:
@@ -82,13 +87,17 @@ class DocumentGenerator:
                     in_list = False
                 img_match = self.RE_IMAGE.search(stripped)
                 img_path = img_match.group(1)
-                html_output.append(f'<div class="image-container"><img src="{img_path}" alt="画像"></div>')
+                # 🔒 Security Fix: HTML escape image source attribute
+                escaped_img_path = html.escape(img_path, quote=True)
+                html_output.append(f'<div class="image-container"><img src="{escaped_img_path}" alt="画像"></div>')
             # Text
             else:
                 if in_list:
                     html_output.append("</ul>")
                     in_list = False
-                html_output.append(f"<p>{self._apply_inline_styles(stripped)}</p>")
+                # 🔒 Security Fix: HTML escape before applying inline styles
+                escaped_text = html.escape(stripped)
+                html_output.append(f"<p>{self._apply_inline_styles(escaped_text)}</p>")
 
         # 末尾処理
         if in_table:
@@ -140,16 +149,18 @@ class DocumentGenerator:
     def _render_table(self, rows: list) -> str:
         if not rows:
             return ""
-        html = ["<table>"]
+        html_out = ["<table>"]
         for i, row in enumerate(rows):
             cells = [c.strip() for c in row.split("|")[1:-1]]
             tag = "th" if i == 0 else "td"
-            html.append("<tr>")
+            html_out.append("<tr>")
             for cell in cells:
-                html.append(f"<{tag}>{self._apply_inline_styles(cell)}</{tag}>")
-            html.append("</tr>")
-        html.append("</table>")
-        return "\n".join(html)
+                # 🔒 Security Fix: HTML escape before applying inline styles
+                escaped_cell = html.escape(cell)
+                html_out.append(f"<{tag}>{self._apply_inline_styles(escaped_cell)}</{tag}>")
+            html_out.append("</tr>")
+        html_out.append("</table>")
+        return "\n".join(html_out)
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
         def resolve_and_copy(match):
