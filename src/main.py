@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.utils import secure_filename
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -46,7 +47,7 @@ def main():
 
                     for sheet_name, res in sheet_results.items():
                         # 安全なファイル名の作成
-                        safe_sheet_name = sheet_name.replace("/", "_").replace("\\", "_")
+                        safe_sheet_name = secure_filename(sheet_name)
                         
                         sheet_struct_path = target_dir / f"{safe_sheet_name}_lib_result.json"
                         with open(sheet_struct_path, "w", encoding="utf-8") as out_f:
