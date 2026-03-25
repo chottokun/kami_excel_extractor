@@ -35,6 +35,7 @@ class KamiExcelExtractor:
         self.converter = ExcelConverter(self.output_dir)
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
+        self._visual_summary_cache = {} # Visual summary cache
         
         # モデル名の取得 (環境変数を優先)
         env_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
@@ -57,16 +58,19 @@ class KamiExcelExtractor:
             return data.isoformat()
         return data
 
-    def _encode_image_to_base64_url(self, image_path: Path):
+    async def _encode_image_to_base64_url(self, image_path: Path):
         cache_key = str(image_path)
         if cache_key in self._image_cache:
             return self._image_cache[cache_key]
             
-        with open(image_path, "rb") as image_file:
-            encoded = base64.b64encode(image_file.read()).decode("utf-8")
-            result = f"data:image/png;base64,{encoded}"
-            self._image_cache[cache_key] = result
-            return result
+        def _read_and_encode():
+            with open(image_path, "rb") as image_file:
+                encoded = base64.b64encode(image_file.read()).decode("utf-8")
+                return f"data:image/png;base64,{encoded}"
+
+        result = await asyncio.to_thread(_read_and_encode)
+        self._image_cache[cache_key] = result
+        return result
 
     def _resolve_model(self, model: Optional[str] = None) -> str:
         """モデル名のデフォルト値とプレフィックスを解決する"""
@@ -184,7 +188,7 @@ class KamiExcelExtractor:
         # 変換・抽出・画像URL化
         png_path = self.converter.convert(excel_path)
         raw_data = self.extractor.extract(excel_path)
-        image_url = self._encode_image_to_base64_url(png_path)
+        image_url = await self._encode_image_to_base64_url(png_path)
         
         if not system_prompt:
             system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをYAML形式で出力してください。出力は必ず ```yaml と ``` で囲んだブロック内のみとしてください。"
@@ -222,14 +226,22 @@ class KamiExcelExtractor:
     async def aget_visual_summary(self, image_path: Path, model: str = None) -> str:
         """画像を個別に解析して要約文を生成する (非同期版)"""
         model = model or self.default_model
-        image_url = self._encode_image_to_base64_url(image_path)
+        image_url = await self._encode_image_to_base64_url(image_path)
+        
+        cache_key = (model, image_url)
+        if cache_key in self._visual_summary_cache:
+            return self._visual_summary_cache[cache_key]
+            
         prompt = "この画像・グラフの内容を詳細に説明してください。回答の冒頭に [画像概要] と付けて出力してください。"
         
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
         
         try:
             response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url)
-            return response.choices[0].message.content or ""
+            content = response.choices[0].message.content or ""
+            if content:
+                self._visual_summary_cache[cache_key] = content
+            return content
         except Exception as e:
             logger.error(f"Failed to generate visual summary: {e}")
             return "[画像概要] 解析に失敗しました。"
