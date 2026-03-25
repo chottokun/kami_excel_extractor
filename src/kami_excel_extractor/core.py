@@ -117,8 +117,17 @@ class KamiExcelExtractor:
 
     async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore]) -> tuple:
         """単一のシートを解析して構造化データを取得する"""
+        if sheet_content.get("is_simple"):
+            logger.info(f"Using simple table extraction for sheet: {sheet_name}")
+            # simple table の場合は _raw_yaml は空か、あるいは生成したものを入れる
+            result = sheet_content.get("structured_data", [])
+            if not isinstance(result, dict):
+                result = {"data": result}
+            result["_raw_yaml"] = ""
+            return sheet_name, result
+
         async with (semaphore if semaphore else asyncio.Lock()):
-            logger.info(f"Processing sheet: {sheet_name}")
+            logger.info(f"Processing sheet via LLM: {sheet_name}")
             messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), image_url)
 
             try:
@@ -153,9 +162,11 @@ class KamiExcelExtractor:
             sheet_name_part = filename.split("_img_")[0] if "_img_" in filename else filename.split("_")[0]
 
             if sheet_name_part in structured_sheets:
-                if "media" not in structured_sheets[sheet_name_part]:
-                    structured_sheets[sheet_name_part]["media"] = []
-                structured_sheets[sheet_name_part]["media"].append(m)
+                sheet_struct = structured_sheets[sheet_name_part]
+                if isinstance(sheet_struct, dict):
+                    if "media" not in sheet_struct:
+                        sheet_struct["media"] = []
+                    sheet_struct["media"].append(m)
 
     def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False):
         """Excelを解析して構造化データを取得する (同期版ラッパー)"""
@@ -230,19 +241,8 @@ class KamiExcelExtractor:
     async def aextract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv"):
         """Excelを解析してRAG用のチャンクを生成する (非同期版)"""
         excel_path = Path(excel_path)
-        raw_data = self.extractor.extract(excel_path)
-        has_simple_table = any(s.get("is_simple") for s in raw_data.get("sheets", {}).values())
         
         structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True)
-
-        if has_simple_table:
-            for sheet_name, sheet_info in raw_data.get("sheets", {}).items():
-                if sheet_info.get("is_simple"):
-                    if sheet_name in structured_data["sheets"]:
-                        logger.info(f"Replacing VLM output for simple table sheet '{sheet_name}'")
-                        structured_data["sheets"][sheet_name] = sheet_info["structured_data"]
-                    else:
-                        structured_data["sheets"][sheet_name] = sheet_info["structured_data"]
 
         original_format = self.rag_converter.list_format
         self.rag_converter.list_format = list_format
