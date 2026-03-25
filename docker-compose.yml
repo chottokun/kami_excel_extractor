@@ -7,6 +7,7 @@ services:
     image: kami-worker:lib
     volumes:
       - ./src:/app/src
+      - ./tests:/app/tests
       - ./data/input:/app/data/input
       - ./data/output:/app/data/output
     env_file:
