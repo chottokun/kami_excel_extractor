@@ -79,10 +79,7 @@ async def test_get_visual_summary(mock_open, mock_litellm, extractor, tmp_path):
     assert summary == "[画像概要] SUMMARY"
 
 @patch("kami_excel_extractor.core.KamiExcelExtractor.aextract_structured_data")
-@patch("kami_excel_extractor.core.MetadataExtractor.extract")
-def test_extract_rag_chunks(mock_extract_raw, mock_aextract_struct, extractor, sample_excel_path):
-    mock_extract_raw.return_value = {"sheets": {"Sheet1": {"is_simple": False}}}
-
+def test_extract_rag_chunks(mock_aextract_struct, extractor, sample_excel_path):
     async def mock_aextract(*args, **kwargs):
         return {"sheets": {"Sheet1": {"_raw_yaml": "data: 1"}}}
     mock_aextract_struct.side_effect = mock_aextract
