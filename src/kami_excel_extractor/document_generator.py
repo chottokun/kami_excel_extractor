@@ -1,10 +1,10 @@
 import subprocess
-import os
 import tempfile
 from pathlib import Path
 import re
 import logging
 import shutil
+import html
 
 logger = logging.getLogger(__name__)
 
@@ -92,22 +92,30 @@ class DocumentGenerator:
         header_match = self.RE_HEADER.match(stripped_line)
         level = len(header_match.group()) if header_match else 1
         content = stripped_line.lstrip("#").strip()
-        return f"<h{level}>{self._apply_inline_styles(content)}</h{level}>"
+        # 🔒 Security Fix: HTML escape before applying inline styles
+        escaped_content = html.escape(content)
+        return f"<h{level}>{self._apply_inline_styles(escaped_content)}</h{level}>"
 
     def _render_list_item(self, stripped_line: str) -> str:
         """リストアイテムをレンダリングする"""
         content = stripped_line[2:].strip()
-        return f"<li>{self._apply_inline_styles(content)}</li>"
+        # 🔒 Security Fix: HTML escape before applying inline styles
+        escaped_content = html.escape(content)
+        return f"<li>{self._apply_inline_styles(escaped_content)}</li>"
 
     def _render_image_element(self, stripped_line: str) -> str:
         """画像要素をレンダリングする"""
         img_match = self.RE_IMAGE.search(stripped_line)
         img_path = img_match.group(1)
-        return f'<div class="image-container"><img src="{img_path}" alt="画像"></div>'
+        # 🔒 Security Fix: HTML escape image source attribute
+        escaped_img_path = html.escape(img_path, quote=True)
+        return f'<div class="image-container"><img src="{escaped_img_path}" alt="画像"></div>'
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
-        return f"<p>{self._apply_inline_styles(stripped_line)}</p>"
+        # 🔒 Security Fix: HTML escape before applying inline styles
+        escaped_text = html.escape(stripped_line)
+        return f"<p>{self._apply_inline_styles(escaped_text)}</p>"
 
     def _get_html_template(self, body_html: str) -> str:
         """HTMLテンプレートを生成する"""
@@ -154,16 +162,18 @@ class DocumentGenerator:
     def _render_table(self, rows: list) -> str:
         if not rows:
             return ""
-        html = ["<table>"]
+        html_out = ["<table>"]
         for i, row in enumerate(rows):
             cells = [c.strip() for c in row.split("|")[1:-1]]
             tag = "th" if i == 0 else "td"
-            html.append("<tr>")
+            html_out.append("<tr>")
             for cell in cells:
-                html.append(f"<{tag}>{self._apply_inline_styles(cell)}</{tag}>")
-            html.append("</tr>")
-        html.append("</table>")
-        return "\n".join(html)
+                # 🔒 Security Fix: HTML escape before applying inline styles
+                escaped_cell = html.escape(cell)
+                html_out.append(f"<{tag}>{self._apply_inline_styles(escaped_cell)}</{tag}>")
+            html_out.append("</tr>")
+        html_out.append("</table>")
+        return "\n".join(html_out)
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
         def resolve_and_copy(match):
