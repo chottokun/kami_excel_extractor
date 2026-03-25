@@ -97,12 +97,8 @@ class KamiExcelExtractor:
         structured_sheets = {}
 
         async def process_sheet(sheet_name, sheet_content):
-            if sheet_content.get("is_simple"):
-                logger.info(f"Using simple table extraction for sheet: {sheet_name}")
-                return sheet_name, sheet_content.get("structured_data", [])
-
             async with (semaphore if semaphore else asyncio.Lock()):
-                logger.info(f"Processing sheet via LLM: {sheet_name}")
+                logger.info(f"Processing sheet: {sheet_name}")
                 
                 messages = [
                     {"role": "system", "content": system_prompt},
@@ -174,11 +170,9 @@ class KamiExcelExtractor:
                 for m in all_media:
                     sheet_name_part = m["filename"].split("_img_")[0] if "_img_" in m["filename"] else m["filename"].split("_")[0]
                     if sheet_name_part in structured_sheets:
-                        sheet_struct = structured_sheets[sheet_name_part]
-                        if isinstance(sheet_struct, dict):
-                            if "media" not in sheet_struct:
-                                sheet_struct["media"] = []
-                            sheet_struct["media"].append(m)
+                        if "media" not in structured_sheets[sheet_name_part]:
+                            structured_sheets[sheet_name_part]["media"] = []
+                        structured_sheets[sheet_name_part]["media"].append(m)
                 
         # 最終出力をJSONシリアライズ可能な形式に変換
         return self._make_json_serializable(structured_data)
@@ -209,8 +203,19 @@ class KamiExcelExtractor:
     async def aextract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv"):
         """Excelを解析してRAG用のチャンクを生成する (非同期版)"""
         excel_path = Path(excel_path)
+        raw_data = self.extractor.extract(excel_path)
+        has_simple_table = any(s.get("is_simple") for s in raw_data.get("sheets", {}).values())
         
         structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True)
+
+        if has_simple_table:
+            for sheet_name, sheet_info in raw_data.get("sheets", {}).items():
+                if sheet_info.get("is_simple"):
+                    if sheet_name in structured_data["sheets"]:
+                        logger.info(f"Replacing VLM output for simple table sheet '{sheet_name}'")
+                        structured_data["sheets"][sheet_name] = sheet_info["structured_data"]
+                    else:
+                        structured_data["sheets"][sheet_name] = sheet_info["structured_data"]
 
         original_format = self.rag_converter.list_format
         self.rag_converter.list_format = list_format

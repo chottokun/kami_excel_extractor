@@ -27,7 +27,7 @@ class ExcelConverter:
                 "soffice", f"-env:UserInstallation={user_installation}",
                 "--headless", "--convert-to", "pdf",
                 "--outdir", str(self.output_dir), str(input_file)
-            ], capture_output=True, text=True, timeout=600)
+            ], capture_output=True, text=True)
 
             if res_pdf.returncode != 0:
                 logger.error(f"LibreOffice failed: {res_pdf.stderr}")
@@ -42,7 +42,7 @@ class ExcelConverter:
             res_png = subprocess.run([
                 "pdftocairo", "-png", "-singlefile",
                 str(original_pdf), str(self.output_dir / input_file.stem)
-            ], capture_output=True, text=True, timeout=300)
+            ], capture_output=True, text=True)
 
             if res_png.returncode != 0:
                 logger.error(f"pdftocairo failed: {res_png.stderr}")

@@ -1,4 +1,6 @@
 import openpyxl
+import json
+import os
 import html
 from pathlib import Path
 from openpyxl.utils import get_column_letter
@@ -6,7 +8,6 @@ import io
 from typing import List, Dict, Any
 from datetime import date, datetime
 from PIL import Image
-from .utils import secure_filename
 
 class MetadataExtractor:
     """Excelからメタデータとメディアを抽出するクラス"""
@@ -34,8 +35,7 @@ class MetadataExtractor:
             row = img.anchor._from.row + 1
             col = img.anchor._from.col + 1
             coord = f"{get_column_letter(col)}{row}"
-            safe_sheet_name = secure_filename(sheet_name)
-            image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
+            image_filename = f"{sheet_name}_img_{coord}_{idx}.png"
             save_path = self.media_dir / image_filename
             
             try:
@@ -60,23 +60,21 @@ class MetadataExtractor:
         if ws.merged_cells.ranges: return False
         max_r, max_c = ws.max_row, ws.max_column
         if max_r < 2 or max_c < 1: return False
-        first_row = next(ws.iter_rows(min_row=1, max_row=1, min_col=1, max_col=max_c, values_only=True), [])
-        header_values = [val for val in first_row if val is not None]
+        header_values = [ws.cell(row=1, column=c).value for c in range(1, max_c + 1) if ws.cell(row=1, column=c).value is not None]
         return len(header_values) >= 2
 
     def extract_simple_table(self, ws) -> List[Dict[str, Any]]:
         data = []
         max_r, max_c = ws.max_row, ws.max_column
-        header_row = next(ws.iter_rows(min_row=1, max_row=1, min_col=1, max_col=max_c, values_only=True), [])
-        headers = [str(val or f"Column{i+1}") for i, val in enumerate(header_row)]
-
-        for row in ws.iter_rows(min_row=2, max_row=max_r, min_col=1, max_col=max_c, values_only=True):
+        headers = [str(ws.cell(row=1, column=c).value or f"Column{c}") for c in range(1, max_c + 1)]
+        for r in range(2, max_r + 1):
             row_dict, has_value = {}, False
-            for i, val in enumerate(row):
+            for c in range(1, max_c + 1):
+                val = ws.cell(row=r, column=c).value
                 if val is not None:
                     has_value = True
                     if isinstance(val, (date, datetime)): val = val.isoformat()
-                row_dict[headers[i]] = val if val is not None else ""
+                row_dict[headers[c-1]] = val if val is not None else ""
             if has_value: data.append(row_dict)
         return data
 
@@ -125,15 +123,14 @@ class MetadataExtractor:
     def _generate_html_table(self, ws):
         """Generate an HTML table from a worksheet."""
         merged_map = self._get_merged_cells_map(ws)
-        max_r, max_c = ws.max_row, ws.max_column
         html_rows = ["<table border='1'>"]
-        for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
+        for r in range(1, ws.max_row + 1):
             row_html = ["  <tr>"]
-            for cell in row:
-                r, c = cell.row, cell.column
+            for c in range(1, ws.max_column + 1):
                 span_info = merged_map.get((r, c))
                 if span_info == "skip":
                     continue
+                cell = ws.cell(row=r, column=c)
                 row_html.append(self._cell_to_html_td(cell, span_info))
             row_html.append("  </tr>")
             html_rows.append("".join(row_html))
