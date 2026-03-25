@@ -32,6 +32,18 @@ def test_json_to_markdown_table_success():
     assert "| 1 | Alice |" in result
     assert "| 2 | Bob |" in result
 
+def test_json_to_markdown_kv_format():
+    """list_format='kv' の場合にリストが KV 形式で出力されることを確認"""
+    converter = JsonToMarkdownConverter(list_format="kv")
+    data = [
+        {"ID": 1, "Name": "Alice"},
+        {"ID": 2, "Name": "Bob"}
+    ]
+    result = converter.convert(data)
+    assert "- ID: 1, Name: Alice" in result
+    assert "- ID: 2, Name: Bob" in result
+    assert "|" not in result
+
 def test_json_to_markdown_table_inconsistent_keys():
     """キーが一致しないリストはテーブル化されず、箇条書きになることを確認"""
     converter = JsonToMarkdownConverter()
