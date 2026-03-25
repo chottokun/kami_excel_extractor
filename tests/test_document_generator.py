@@ -32,7 +32,7 @@ def test_simple_md_to_html_visual_summary(doc_gen):
     assert '<div class="visual-summary">' in html
     assert 'これはテストです。' in html
 
-@patch("subprocess.run")
+@patch("kami_excel_extractor.document_generator.subprocess.run")
 def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
     # subprocess.run のモック
     mock_run.return_value = MagicMock(returncode=0)
@@ -50,7 +50,7 @@ def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
         
         result = doc_gen.generate_pdf("# Test Content", "test_report")
         
-        assert mock_run.called
+        mock_run.assert_called_once()
         assert result == tmp_path / "test_report.pdf"
         assert mock_move.called
 
@@ -93,3 +93,23 @@ def test_resolve_images_to_tmpdir(doc_gen, tmp_path):
     # パスが書き換えられているか確認
     assert "file://" in resolved_md
     assert (work_dir / "test.png").exists()
+
+@patch("kami_excel_extractor.document_generator.subprocess.run")
+def test_generate_pdf_failure(mock_run, doc_gen):
+    # Mock subprocess.run to return non-zero exit code
+    mock_run.return_value = MagicMock(returncode=1)
+
+    result = doc_gen.generate_pdf("# Test Content", "test_report")
+
+    mock_run.assert_called_once()
+    assert result is None
+
+@patch("kami_excel_extractor.document_generator.subprocess.run")
+def test_generate_pdf_exception(mock_run, doc_gen):
+    # Mock subprocess.run to raise an exception
+    mock_run.side_effect = Exception("Subprocess failed")
+
+    result = doc_gen.generate_pdf("# Test Content", "test_report")
+
+    mock_run.assert_called_once()
+    assert result is None
