@@ -16,12 +16,19 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 OUTPUT_DIR = project_root / "data" / "output"
-INPUT_FILE = project_root / "data" / "input" / "gattai_matrix_20260214.xlsx"
+INPUT_FILE = project_root / "data" / "input" / "complex_report.xlsx"
 
 extractor = KamiExcelExtractor(api_key=GEMINI_API_KEY, output_dir=str(OUTPUT_DIR))
 print(f"Processing: {INPUT_FILE.name}")
 
-rag_chunks, md_content, augmented_data = extractor.extract_rag_chunks(INPUT_FILE, model="gemini/gemini-2.5-flash")
+rag_results, augmented_data = extractor.extract_rag_chunks(INPUT_FILE, model="gemini/gemini-3.1-flash-lite-preview")
+
+# 全シートのMarkdownを統合
+md_content = "\n\n".join([res["markdown"] for res in rag_results.values()])
+# 全シートのチャンクを統合
+rag_chunks = []
+for res in rag_results.values():
+    rag_chunks.extend(res["chunks"])
 
 result_path = OUTPUT_DIR / f"{INPUT_FILE.stem}_lib_result.json"
 with open(result_path, "w", encoding="utf-8") as out_f:
