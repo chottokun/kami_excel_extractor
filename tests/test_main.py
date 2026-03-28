@@ -1,0 +1,94 @@
+import pytest
+from unittest.mock import patch, MagicMock
+from pathlib import Path
+import json
+import main
+
+def test_main_no_api_key():
+    """GEMINI_API_KEYが設定されていない場合にエラーログを出力して終了することを確認"""
+    with patch("main.GEMINI_API_KEY", None), \
+         patch("main.logger") as mock_logger:
+        main.main()
+        mock_logger.error.assert_called_with("GEMINI_API_KEY is not set.")
+
+def test_main_success(tmp_path):
+    """正常なファイル処理フローを確認"""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    output_dir.mkdir()
+
+    # テスト用のExcelファイルを作成
+    test_file = input_dir / "test.xlsx"
+    test_file.touch()
+
+    sheet_results = {
+        "Sheet1": {
+            "structured": {"foo": "bar"},
+            "yaml": "foo: bar",
+            "chunks": [{"chunk": 1}],
+            "markdown": "# Sheet1 Content"
+        }
+    }
+    full_structured_data = {"all": "data"}
+
+    with patch("main.GEMINI_API_KEY", "fake_key"), \
+         patch("main.INPUT_DIR", input_dir), \
+         patch("main.OUTPUT_DIR", output_dir), \
+         patch("main.KamiExcelExtractor") as mock_extractor_cls, \
+         patch("main.time.sleep", side_effect=KeyboardInterrupt), \
+         patch("main.logger") as mock_logger:
+
+        mock_extractor = mock_extractor_cls.return_value
+        mock_extractor.extract_rag_chunks.return_value = (sheet_results, full_structured_data)
+        mock_extractor.doc_generator = MagicMock()
+
+        # 無限ループをKeyboardInterruptで抜ける
+        with pytest.raises(KeyboardInterrupt):
+            main.main()
+
+        # extract_rag_chunksが正しく呼び出されたか
+        mock_extractor.extract_rag_chunks.assert_called_with(test_file, model="gemini/gemini-2.5-flash")
+
+        # 出力ディレクトリとファイルが作成されたか
+        target_dir = output_dir / "test"
+        assert target_dir.exists()
+        assert (target_dir / "full_lib_result.json").exists()
+        assert (target_dir / "Sheet1_lib_result.json").exists()
+        assert (target_dir / "Sheet1_lib_result.yaml").exists()
+        assert (target_dir / "Sheet1_rag_chunks.json").exists()
+        assert (target_dir / "Sheet1_rag.md").exists()
+
+        # PDF生成が呼び出されたか
+        mock_extractor.doc_generator.generate_pdf.assert_called_with(
+            "# Sheet1 Content", "test/Sheet1_report"
+        )
+
+        # 成功ログが出力されたか
+        mock_logger.info.assert_any_call(f"Success: Outputs saved to {target_dir}")
+
+def test_main_exception(tmp_path):
+    """処理中に例外が発生した場合にエラーログを出力し、ループを継続することを確認"""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    input_dir.mkdir()
+    output_dir.mkdir()
+
+    test_file = input_dir / "test.xlsx"
+    test_file.touch()
+
+    with patch("main.GEMINI_API_KEY", "fake_key"), \
+         patch("main.INPUT_DIR", input_dir), \
+         patch("main.OUTPUT_DIR", output_dir), \
+         patch("main.KamiExcelExtractor") as mock_extractor_cls, \
+         patch("main.time.sleep", side_effect=KeyboardInterrupt), \
+         patch("main.logger") as mock_logger:
+
+        mock_extractor = mock_extractor_cls.return_value
+        mock_extractor.extract_rag_chunks.side_effect = Exception("Test Error")
+
+        with pytest.raises(KeyboardInterrupt):
+            main.main()
+
+        # エラーログが出力されたか
+        mock_logger.error.assert_any_call("Failed to process test.xlsx: Test Error")
