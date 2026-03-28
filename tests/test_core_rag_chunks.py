@@ -36,7 +36,7 @@ async def test_extract_rag_chunks_custom_format_and_default_model(mock_aextract_
 
     # Verification
     # 1. Default model used
-    mock_aextract_struct.assert_called_with(Path(sample_excel_path), model=None, include_visual_summaries=True)
+    mock_aextract_struct.assert_called_with(Path(sample_excel_path), model=None, include_visual_summaries=True, use_visual_context=True)
     # The actual code in aextract_rag_chunks calls:
     # structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True)
     # where model=None (passed from extract_rag_chunks)
@@ -74,7 +74,7 @@ async def test_extract_rag_chunks_table_format(mock_aextract_struct, mock_extrac
     assert "| 1 | Alice |" in markdown
 
     # Model passed correctly
-    mock_aextract_struct.assert_called_with(Path(sample_excel_path), model="openai/gpt-4o", include_visual_summaries=True)
+    mock_aextract_struct.assert_called_with(Path(sample_excel_path), model="openai/gpt-4o", include_visual_summaries=True, use_visual_context=True)
 
 def test_extract_rag_chunks_sync_wrapper(output_dir, sample_excel_path):
     # This tests the sync wrapper specifically to ensure it calls asyncio.run correctly
