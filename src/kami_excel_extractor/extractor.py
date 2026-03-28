@@ -3,10 +3,13 @@ import html
 from pathlib import Path
 from openpyxl.utils import get_column_letter
 import io
+import logging
 from typing import List, Dict, Any
 from datetime import date, datetime
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from .utils import secure_filename
+
+logger = logging.getLogger(__name__)
 
 class MetadataExtractor:
     """Excelからメタデータとメディアを抽出するクラス"""
@@ -51,9 +54,9 @@ class MetadataExtractor:
                     pillow_img.save(save_path, "PNG")
                 
                 media_info.append({"coord": coord, "filename": str(image_filename), "type": "image"})
-            except Exception as e:
+            except (UnidentifiedImageError, OSError, ValueError, AttributeError) as e:
                 # 変換不能な形式（メタファイル以外等）はスキップ
-                pass 
+                logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
         return media_info
 
     def is_simple_table(self, ws) -> bool:
