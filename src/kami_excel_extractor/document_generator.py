@@ -87,21 +87,22 @@ class DocumentGenerator:
             html_output.append("</ul>")
         return False
 
+    def _render_inline(self, text: str) -> str:
+        """テキストをHTMLエスケープし、インラインスタイルを適用する"""
+        # 🔒 Security Fix: HTML escape before applying inline styles
+        return self._apply_inline_styles(html.escape(text))
+
     def _render_header(self, stripped_line: str) -> str:
         """ヘッダー要素をレンダリングする"""
         header_match = self.RE_HEADER.match(stripped_line)
         level = len(header_match.group()) if header_match else 1
         content = stripped_line.lstrip("#").strip()
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_content = html.escape(content)
-        return f"<h{level}>{self._apply_inline_styles(escaped_content)}</h{level}>"
+        return f"<h{level}>{self._render_inline(content)}</h{level}>"
 
     def _render_list_item(self, stripped_line: str) -> str:
         """リストアイテムをレンダリングする"""
         content = stripped_line[2:].strip()
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_content = html.escape(content)
-        return f"<li>{self._apply_inline_styles(escaped_content)}</li>"
+        return f"<li>{self._render_inline(content)}</li>"
 
     def _render_image_element(self, stripped_line: str) -> str:
         """画像要素をレンダリングする"""
@@ -113,9 +114,7 @@ class DocumentGenerator:
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_text = html.escape(stripped_line)
-        return f"<p>{self._apply_inline_styles(escaped_text)}</p>"
+        return f"<p>{self._render_inline(stripped_line)}</p>"
 
     def _get_html_template(self, body_html: str) -> str:
         """HTMLテンプレートを生成する"""
@@ -168,9 +167,7 @@ class DocumentGenerator:
             tag = "th" if i == 0 else "td"
             html_out.append("<tr>")
             for cell in cells:
-                # 🔒 Security Fix: HTML escape before applying inline styles
-                escaped_cell = html.escape(cell)
-                html_out.append(f"<{tag}>{self._apply_inline_styles(escaped_cell)}</{tag}>")
+                html_out.append(f"<{tag}>{self._render_inline(cell)}</{tag}>")
             html_out.append("</tr>")
         html_out.append("</table>")
         return "\n".join(html_out)
