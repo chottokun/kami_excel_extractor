@@ -143,7 +143,8 @@ class DocumentGenerator:
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             
             try:
-                cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if res.returncode != 0:
                     logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
