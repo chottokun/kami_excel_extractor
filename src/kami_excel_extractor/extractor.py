@@ -100,9 +100,14 @@ class MetadataExtractor:
     def _cell_to_html_td(self, cell, span_info):
         """Convert a single cell to an HTML td element."""
         val = cell.value
-        if isinstance(val, (date, datetime)):
-            val = val.isoformat()
-        val_str = str(val) if val is not None else ""
+        if val is None:
+            val_str = ""
+        elif isinstance(val, (date, datetime)):
+            val_str = val.isoformat()
+        elif isinstance(val, str):
+            val_str = val
+        else:
+            val_str = str(val)
 
         attrs = []
         if isinstance(span_info, dict):
@@ -122,7 +127,13 @@ class MetadataExtractor:
             attrs.append(f'style="{"; ".join(styles)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(val_str).replace('\n', '<br>')
+        if not val_str:
+            safe_val = ""
+        elif any(c in val_str for c in '&<>\n"\''):
+            safe_val = html.escape(val_str).replace('\n', '<br>')
+        else:
+            safe_val = val_str
+
         return f"<td{attr_str}>{safe_val}</td>"
 
     def _generate_html_table(self, ws):
