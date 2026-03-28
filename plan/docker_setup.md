@@ -16,7 +16,7 @@ services:
     volumes:
       - ./litellm-config.yaml:/app/config.yaml
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LLM_API_KEY=${LLM_API_KEY}
       - AZURE_API_KEY=${AZURE_API_KEY}
       - AZURE_API_BASE=${AZURE_API_BASE}
     command: ["--config", "/app/config.yaml", "--port", "4000"]
