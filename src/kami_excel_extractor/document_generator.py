@@ -214,6 +214,7 @@ class DocumentGenerator:
                 if pdfs:
                     shutil.move(str(pdfs[0]), str(pdf_path))
                     return pdf_path
-            except Exception:
+            except (subprocess.SubprocessError, OSError) as e:
+                logger.error(f"Failed to generate PDF for {output_name}: {e}")
                 return None
         return None
