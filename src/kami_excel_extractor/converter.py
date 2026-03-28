@@ -23,10 +23,11 @@ class ExcelConverter:
 
             # Step 1: Excel -> PDF
             logger.info(f"Converting {input_file.name} to PDF...")
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
             res_pdf = subprocess.run([
                 "soffice", f"-env:UserInstallation={user_installation}",
                 "--headless", "--convert-to", "pdf",
-                "--outdir", str(self.output_dir), str(input_file)
+                "--outdir", str(self.output_dir.resolve()), str(input_file.resolve())
             ], capture_output=True, text=True, timeout=600)
 
             if res_pdf.returncode != 0:
@@ -39,9 +40,10 @@ class ExcelConverter:
 
             # Step 2: PDF -> PNG
             logger.info(f"Converting PDF to PNG...")
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
             res_png = subprocess.run([
                 "pdftocairo", "-png", "-singlefile",
-                str(original_pdf), str(self.output_dir / input_file.stem)
+                str(original_pdf.resolve()), str((self.output_dir / input_file.stem).resolve())
             ], capture_output=True, text=True, timeout=300)
 
             if res_png.returncode != 0:
