@@ -1,4 +1,6 @@
 import pytest
+import html
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from kami_excel_extractor.document_generator import DocumentGenerator
@@ -9,28 +11,28 @@ def doc_gen(tmp_path):
 
 def test_simple_md_to_html_basic(doc_gen):
     md = "# Title\n- Item 1\n- Item 2\nParagraph text."
-    html = doc_gen._simple_md_to_html(md)
+    html_output = doc_gen._simple_md_to_html(md)
     
-    assert "<h1>Title</h1>" in html
-    assert "<ul>" in html
-    assert "<li>Item 1</li>" in html
-    assert "<li>Item 2</li>" in html
-    assert "<p>Paragraph text.</p>" in html
-    assert 'lang="ja"' in html
+    assert "<h1>Title</h1>" in html_output
+    assert "<ul>" in html_output
+    assert "<li>Item 1</li>" in html_output
+    assert "<li>Item 2</li>" in html_output
+    assert "<p>Paragraph text.</p>" in html_output
+    assert 'lang="ja"' in html_output
 
 def test_simple_md_to_html_table(doc_gen):
     md = "| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |"
-    html = doc_gen._simple_md_to_html(md)
+    html_output = doc_gen._simple_md_to_html(md)
     
-    assert "<table>" in html
-    assert "<th>Header 1</th>" in html
-    assert "<td>Cell 1</td>" in html
+    assert "<table>" in html_output
+    assert "<th>Header 1</th>" in html_output
+    assert "<td>Cell 1</td>" in html_output
 
 def test_simple_md_to_html_visual_summary(doc_gen):
     md = "[画像概要] これはテストです。"
-    html = doc_gen._simple_md_to_html(md)
-    assert '<div class="visual-summary">' in html
-    assert 'これはテストです。' in html
+    html_output = doc_gen._simple_md_to_html(md)
+    assert '<div class="visual-summary">' in html_output
+    assert 'これはテストです。' in html_output
 
 @patch("kami_excel_extractor.document_generator.subprocess.run")
 def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
@@ -54,21 +56,23 @@ def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
         assert result == tmp_path / "test_report.pdf"
         assert mock_move.called
 
-@patch("subprocess.run")
+@patch("kami_excel_extractor.document_generator.subprocess.run")
 def test_generate_pdf_subprocess_error(mock_run, doc_gen):
     """soffice がエラー（非ゼロ終了）を返した場合のテスト"""
     mock_run.return_value = MagicMock(returncode=1)
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
-@patch("subprocess.run")
+@patch("kami_excel_extractor.document_generator.subprocess.run")
 def test_generate_pdf_exception(mock_run, doc_gen):
     """subprocess.run が例外を投げた場合のテスト"""
+    # 既存のコードが OSError や subprocess.SubprocessError をキャッチすることを考慮し、
+    # generic Exception もキャッチされるため、テストとしては有効
     mock_run.side_effect = Exception("Subprocess crash")
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
-@patch("subprocess.run")
+@patch("kami_excel_extractor.document_generator.subprocess.run")
 def test_generate_pdf_no_output(mock_run, doc_gen):
     """soffice は成功したが、PDFファイルが生成されなかった場合のテスト"""
     mock_run.return_value = MagicMock(returncode=0)
@@ -94,22 +98,36 @@ def test_resolve_images_to_tmpdir(doc_gen, tmp_path):
     assert "file://" in resolved_md
     assert (work_dir / "test.png").exists()
 
-@patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_failure(mock_run, doc_gen):
-    # Mock subprocess.run to return non-zero exit code
-    mock_run.return_value = MagicMock(returncode=1)
+def test_xss_protection_in_paragraph(doc_gen):
+    """段落におけるXSS保護のテスト"""
+    xss_payload = "<script>alert('xss')</script>"
+    md = f"Normal text {xss_payload}"
+    html_output = doc_gen._simple_md_to_html(md)
 
-    result = doc_gen.generate_pdf("# Test Content", "test_report")
+    # ペイロードがエスケープされていることを確認
+    escaped_payload = html.escape(xss_payload)
+    assert escaped_payload in html_output
+    assert xss_payload not in html_output
 
-    mock_run.assert_called_once()
-    assert result is None
+def test_xss_protection_with_inline_styles(doc_gen):
+    """インラインスタイル（太字）を伴うXSS保護のテスト"""
+    xss_payload = "<script>alert('xss')</script>"
+    md = f"**{xss_payload}**"
+    html_output = doc_gen._simple_md_to_html(md)
 
-@patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_exception(mock_run, doc_gen):
-    # Mock subprocess.run to raise an exception
-    mock_run.side_effect = Exception("Subprocess failed")
+    # エスケープされたペイロードが<b>タグ内にあることを確認
+    escaped_payload = html.escape(xss_payload)
+    assert f"<b>{escaped_payload}</b>" in html_output
+    assert xss_payload not in html_output
 
-    result = doc_gen.generate_pdf("# Test Content", "test_report")
+def test_xss_protection_in_other_elements(doc_gen):
+    """ヘッダー、リスト、テーブルにおけるXSS保護のテスト"""
+    xss_payload = "<script>alert('xss')</script>"
+    md = f"# {xss_payload}\n- {xss_payload}\n| {xss_payload} |\n| --- |\n| {xss_payload} |"
+    html_output = doc_gen._simple_md_to_html(md)
 
-    mock_run.assert_called_once()
-    assert result is None
+    escaped_payload = html.escape(xss_payload)
+    assert f"<h1>{escaped_payload}</h1>" in html_output
+    assert f"<li>{escaped_payload}</li>" in html_output
+    assert f"<th>{escaped_payload}</th>" in html_output
+    assert f"<td>{escaped_payload}</td>" in html_output
