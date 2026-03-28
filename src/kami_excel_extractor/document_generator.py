@@ -92,16 +92,12 @@ class DocumentGenerator:
         header_match = self.RE_HEADER.match(stripped_line)
         level = len(header_match.group()) if header_match else 1
         content = stripped_line.lstrip("#").strip()
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_content = html.escape(content)
-        return f"<h{level}>{self._apply_inline_styles(escaped_content)}</h{level}>"
+        return f"<h{level}>{self._escape_and_apply_styles(content)}</h{level}>"
 
     def _render_list_item(self, stripped_line: str) -> str:
         """リストアイテムをレンダリングする"""
         content = stripped_line[2:].strip()
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_content = html.escape(content)
-        return f"<li>{self._apply_inline_styles(escaped_content)}</li>"
+        return f"<li>{self._escape_and_apply_styles(content)}</li>"
 
     def _render_image_element(self, stripped_line: str) -> str:
         """画像要素をレンダリングする"""
@@ -113,9 +109,7 @@ class DocumentGenerator:
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_text = html.escape(stripped_line)
-        return f"<p>{self._apply_inline_styles(escaped_text)}</p>"
+        return f"<p>{self._escape_and_apply_styles(stripped_line)}</p>"
 
     def _get_html_template(self, body_html: str) -> str:
         """HTMLテンプレートを生成する"""
@@ -152,6 +146,11 @@ class DocumentGenerator:
 </body>
 </html>"""
 
+    def _escape_and_apply_styles(self, text: str) -> str:
+        """HTMLエスケープを適用してからインラインスタイルを適用する (🔒 Security Fix)"""
+        escaped_text = html.escape(text)
+        return self._apply_inline_styles(escaped_text)
+
     def _apply_inline_styles(self, text: str) -> str:
         # PR #9: Use pre-compiled bold regex
         text = self.RE_BOLD.sub(r'<b>\1</b>', text)
@@ -168,9 +167,7 @@ class DocumentGenerator:
             tag = "th" if i == 0 else "td"
             html_out.append("<tr>")
             for cell in cells:
-                # 🔒 Security Fix: HTML escape before applying inline styles
-                escaped_cell = html.escape(cell)
-                html_out.append(f"<{tag}>{self._apply_inline_styles(escaped_cell)}</{tag}>")
+                html_out.append(f"<{tag}>{self._escape_and_apply_styles(cell)}</{tag}>")
             html_out.append("</tr>")
         html_out.append("</table>")
         return "\n".join(html_out)
