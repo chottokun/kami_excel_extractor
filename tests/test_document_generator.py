@@ -64,7 +64,7 @@ def test_generate_pdf_subprocess_error(mock_run, doc_gen):
 @patch("subprocess.run")
 def test_generate_pdf_exception(mock_run, doc_gen):
     """subprocess.run が例外を投げた場合のテスト"""
-    mock_run.side_effect = Exception("Subprocess crash")
+    mock_run.side_effect = OSError("Subprocess crash")
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
@@ -105,9 +105,9 @@ def test_generate_pdf_failure(mock_run, doc_gen):
     assert result is None
 
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_exception(mock_run, doc_gen):
-    # Mock subprocess.run to raise an exception
-    mock_run.side_effect = Exception("Subprocess failed")
+def test_generate_pdf_exception_custom(mock_run, doc_gen):
+    # Mock subprocess.run to raise an OSError
+    mock_run.side_effect = OSError("Subprocess failed")
 
     result = doc_gen.generate_pdf("# Test Content", "test_report")
 
