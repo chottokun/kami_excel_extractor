@@ -103,3 +103,21 @@ def test_inline_styles_with_html(doc_gen):
     html_out = doc_gen._simple_md_to_html(md)
     # We want <b>bold &lt;script&gt;</b>
     assert f"<b>bold {html.escape('<script>')}</b>" in html_out
+
+def test_table_html_injection_with_bold(doc_gen):
+    # Testing that even if someone puts HTML in a table cell and uses bold, it is still escaped.
+    md = "| **bold <script>alert(1)</script>** | normal |\n| --- | --- |\n| cell1 | cell2 |"
+    html_out = doc_gen._simple_md_to_html(md)
+
+    # Expected: <td><b>bold &lt;script&gt;alert(1)&lt;/script&gt;</b></td>
+    expected_escaped = html.escape("<script>alert(1)</script>")
+    assert f"<b>bold {expected_escaped}</b>" in html_out
+    assert "<script>" not in html_out
+
+def test_visual_summary_html_injection(doc_gen):
+    md = "[画像概要] <script>alert(1)</script> **bold**"
+    html_out = doc_gen._simple_md_to_html(md)
+
+    expected_escaped = html.escape("<script>alert(1)</script>")
+    assert f'<div class="visual-summary">[画像概要] {expected_escaped} <b>bold</b></div>' in html_out
+    assert "<script>" not in html_out
