@@ -12,17 +12,19 @@ logger = logging.getLogger(__name__)
 
 # 設定の読み込み
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 INPUT_DIR = Path("data/input")
 OUTPUT_DIR = Path("data/output")
 
 def main():
-    if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY is not set.")
+    llm_api_key = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
+    llm_model = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
+
+    if not llm_api_key and "ollama" not in llm_model:
+        logger.error("Neither LLM_API_KEY nor GEMINI_API_KEY is set (and not using Ollama).")
         return
 
     # ライブラリの初期化
-    extractor = KamiExcelExtractor(api_key=GEMINI_API_KEY, output_dir=str(OUTPUT_DIR))
+    extractor = KamiExcelExtractor(api_key=llm_api_key, output_dir=str(OUTPUT_DIR))
     
     logger.info(f"Library Mode Pipeline started. Monitoring {INPUT_DIR}...")
     processed = set()
@@ -34,7 +36,7 @@ def main():
                 try:
                     logger.info(f"Processing: {f.name}")
                     # 解析の実行（画像概要生成を含む）
-                    sheet_results, full_structured_data = extractor.extract_rag_chunks(f, model="gemini/gemini-2.5-flash")
+                    sheet_results, full_structured_data = extractor.extract_rag_chunks(f, model=llm_model)
                     import json
                     
                     target_dir = OUTPUT_DIR / f.stem
@@ -44,7 +46,7 @@ def main():
                     full_result_path = target_dir / "full_lib_result.json"
                     with open(full_result_path, "w", encoding="utf-8") as out_f:
                         json.dump(full_structured_data, out_f, ensure_ascii=False, indent=2)
-
+                    
                     for sheet_name, res in sheet_results.items():
                         # 安全なファイル名の作成
                         safe_sheet_name = secure_filename(sheet_name)
@@ -66,11 +68,8 @@ def main():
                             out_f.write(res["markdown"])
                         
                         logger.info(f"Generating PDF report for sheet {sheet_name}...")
-                        # doc_generator outputs to {output_dir}/{filename_prefix}.pdf
-                        # target_dir.name is f.stem (e.g. gattai_matrix_20260214)
-                        # We give f"{target_dir.name}/{safe_sheet_name}_report" so it generates inside the directory
                         extractor.doc_generator.generate_pdf(res["markdown"], f"{target_dir.name}/{safe_sheet_name}_report")
-
+                    
                     logger.info(f"Success: Outputs saved to {target_dir}")
                     processed.add(f)
                 except Exception as e:
