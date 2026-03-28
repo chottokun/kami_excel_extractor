@@ -98,6 +98,14 @@ def test_html_injection_in_image_path(doc_gen):
     html_out2 = doc_gen._simple_md_to_html(md2)
     assert 'src="&quot; onerror=&quot;alert(1"' in html_out2
 
+def test_html_injection_in_image_alt(doc_gen):
+    md = '!["><script>alert(1)</script>](some_path)'
+    html_out = doc_gen._simple_md_to_html(md)
+    # The alt text should be escaped
+    expected_alt = html.escape('"><script>alert(1)</script>')
+    assert f'alt="{expected_alt}"' in html_out
+    assert "<script>" not in html_out
+
 def test_inline_styles_with_html(doc_gen):
     md = "**bold <script>**"
     html_out = doc_gen._simple_md_to_html(md)

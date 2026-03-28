@@ -15,7 +15,7 @@ class DocumentGenerator:
     RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
     RE_HEADER = re.compile(r'^#+')
     RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
-    RE_IMAGE = re.compile(r'!\[.*?\]\((.*?)\)')
+    RE_IMAGE = re.compile(r'!\[(.*?)\]\((.*?)\)')
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
@@ -106,10 +106,12 @@ class DocumentGenerator:
     def _render_image_element(self, stripped_line: str) -> str:
         """画像要素をレンダリングする"""
         img_match = self.RE_IMAGE.search(stripped_line)
-        img_path = img_match.group(1)
+        alt_text = img_match.group(1) or "画像"
+        img_path = img_match.group(2)
         # 🔒 Security Fix: HTML escape image source attribute
         escaped_img_path = html.escape(img_path, quote=True)
-        return f'<div class="image-container"><img src="{escaped_img_path}" alt="画像"></div>'
+        escaped_alt = html.escape(alt_text)
+        return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
@@ -177,7 +179,8 @@ class DocumentGenerator:
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
         def resolve_and_copy(match):
-            rel_path = match.group(1)
+            alt_text = match.group(1)
+            rel_path = match.group(2)
             filename = Path(rel_path).name
             search_dirs = [self.output_dir / "media", self.output_dir]
             for search_dir in search_dirs:
@@ -185,7 +188,7 @@ class DocumentGenerator:
                 if src.exists():
                     dst = tmp_dir / filename
                     shutil.copy2(str(src), str(dst))
-                    return f'![画像](file://{dst.absolute()})'
+                    return f'![{alt_text}](file://{dst.absolute()})'
             return match.group(0)
         
         return self.RE_IMAGE.sub(resolve_and_copy, md_content)
