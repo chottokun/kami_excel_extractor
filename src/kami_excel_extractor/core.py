@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class KamiExcelExtractor:
     """Excelから構造化JSONを抽出するメインクラス（OpenAI / Gemini / Azure対応）"""
-    
+
     def __init__(self, api_key: str = None, output_dir: str = "output", base_url: str = None):
         """
         Args:
@@ -30,12 +30,13 @@ class KamiExcelExtractor:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.base_url = base_url
         self._image_cache = {} # PR #16: Image cache
-        
+        self._visual_summary_cache = {} # Visual summary cache
+
         self.extractor = MetadataExtractor(self.output_dir)
         self.converter = ExcelConverter(self.output_dir)
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
-        self._visual_summary_cache = {} # Visual summary cache
+
         
         # モデル名の取得 (環境変数を優先)
         env_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
@@ -238,6 +239,7 @@ class KamiExcelExtractor:
         
         try:
             response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url)
+            
             content = response.choices[0].message.content or ""
             if content:
                 self._visual_summary_cache[cache_key] = content
