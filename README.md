@@ -17,19 +17,42 @@
 ## 🚀 セットアップ
 
 ### 1. 環境設定
-`.env` ファイルに Gemini API キーとモデルを設定してください。
+`.env` ファイルに LLM の提供プロバイダーに合わせた設定を行ってください。
 
 ```env
-GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-1.5-flash  # または gemini-3.1-flash-lite-preview 等
-GEMINI_RPM_LIMIT=15            # 並列数の制御に使用（1分あたりの上限）
+# LiteLLM 形式のモデル名 (openai/gpt-4o, gemini/gemini-1.5-flash, ollama/qwen2.5:4b 等)
+LLM_MODEL=gemini/gemini-1.5-flash
+LLM_API_KEY=your_api_key_here
+
+# 必要に応じてベース URL やタイムアウト、RPM 制限を指定可能
+# LLM_BASE_URL=http://localhost:11434
+# LLM_TIMEOUT=60
+# LLM_RPM_LIMIT=15
 ```
 
-### 2. 起動
+### 2. Ollama (ローカル LLM) の利用
+Ollama を使用してローカル環境で抽出を行うことも可能です。詳細は [Ollama 利用ガイド](docs/ollama.md) を参照してください。
+
+### 3. 起動
 Docker Compose を使用して、監視パイプラインを起動します。
 
 ```bash
 docker compose up -d --build
+```
+
+## 🚀 CLI での利用
+
+インストール後、`kami-excel` コマンドが利用可能になります。
+
+```bash
+# 基本的な利用 (Geminiを使用)
+kami-excel report.xlsx
+
+# Ollama を使用してテキストのみで抽出
+kami-excel report.xlsx --model ollama/qwen3.5:4b --no-vision --base-url http://localhost:11434
+
+# RAG用データの生成
+kami-excel report.xlsx --rag --output-dir ./my_data
 ```
 
 ## 📦 ライブラリとしての利用
