@@ -37,7 +37,7 @@ PYTHONPATH=src uv run pytest tests/test_core.py
 
 ## 3. 実データを用いた統合テスト
 
-実際の Gemini API キーを使用して `complex_report.xlsx` などを処理するテストを行う場合は、`.env` に有効な `GEMINI_API_KEY` を設定した上で実行してください。
+実際の LLM API キー（Gemini 等）を使用して `complex_report.xlsx` などを処理するテストを行う場合は、`.env` に有効な `LLM_API_KEY` を設定した上で実行してください。
 
 ```bash
 # 実データ検証スクリプトの実行例
