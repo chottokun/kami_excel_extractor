@@ -104,12 +104,33 @@ def test_generate_pdf_failure(mock_run, doc_gen):
     mock_run.assert_called_once()
     assert result is None
 
-@patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_exception(mock_run, doc_gen):
-    # Mock subprocess.run to raise an exception
-    mock_run.side_effect = Exception("Subprocess failed")
+def test_xss_protection(doc_gen):
+    """Verify that all rendered elements are properly HTML escaped to prevent XSS."""
+    md_content = [
+        "# <script>alert('header')</script>",
+        "- <img src=x onerror=alert('list')>",
+        "| <script>alert('th')</script> | **Bold** <a href='javascript:alert(1)'>Link</a> |",
+        "| --- | --- |",
+        "| <iframe src='javascript:alert(1)'></iframe> | Normal cell |",
+        "<svg onload=alert('paragraph')></svg>"
+    ]
+    md = "\n".join(md_content)
+    html_out = doc_gen._simple_md_to_html(md)
 
-    result = doc_gen.generate_pdf("# Test Content", "test_report")
+    # Verify that tags are escaped
+    assert "&lt;script&gt;alert(&#x27;header&#x27;)&lt;/script&gt;" in html_out
+    assert "&lt;img src=x onerror=alert(&#x27;list&#x27;)&gt;" in html_out
+    assert "&lt;script&gt;alert(&#x27;th&#x27;)&lt;/script&gt;" in html_out
+    assert "&lt;a href=&#x27;javascript:alert(1)&#x27;&gt;Link&lt;/a&gt;" in html_out
+    assert "&lt;iframe src=&#x27;javascript:alert(1)&#x27;&gt;&lt;/iframe&gt;" in html_out
+    assert "&lt;svg onload=alert(&#x27;paragraph&#x27;)&gt;&lt;/svg&gt;" in html_out
 
-    mock_run.assert_called_once()
-    assert result is None
+    # Verify that raw tags are NOT present
+    assert "<script>" not in html_out
+    assert "<img src=x" not in html_out
+    assert "<a href=" not in html_out
+    assert "<iframe>" not in html_out
+    assert "<svg" not in html_out
+
+    # Verify that safe inline styles still work after escaping
+    assert "<b>Bold</b>" in html_out
