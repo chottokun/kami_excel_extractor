@@ -1,6 +1,11 @@
 import re
 import unicodedata
 
+# Compiled regex patterns for performance
+_FILENAME_SANITIZE_RE = re.compile(r'[^\w\.\-]')
+_FILENAME_MULTIPLE_UNDERSCORES_RE = re.compile(r'__+')
+_FILENAME_MULTIPLE_DOTS_RE = re.compile(r'\.\.+')
+
 def secure_filename(filename: str) -> str:
     """
     Sanitize a string to be used as a filename.
@@ -23,14 +28,14 @@ def secure_filename(filename: str) -> str:
 
     # Keep alphanumeric (including Japanese), underscores, dashes, and dots.
     # [^\w\.\-] where \w includes Unicode word characters.
-    filename = re.sub(r'[^\w\.\-]', '_', filename)
+    filename = _FILENAME_SANITIZE_RE.sub('_', filename)
 
     # Strip leading/trailing dots and underscores
     filename = filename.strip("._")
 
     # Remove multiple consecutive underscores/dots
-    filename = re.sub(r'__+', '_', filename)
-    filename = re.sub(r'\.\.+', '.', filename)
+    filename = _FILENAME_MULTIPLE_UNDERSCORES_RE.sub('_', filename)
+    filename = _FILENAME_MULTIPLE_DOTS_RE.sub('.', filename)
 
     # If the filename becomes empty, use a default
     if not filename or filename in (".", ".."):
