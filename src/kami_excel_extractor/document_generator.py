@@ -208,12 +208,19 @@ class DocumentGenerator:
                 cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if res.returncode != 0:
+                    logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
                     return None
                 
                 pdfs = list(tmp_dir.rglob("*.pdf"))
                 if pdfs:
                     shutil.move(str(pdfs[0]), str(pdf_path))
                     return pdf_path
+                else:
+                    logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
+            except subprocess.TimeoutExpired:
+                logger.error("soffice conversion timed out after 60 seconds")
+                return None
             except Exception:
+                logger.exception("Unexpected error during PDF generation")
                 return None
         return None
