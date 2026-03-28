@@ -1,17 +1,16 @@
-import subprocess
-import tempfile
-from pathlib import Path
 import re
-import logging
+import subprocess
 import shutil
+import logging
 import html
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 class DocumentGenerator:
-    """MarkdownからHTMLを経由してPDFを生成するクラス"""
-
-    # PR #9: Pre-compiled regexes
+    """MarkdownからHTML/PDFを生成するクラス"""
+    
     RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
     RE_HEADER = re.compile(r'^#+')
     RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
@@ -20,88 +19,38 @@ class DocumentGenerator:
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
 
-    def _simple_md_to_html(self, md_text: str) -> str:
-        """Markdown要素をHTMLに変換する (テーブル・画像対応強化)"""
-        lines = md_text.splitlines()
-        html_output = []
-        in_table = False
-        table_rows = []
-        in_list = False
+    def _apply_inline_styles(self, text: str) -> str:
+        """太字等のインラインスタイルを適用する"""
+        return self.RE_BOLD.sub(r'<b>\1</b>', text)
 
-        for line in lines:
-            stripped = line.strip()
-            
-            # テーブルの開始/継続判定
-            if stripped.startswith("|") and stripped.endswith("|"):
-                in_list = self._close_list_if_needed(html_output, in_list)
-                if not in_table:
-                    in_table = True
-                    table_rows = []
-                
-                # 区切り行判定
-                cells = [c.strip() for c in stripped.split("|")[1:-1]]
-                if all(self.RE_TABLE_SEP.match(cell) for cell in cells):
-                    continue
-                table_rows.append(stripped)
+    def _render_table(self, lines: List[str]) -> str:
+        """MarkdownのテーブルをHTMLに変換する"""
+        if len(lines) < 2: return ""
+        html_rows = ["<table border='1'>"]
+        for i, line in enumerate(lines):
+            if i == 1 and self.RE_TABLE_SEP.match(line.strip().split('|')[1] if '|' in line else ""):
                 continue
-            else:
-                if in_table:
-                    html_output.append(self._render_table(table_rows))
-                    in_table = False
-                    table_rows = []
-            
-            # 空行
-            if not stripped:
-                in_list = self._close_list_if_needed(html_output, in_list)
-                continue
-                
-            # Headers
-            if stripped.startswith("#"):
-                in_list = self._close_list_if_needed(html_output, in_list)
-                html_output.append(self._render_header(stripped))
-            # Lists
-            elif stripped.startswith("- "):
-                if not in_list:
-                    html_output.append("<ul>")
-                    in_list = True
-                html_output.append(self._render_list_item(stripped))
-            # Images
-            elif self.RE_IMAGE.match(stripped):
-                in_list = self._close_list_if_needed(html_output, in_list)
-                html_output.append(self._render_image_element(stripped))
-            # Text
-            else:
-                in_list = self._close_list_if_needed(html_output, in_list)
-                html_output.append(self._render_paragraph(stripped))
-
-        # 末尾処理
-        if in_table:
-            html_output.append(self._render_table(table_rows))
-        self._close_list_if_needed(html_output, in_list)
-
-        return self._get_html_template("\n".join(html_output))
-
-    def _close_list_if_needed(self, html_output: list, in_list: bool) -> bool:
-        """リストが開始されている場合、閉じタグを追加する"""
-        if in_list:
-            html_output.append("</ul>")
-        return False
+            cells = [c.strip() for c in line.split('|') if c.strip()]
+            tag = "th" if i == 0 else "td"
+            row_content = "".join([f"<{tag}>{self._apply_inline_styles(html.escape(c))}</{tag}>" for c in cells])
+            html_rows.append(f"  <tr>{row_content}</tr>")
+        html_rows.append("</table>")
+        return "\n".join(html_rows)
 
     def _render_header(self, stripped_line: str) -> str:
         """ヘッダー要素をレンダリングする"""
-        header_match = self.RE_HEADER.match(stripped_line)
-        level = len(header_match.group()) if header_match else 1
-        content = stripped_line.lstrip("#").strip()
-        # 🔒 Security Fix: HTML escape before applying inline styles
+        level = len(self.RE_HEADER.match(stripped_line).group())
+        content = stripped_line.lstrip('#').strip()
         escaped_content = html.escape(content)
-        return f"<h{level}>{self._apply_inline_styles(escaped_content)}</h{level}>"
+        styled_content = self._apply_inline_styles(escaped_content)
+        return f"<h{level}>{styled_content}</h{level}>"
 
     def _render_list_item(self, stripped_line: str) -> str:
-        """リストアイテムをレンダリングする"""
-        content = stripped_line[2:].strip()
-        # 🔒 Security Fix: HTML escape before applying inline styles
+        """リスト項目をレンダリングする"""
+        content = stripped_line.lstrip('-*').strip()
         escaped_content = html.escape(content)
-        return f"<li>{self._apply_inline_styles(escaped_content)}</li>"
+        styled_content = self._apply_inline_styles(escaped_content)
+        return f"<li>{styled_content}</li>"
 
     def _render_image_element(self, stripped_line: str) -> str:
         """画像要素をレンダリングする"""
@@ -113,67 +62,56 @@ class DocumentGenerator:
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        escaped_text = html.escape(stripped_line)
-        return f"<p>{self._apply_inline_styles(escaped_text)}</p>"
+        escaped_line = html.escape(stripped_line)
+        styled_line = self._apply_inline_styles(escaped_line)
+        return f"<p>{styled_line}</p>"
 
-    def _get_html_template(self, body_html: str) -> str:
-        """HTMLテンプレートを生成する"""
-        return f"""<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body {{
-            font-family: "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", sans-serif;
-            line-height: 1.8;
-            padding: 40px;
-            color: #333;
-            font-size: 14px;
-        }}
-        h1 {{ border-bottom: 3px solid #336699; padding-bottom: 10px; color: #336699; margin-top: 40px; font-size: 24px; }}
-        h2 {{ border-left: 5px solid #336699; padding-left: 12px; margin-top: 30px; color: #336699; font-size: 20px; }}
-        h3 {{ color: #444; margin-top: 25px; font-size: 16px; }}
-        p {{ margin: 8px 0; }}
-        b {{ color: #000; }}
-        ul {{ margin: 5px 0; padding-left: 20px; }}
-        li {{ margin-bottom: 4px; }}
-        .image-container {{ text-align: center; margin: 20px 0; page-break-inside: avoid; }}
-        img {{ border: 1px solid #ccc; border-radius: 4px; padding: 5px; background: #fff; max-width: 80%; height: auto; }}
-        table {{ border-collapse: collapse; width: 100%; margin: 15px 0; table-layout: auto; page-break-inside: avoid; }}
-        th, td {{ border: 1px solid #aaa; padding: 8px 12px; text-align: left; font-size: 13px; }}
-        th {{ background-color: #e8eef5; font-weight: bold; color: #333; }}
-        tr:nth-child(even) td {{ background-color: #f9f9f9; }}
-        .visual-summary {{ background: #fdf6e3; border-left: 4px solid #b58900; padding: 12px 15px; font-size: 0.95em; color: #586e75; margin: 10px 0 20px 0; page-break-inside: avoid; }}
-    </style>
-</head>
-<body>
-    {body_html}
-</body>
-</html>"""
-
-    def _apply_inline_styles(self, text: str) -> str:
-        # PR #9: Use pre-compiled bold regex
-        text = self.RE_BOLD.sub(r'<b>\1</b>', text)
-        if "[画像概要]" in text:
-            text = f'<div class="visual-summary">{text}</div>'
-        return text
-
-    def _render_table(self, rows: list) -> str:
-        if not rows:
-            return ""
-        html_out = ["<table>"]
-        for i, row in enumerate(rows):
-            cells = [c.strip() for c in row.split("|")[1:-1]]
-            tag = "th" if i == 0 else "td"
-            html_out.append("<tr>")
-            for cell in cells:
-                # 🔒 Security Fix: HTML escape before applying inline styles
-                escaped_cell = html.escape(cell)
-                html_out.append(f"<{tag}>{self._apply_inline_styles(escaped_cell)}</{tag}>")
-            html_out.append("</tr>")
-        html_out.append("</table>")
-        return "\n".join(html_out)
+    def _simple_md_to_html(self, md_content: str) -> str:
+        """簡易的なMarkdownをHTMLに変換する"""
+        lines = md_content.split('\n')
+        html_output = [
+            "<html><head><meta charset='utf-8'><style>",
+            "body { font-family: sans-serif; margin: 2em; }",
+            "table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }",
+            "th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }",
+            "th { background-color: #f2f2f2; }",
+            ".image-container { text-align: center; margin: 1em 0; }",
+            "img { max-width: 100%; height: auto; }",
+            "</style></head><body>"
+        ]
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if not stripped:
+                i += 1
+                continue
+            
+            if stripped.startswith('|'):
+                table_lines = []
+                while i < len(lines) and lines[i].strip().startswith('|'):
+                    table_lines.append(lines[i])
+                    i += 1
+                html_output.append(self._render_table(table_lines))
+            elif self.RE_HEADER.match(stripped):
+                html_output.append(self._render_header(stripped))
+                i += 1
+            elif stripped.startswith(('-', '*')):
+                html_output.append("<ul>")
+                while i < len(lines) and lines[i].strip().startswith(('-', '*')):
+                    html_output.append(self._render_list_item(lines[i].strip()))
+                    i += 1
+                html_output.append("</ul>")
+            elif stripped.startswith('!['):
+                html_output.append(self._render_image_element(stripped))
+                i += 1
+            else:
+                html_output.append(self._render_paragraph(stripped))
+                i += 1
+        
+        html_output.append("</body></html>")
+        return "\n".join(html_output)
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
         def resolve_and_copy(match):
@@ -190,12 +128,12 @@ class DocumentGenerator:
         
         return self.RE_IMAGE.sub(resolve_and_copy, md_content)
 
-    def generate_pdf(self, md_content: str, output_name: str) -> Path:
-        """Markdown内容からPDFを生成する (PR #22: Use secure tempfile)"""
-        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_name:
-            tmp_dir = Path(tmp_dir_name)
-            md_content_resolved = self._resolve_images_to_tmpdir(md_content, tmp_dir)
-            html_content = self._simple_md_to_html(md_content_resolved)
+    def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
+        """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            html_content = self._simple_md_to_html(self._resolve_images_to_tmpdir(md_content, tmp_dir))
             
             temp_html = tmp_dir / f"{output_name}.html"
             with open(temp_html, "w", encoding="utf-8") as f:
@@ -217,8 +155,8 @@ class DocumentGenerator:
                     return pdf_path
                 else:
                     logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
-            except subprocess.TimeoutExpired:
-                logger.error("soffice conversion timed out after 60 seconds")
+            except (subprocess.SubprocessError, OSError) as e:
+                logger.error(f"Failed to generate PDF for {output_name}: {e}")
                 return None
             except Exception:
                 logger.exception("Unexpected error during PDF generation")
