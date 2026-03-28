@@ -19,16 +19,24 @@ logger = logging.getLogger(__name__)
 class KamiExcelExtractor:
     """Excelから構造化JSONを抽出するメインクラス（OpenAI / Gemini / Azure対応）"""
 
-    def __init__(self, api_key: str = None, output_dir: str = "output", base_url: str = None):
+    def __init__(self, api_key: str = None, output_dir: str = "output", base_url: str = None, timeout: float = 600.0):
         """
         Args:
             api_key: LLMのAPIキー
             output_dir: 結果の出力先
             base_url: プロキシ等を使用する場合のカスタムURL
+            timeout: 推論のタイムアウト（秒）
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.base_url = base_url
+        self.timeout = timeout if timeout != 600.0 else float(os.getenv("LLM_TIMEOUT") or timeout)
+        
+        # 汎用設定を優先
+        self.base_url = base_url or os.getenv("LLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL")
+        
+        # RPM制限の初期化
+        rpm_str = os.getenv("LLM_RPM_LIMIT") or os.getenv("GEMINI_RPM_LIMIT") or "15"
+        self.litellm_rpm_limit = int(rpm_str)
         self._image_cache = {} # PR #16: Image cache
         self._visual_summary_cache = {} # Visual summary cache
 
@@ -38,14 +46,17 @@ class KamiExcelExtractor:
         self.doc_generator = DocumentGenerator(self.output_dir)
 
         
-        # モデル名の取得 (環境変数を優先)
-        env_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-        self.default_model = env_model if env_model.startswith(("gemini/", "openai/")) else f"gemini/{env_model}"
+        # モデル名の取得 (汎用環境変数 LLM_MODEL を最優先)
+        env_model = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
+        
+        # プレフィックスが含まれていない場合、かつ Gemini でない可能性がある場合は注意が必要だが、
+        # 基本的には指定通りに扱う (litellmに任せる)
+        self.default_model = env_model
 
         if api_key:
             self.api_key = api_key.strip("'\" ")
         else:
-            self.api_key = os.getenv("GEMINI_API_KEY")
+            self.api_key = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
 
     def _make_json_serializable(self, data):
         """
@@ -76,27 +87,25 @@ class KamiExcelExtractor:
     def _resolve_model(self, model: Optional[str] = None) -> str:
         """モデル名のデフォルト値とプレフィックスを解決する"""
         model = model or self.default_model
-        if not any(model.startswith(p) for p in ["gemini/", "openai/", "azure/"]):
-            model = f"gemini/{model}"
+        # プレフィックスの自動付加は廃止 (litellmの推論や明示的な指定に任せる)
         return model
 
     def _get_semaphore(self) -> Optional[asyncio.Semaphore]:
         """RPM制限に基づいたセマフォを取得する"""
-        rpm_limit = int(os.getenv("GEMINI_RPM_LIMIT", "15"))
-        return asyncio.Semaphore(rpm_limit) if rpm_limit > 0 else None
+        return asyncio.Semaphore(self.litellm_rpm_limit) if self.litellm_rpm_limit > 0 else None
 
-    def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: str) -> list:
+    def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: Optional[str] = None) -> list:
         """LLMへのメッセージリストを構築する"""
+        content = [{"type": "text", "text": f"対象シート: {sheet_name}\nデータソース:\n{html_content}"}]
+        
+        if image_url:
+            content.append({"type": "image_url", "image_url": {"url": image_url}})
+            
+        content.append({"type": "text", "text": "提供されたExcelシートのデータを構造化データとしてYAMLで出力してください。Markdownのコードブロック(```yaml)を含めてください。"})
+        
         return [
             {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"対象シート: {sheet_name}\nデータソース:\n{html_content}"},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                    {"type": "text", "text": "提供されたExcelシートのデータを構造化データとしてYAMLで出力してください。Markdownのコードブロック(```yaml)を含めてください。"}
-                ]
-            }
+            {"role": "user", "content": content}
         ]
 
     def _parse_yaml_response(self, content: str, sheet_name: str) -> dict:
@@ -120,7 +129,7 @@ class KamiExcelExtractor:
             logger.error(f"Failed to parse YAML for sheet {sheet_name}: {e}")
             return {"error": str(e), "_raw_yaml": yaml_str}
 
-    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore]) -> tuple:
+    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True) -> tuple:
         """単一のシートを解析して構造化データを取得する"""
         if sheet_content.get("is_simple"):
             logger.info(f"Using simple table extraction for sheet: {sheet_name}")
@@ -133,14 +142,16 @@ class KamiExcelExtractor:
 
         async with (semaphore if semaphore else asyncio.Lock()):
             logger.info(f"Processing sheet via LLM: {sheet_name}")
-            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), image_url)
+            actual_image_url = image_url if use_visual_context else None
+            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
 
             try:
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
                     api_key=self.api_key,
-                    base_url=self.base_url
+                    base_url=self.base_url,
+                    timeout=self.timeout
                 )
                 result = self._parse_yaml_response(response.choices[0].message.content, sheet_name)
                 return sheet_name, result
@@ -173,13 +184,13 @@ class KamiExcelExtractor:
                         sheet_struct["media"] = []
                     sheet_struct["media"].append(m)
 
-    def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False):
+    def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False, use_visual_context: bool = True):
         """Excelを解析して構造化データを取得する (同期版ラッパー)"""
         return asyncio.run(self.aextract_structured_data(
-            excel_path, model=model, system_prompt=system_prompt, include_visual_summaries=include_visual_summaries
+            excel_path, model=model, system_prompt=system_prompt, include_visual_summaries=include_visual_summaries, use_visual_context=use_visual_context
         ))
 
-    async def aextract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False):
+    async def aextract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False, use_visual_context: bool = True):
         """Excelを解析して構造化データを取得する (非同期版)"""
         model = self._resolve_model(model)
         semaphore = self._get_semaphore()
@@ -187,9 +198,16 @@ class KamiExcelExtractor:
         logger.info(f"Extracting structured data from {excel_path.name} using {model}...")
 
         # 変換・抽出・画像URL化
-        png_path = self.converter.convert(excel_path)
         raw_data = self.extractor.extract(excel_path)
-        image_url = await self._encode_image_to_base64_url(png_path)
+        
+        image_url = None
+        if include_visual_summaries or use_visual_context:
+            logger.info("Converting Excel to image for visual context/summaries...")
+            try:
+                png_path = self.converter.convert(excel_path)
+                image_url = await self._encode_image_to_base64_url(png_path)
+            except Exception as e:
+                logger.warning(f"Excel-to-image conversion failed (skipping visual context): {e}")
         
         if not system_prompt:
             system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをYAML形式で出力してください。出力は必ず ```yaml と ``` で囲んだブロック内のみとしてください。"
@@ -197,7 +215,7 @@ class KamiExcelExtractor:
         # 各シートの解析タスクの実行
         sheets_data = raw_data.get("sheets", {})
         tasks = [
-            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore)
+            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context)
             for name, content in sheets_data.items()
         ]
         results = await asyncio.gather(*tasks)
@@ -238,7 +256,13 @@ class KamiExcelExtractor:
         messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
         
         try:
-            response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url)
+            response = await litellm.acompletion(
+                model=model,
+                messages=messages,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=self.timeout
+            )
             
             content = response.choices[0].message.content or ""
             if content:
@@ -248,15 +272,15 @@ class KamiExcelExtractor:
             logger.error(f"Failed to generate visual summary: {e}")
             return "[画像概要] 解析に失敗しました。"
 
-    def extract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv"):
+    def extract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv", use_visual_context: bool = True):
         """Excelを解析してRAG用のチャンクを生成する (同期版ラッパー)"""
-        return asyncio.run(self.aextract_rag_chunks(excel_path, model=model, list_format=list_format))
+        return asyncio.run(self.aextract_rag_chunks(excel_path, model=model, list_format=list_format, use_visual_context=use_visual_context))
 
-    async def aextract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv"):
+    async def aextract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv", use_visual_context: bool = True):
         """Excelを解析してRAG用のチャンクを生成する (非同期版)"""
         excel_path = Path(excel_path)
         
-        structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True)
+        structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True, use_visual_context=use_visual_context)
 
         original_format = self.rag_converter.list_format
         self.rag_converter.list_format = list_format
