@@ -14,71 +14,114 @@ class DocumentGenerator:
     RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
     RE_HEADER = re.compile(r'^#+')
     RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
-    RE_IMAGE = re.compile(r'!\[.*?\]\((.*?)\)')
+    RE_IMAGE = re.compile(r'!\[(.*?)\]\((.*?)\)')
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir)
 
+    def _render_inline(self, text: str) -> str:
+        """テキストをHTMLエスケープし、インラインスタイルを適用する"""
+        # 🔒 Security Fix: HTML escape before applying inline styles
+        return self._apply_inline_styles(html.escape(text))
+
     def _apply_inline_styles(self, text: str) -> str:
         """太字等のインラインスタイルを適用する"""
-        return self.RE_BOLD.sub(r'<b>\1</b>', text)
+        text = self.RE_BOLD.sub(r'<b>\1</b>', text)
+        if "[画像概要]" in text:
+            text = f'<div class="visual-summary">{text}</div>'
+        return text
 
     def _render_table(self, lines: List[str]) -> str:
         """MarkdownのテーブルをHTMLに変換する"""
-        if len(lines) < 2: return ""
-        html_rows = ["<table border='1'>"]
+        if not lines:
+            return ""
+        html_out = ["<table>"]
         for i, line in enumerate(lines):
+            # セパレータ行をスキップ
             if i == 1 and self.RE_TABLE_SEP.match(line.strip().split('|')[1] if '|' in line else ""):
                 continue
+            
+            # セルを分割。先頭と末尾の空要素を考慮
             cells = [c.strip() for c in line.split('|') if c.strip()]
             tag = "th" if i == 0 else "td"
-            row_content = "".join([f"<{tag}>{self._apply_inline_styles(html.escape(c))}</{tag}>" for c in cells])
-            html_rows.append(f"  <tr>{row_content}</tr>")
-        html_rows.append("</table>")
-        return "\n".join(html_rows)
+            html_out.append("  <tr>")
+            for cell in cells:
+                html_out.append(f"    <{tag}>{self._render_inline(cell)}</{tag}>")
+            html_out.append("  </tr>")
+        html_out.append("</table>")
+        return "\n".join(html_out)
 
     def _render_header(self, stripped_line: str) -> str:
         """ヘッダー要素をレンダリングする"""
-        level = len(self.RE_HEADER.match(stripped_line).group())
-        content = stripped_line.lstrip('#').strip()
-        escaped_content = html.escape(content)
-        styled_content = self._apply_inline_styles(escaped_content)
-        return f"<h{level}>{styled_content}</h{level}>"
+        header_match = self.RE_HEADER.match(stripped_line)
+        level = len(header_match.group()) if header_match else 1
+        content = stripped_line.lstrip("#").strip()
+        return f"<h{level}>{self._render_inline(content)}</h{level}>"
 
     def _render_list_item(self, stripped_line: str) -> str:
-        """リスト項目をレンダリングする"""
-        content = stripped_line.lstrip('-*').strip()
-        escaped_content = html.escape(content)
-        styled_content = self._apply_inline_styles(escaped_content)
-        return f"<li>{styled_content}</li>"
+        """リストアイテムをレンダリングする"""
+        # 行頭の - または * とその後のスペースを除去 (正規表現で確実に分離)
+        match = re.match(r'^[-*]\s+(.*)$', stripped_line)
+        if match:
+            content = match.group(1)
+        else:
+            # スペースがない場合は記号1文字だけ削る
+            content = stripped_line[1:].strip()
+        return f"<li>{self._render_inline(content)}</li>"
 
     def _render_image_element(self, stripped_line: str) -> str:
         """画像要素をレンダリングする"""
         img_match = self.RE_IMAGE.search(stripped_line)
-        img_path = img_match.group(1)
+        alt_text = img_match.group(1) or "画像"
+        img_path = img_match.group(2)
         # 🔒 Security Fix: HTML escape image source attribute
         escaped_img_path = html.escape(img_path, quote=True)
-        return f'<div class="image-container"><img src="{escaped_img_path}" alt="画像"></div>'
+        escaped_alt = html.escape(alt_text)
+        return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
-        escaped_line = html.escape(stripped_line)
-        styled_line = self._apply_inline_styles(escaped_line)
-        return f"<p>{styled_line}</p>"
+        return f"<p>{self._render_inline(stripped_line)}</p>"
+
+    def _get_html_template(self, body_html: str) -> str:
+        """HTMLテンプレートを生成する"""
+        return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{
+            font-family: "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", sans-serif;
+            line-height: 1.8;
+            padding: 40px;
+            color: #333;
+            font-size: 14px;
+        }}
+        h1 {{ border-bottom: 3px solid #336699; padding-bottom: 10px; color: #336699; margin-top: 40px; font-size: 24px; }}
+        h2 {{ border-left: 5px solid #336699; padding-left: 12px; margin-top: 30px; color: #336699; font-size: 20px; }}
+        h3 {{ color: #444; margin-top: 25px; font-size: 16px; }}
+        p {{ margin: 8px 0; }}
+        b {{ color: #000; }}
+        ul {{ margin: 5px 0; padding-left: 20px; }}
+        li {{ margin-bottom: 4px; }}
+        .image-container {{ text-align: center; margin: 20px 0; page-break-inside: avoid; }}
+        img {{ border: 1px solid #ccc; border-radius: 4px; padding: 5px; background: #fff; max-width: 80%; height: auto; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 15px 0; table-layout: auto; page-break-inside: avoid; }}
+        th, td {{ border: 1px solid #aaa; padding: 8px 12px; text-align: left; font-size: 13px; }}
+        th {{ background-color: #e8eef5; font-weight: bold; color: #333; }}
+        tr:nth-child(even) td {{ background-color: #f9f9f9; }}
+        .visual-summary {{ background: #fdf6e3; border-left: 4px solid #b58900; padding: 12px 15px; font-size: 0.95em; color: #586e75; margin: 10px 0 20px 0; page-break-inside: avoid; }}
+    </style>
+</head>
+<body>
+    {body_html}
+</body>
+</html>"""
 
     def _simple_md_to_html(self, md_content: str) -> str:
         """簡易的なMarkdownをHTMLに変換する"""
         lines = md_content.split('\n')
-        html_output = [
-            "<html><head><meta charset='utf-8'><style>",
-            "body { font-family: sans-serif; margin: 2em; }",
-            "table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }",
-            "th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }",
-            "th { background-color: #f2f2f2; }",
-            ".image-container { text-align: center; margin: 1em 0; }",
-            "img { max-width: 100%; height: auto; }",
-            "</style></head><body>"
-        ]
+        body_parts = []
         
         i = 0
         while i < len(lines):
@@ -88,34 +131,35 @@ class DocumentGenerator:
                 i += 1
                 continue
             
-            if stripped.startswith('|'):
+            elif stripped.startswith('|'):
                 table_lines = []
                 while i < len(lines) and lines[i].strip().startswith('|'):
                     table_lines.append(lines[i])
                     i += 1
-                html_output.append(self._render_table(table_lines))
+                body_parts.append(self._render_table(table_lines))
             elif self.RE_HEADER.match(stripped):
-                html_output.append(self._render_header(stripped))
+                body_parts.append(self._render_header(stripped))
                 i += 1
-            elif stripped.startswith(('-', '*')):
-                html_output.append("<ul>")
-                while i < len(lines) and lines[i].strip().startswith(('-', '*')):
-                    html_output.append(self._render_list_item(lines[i].strip()))
+            elif re.match(r'^[-*](\s+|$)', stripped):
+                body_parts.append("<ul>")
+                while i < len(lines) and re.match(r'^[-*](\s+|$)', lines[i].strip()):
+                    body_parts.append(self._render_list_item(lines[i].strip()))
                     i += 1
-                html_output.append("</ul>")
+                body_parts.append("</ul>")
             elif stripped.startswith('!['):
-                html_output.append(self._render_image_element(stripped))
+
+                body_parts.append(self._render_image_element(stripped))
                 i += 1
             else:
-                html_output.append(self._render_paragraph(stripped))
+                body_parts.append(self._render_paragraph(stripped))
                 i += 1
         
-        html_output.append("</body></html>")
-        return "\n".join(html_output)
+        return self._get_html_template("\n".join(body_parts))
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
         def resolve_and_copy(match):
-            rel_path = match.group(1)
+            alt_text = match.group(1)
+            rel_path = match.group(2)
             filename = Path(rel_path).name
             search_dirs = [self.output_dir / "media", self.output_dir]
             for search_dir in search_dirs:
@@ -123,7 +167,7 @@ class DocumentGenerator:
                 if src.exists():
                     dst = tmp_dir / filename
                     shutil.copy2(str(src), str(dst))
-                    return f'![画像](file://{dst.absolute()})'
+                    return f'![{alt_text}](file://{dst.absolute()})'
             return match.group(0)
         
         return self.RE_IMAGE.sub(resolve_and_copy, md_content)
@@ -131,7 +175,7 @@ class DocumentGenerator:
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
         import tempfile
-        with tempfile.TemporaryDirectory() as tmp_dir_str:
+        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
             html_content = self._simple_md_to_html(self._resolve_images_to_tmpdir(md_content, tmp_dir))
             

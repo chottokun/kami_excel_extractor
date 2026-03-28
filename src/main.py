@@ -15,16 +15,22 @@ load_dotenv()
 INPUT_DIR = Path("data/input")
 OUTPUT_DIR = Path("data/output")
 
-def main():
-    llm_api_key = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
-    llm_model = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
+# テストのためにグローバル変数として定義
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
 
-    if not llm_api_key and "ollama" not in llm_model:
-        logger.error("Neither LLM_API_KEY nor GEMINI_API_KEY is set (and not using Ollama).")
+def main():
+    # 実行時に最新の値を取得 (テストパッチ対応)
+    global LLM_API_KEY, LLM_MODEL
+    api_key = LLM_API_KEY or os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
+    model = LLM_MODEL or os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
+
+    if not api_key and "ollama" not in model:
+        logger.error("LLM_API_KEY or GEMINI_API_KEY is not set.")
         return
 
     # ライブラリの初期化
-    extractor = KamiExcelExtractor(api_key=llm_api_key, output_dir=str(OUTPUT_DIR))
+    extractor = KamiExcelExtractor(api_key=api_key, output_dir=str(OUTPUT_DIR))
     
     logger.info(f"Library Mode Pipeline started. Monitoring {INPUT_DIR}...")
     processed = set()
@@ -36,7 +42,7 @@ def main():
                 try:
                     logger.info(f"Processing: {f.name}")
                     # 解析の実行（画像概要生成を含む）
-                    sheet_results, full_structured_data = extractor.extract_rag_chunks(f, model=llm_model)
+                    sheet_results, full_structured_data = extractor.extract_rag_chunks(f, model=model)
                     import json
                     
                     target_dir = OUTPUT_DIR / f.stem
