@@ -6,13 +6,14 @@
 
 - **方眼紙エクセル対応**: セル結合や細かいグリッドを論理的に解釈し、ラベルと値のペアを正確に特定。
 - **マルチモーダル解析**: LibreOffice による画像レンダリングと `openpyxl` による構造抽出を統合。
-- **物理抽出最適化 (NEW)**: 単純な表構造を自動検知。LLMを使わず直接抽出することで、100%の精度確保とコスト削減を両立。
-- **非同期・並列処理 (NEW)**: `asyncio` による複数シート・画像の並列解析。実行時間を最大 90% 削減。
-- **RAG最適化出力 (NEW)**: RAG検索精度を向上させる「Key: Value」形式のMarkdown出力に対応。
-- **高度な互換性 (NEW)**: 
-    - 抽出画像を Pillow で自動正規化（PNG変換）し、VLMの読み取りエラー（400）を防止。
-    - Excel特有の日付データ（datetime）を自動的に文字列（ISO形式）へ変換し、JSON出力を保証。
-- **セキュアな一時ファイル管理**: `tempfile.TemporaryDirectory` による安全なディレクトリ処理。
+- **物理抽出最適化**: 単純な表構造を自動検知。LLMを使わず直接抽出することで、100%の精度確保とコスト削減を両立。
+- **非同期・並列処理**: `asyncio` による複数シート・画像の並列解析。GPUリソースに応じた速度向上。
+- **RAG最適化出力**: RAG検索精度を向上させる「Key: Value」形式のMarkdown出力に対応。
+- **多形式アウトプット**: 解析結果を JSON, YAML, Markdown, そしてそのまま報告書として使える PDF 形式で同時出力。
+- **高度な互換性**: 
+    - 抽出画像を Pillow で自動正規化（PNG変換）し、VLMの読み取りエラーを防止。
+    - Excel特有の日付データ（datetime）を自動的に文字列（ISO形式）へ変換。
+- **セキュアな設計**: 徹底した HTML エスケープと引数注入対策、`tempfile` による安全な一時管理。
 
 ## 🚀 セットアップ
 
@@ -26,13 +27,13 @@ LLM_API_KEY=your_api_key_here
 
 # 必要に応じてベース URL やタイムアウト、RPM 制限を指定可能
 # LLM_BASE_URL=http://localhost:11434
-# LLM_TIMEOUT=1800  # 複雑な解析には 30分(1800s) 程度を推奨
-# LLM_RPM_LIMIT=15
+# LLM_TIMEOUT=1800  # 複雑な解析（方眼紙など）には 1800秒(30分) 以上を推奨
+# LLM_RPM_LIMIT=15  # 1分あたりの最大リクエスト数
 ```
 
 ### 2. Ollama (ローカル LLM) の利用
-Ollama を使用してローカル環境で抽出を行うことも可能です。詳細は [Ollama 利用ガイド](docs/ollama.md) を参照してください。
-※ Docker コンテナ内からホスト側の Ollama に接続する場合は、`LLM_BASE_URL=http://172.17.0.1:11434` を指定してください。
+Ollama を使用してローカル環境で抽出を行うことも可能です。
+※ Linux Docker コンテナ内からホスト側の Ollama に接続する場合は、`LLM_BASE_URL=http://172.17.0.1:11434` を使用してください。詳細は [Ollama 利用ガイド](docs/ollama.md) を参照。
 
 ### 3. 起動
 Docker Compose を使用して、監視パイプラインを起動します。
@@ -41,63 +42,29 @@ Docker Compose を使用して、監視パイプラインを起動します。
 docker compose up -d --build
 ```
 
-## 🛡️ セキュリティと堅牢性
-
-本ツールは業務利用を想定し、以下のセキュリティ対策を標準で備えています。
-
-- **XSS 対策**: 生成される HTML/PDF レポート内のすべての外部入力（Excelの内容や画像属性）に対して HTML エスケープを徹底しています。
-- **引数注入対策**: 外部コマンド（LibreOffice, pdftocairo）実行時、ファイルパスを絶対パスに正規化することで意図しない引数の注入を防止しています。
-- **堅牢なエラーハンドリング**: 破損した画像や解析不可能なデータが含まれていても、プロセスを停止させずスキップ・記録する設計になっています。
-
-## 🚀 CLI での利用
-
-インストール後、`kami-excel` コマンドが利用可能になります。
-
-```bash
-# 基本的な利用 (Geminiを使用)
-kami-excel report.xlsx
-
-# Ollama を使用してテキストのみで抽出
-kami-excel report.xlsx --model ollama/qwen3.5:4b --no-vision --base-url http://localhost:11434
-
-# RAG用データの生成
-kami-excel report.xlsx --rag --output-dir ./my_data
-```
-
-## 📦 ライブラリとしての利用
-
-### 非同期呼び出し (推奨)
-```python
-import asyncio
-from kami_excel_extractor import KamiExcelExtractor
-
-async def main():
-    # .env の設定が自動的に読み込まれます
-    extractor = KamiExcelExtractor()
-    
-    # 画像概要の生成も含めて並列実行
-    result = await extractor.aextract_structured_data("report.xlsx", include_visual_summaries=True)
-    print(result)
-
-asyncio.run(main())
-```
-
-### RAG用チャンク生成
-```python
-# list_format="kv" を指定することで検索に強い形式で出力
-sheet_results, full_data = await extractor.aextract_rag_chunks("report.xlsx", list_format="kv")
-```
-
-## 🧪 テストの実行
-
-```bash
-# 全テストの実行
-PYTHONPATH=src uv run pytest tests/
-```
-
-## 📂 ディレクトリ構造
+## 📂 ディレクトリ構成と成果物
 
 - `src/kami_excel_extractor/`: コアライブラリ（完全パッケージ化）
 - `data/input/`: 処理待ちExcelの投入先
-- `data/output/`: 構造化データおよび抽出写真の出力先
-- `tests/`: 徹底的な検証済みテストスイート（セキュリティ、非同期、物理抽出等）
+- `data/output/`: 成果物の出力先。ファイルごとに以下の構成で出力されます。
+    - `full_lib_result.json`: 全シートの統合抽出結果
+    - `(シート名)_lib_result.json/yaml`: シートごとの構造化データ
+    - `(シート名)_rag.md`: RAG/閲覧用の Markdown
+    - **`(シート名)_report.pdf`**: セキュアに生成されたビジュアル報告書
+
+## 🧪 テストと検証
+
+```bash
+# 全自動テストの実行 (コンテナ内推奨)
+docker exec pipeline-worker-lib uv run pytest tests/
+
+# 特定のファイルに対する手動解析 (CLI)
+docker exec pipeline-worker-lib uv run python -m kami_excel_extractor.cli data/input/sample.xlsx --model ollama/qwen3.5:4b
+```
+
+## 🛡️ セキュリティ
+
+本ツールは業務利用を想定し、以下の対策を標準で備えています。
+- **XSS 対策**: 生成されるレポート内の全外部入力（Excel内容、画像属性等）に対し HTML エスケープを徹底。
+- **引数注入対策**: 外部コマンド（LibreOffice等）実行時のパス正規化。
+- **堅牢なエラーハンドリング**: 破損画像や推論エラー発生時も、プロセスを停止させずスキップ・記録。
