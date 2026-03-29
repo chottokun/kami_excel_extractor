@@ -175,30 +175,42 @@ class DocumentGenerator:
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
         import tempfile
+        # 安全なファイル名のベースを作成（スラッシュをアンダースコアに置換）
+        safe_base_name = output_name.replace("/", "_").replace("\\", "_")
+        
         with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
             html_content = self._simple_md_to_html(self._resolve_images_to_tmpdir(md_content, tmp_dir))
             
-            temp_html = tmp_dir / f"{output_name}.html"
+            # 一時ディレクトリ内ではフラットに管理
+            temp_html = tmp_dir / f"{safe_base_name}.html"
             with open(temp_html, "w", encoding="utf-8") as f:
                 f.write(html_content)
             
+            # 最終的な出力パス
             pdf_path = self.output_dir / f"{output_name}.pdf"
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                # --outdir は一時ディレクトリのルートを指定
                 cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if res.returncode != 0:
                     logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
                     return None
                 
-                pdfs = list(tmp_dir.rglob("*.pdf"))
-                if pdfs:
-                    shutil.move(str(pdfs[0]), str(pdf_path))
+                # 生成されたPDFを特定（sofficeは入力ファイル名.pdfを出力する）
+                expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
+                if expected_pdf.exists():
+                    shutil.move(str(expected_pdf), str(pdf_path))
                     return pdf_path
                 else:
+                    # フォールバック: rglobで探す
+                    pdfs = list(tmp_dir.rglob("*.pdf"))
+                    if pdfs:
+                        shutil.move(str(pdfs[0]), str(pdf_path))
+                        return pdf_path
                     logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
             except (subprocess.SubprocessError, OSError) as e:
                 logger.error(f"Failed to generate PDF for {output_name}: {e}")

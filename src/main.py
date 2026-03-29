@@ -18,19 +18,21 @@ OUTPUT_DIR = Path("data/output")
 # テストのためにグローバル変数として定義
 LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT") or 1800.0)
 
 def main():
     # 実行時に最新の値を取得 (テストパッチ対応)
-    global LLM_API_KEY, LLM_MODEL
+    global LLM_API_KEY, LLM_MODEL, LLM_TIMEOUT
     api_key = LLM_API_KEY or os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
     model = LLM_MODEL or os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
+    timeout = LLM_TIMEOUT or float(os.getenv("LLM_TIMEOUT") or 1800.0)
 
     if not api_key and "ollama" not in model:
         logger.error("LLM_API_KEY or GEMINI_API_KEY is not set.")
         return
 
     # ライブラリの初期化
-    extractor = KamiExcelExtractor(api_key=api_key, output_dir=str(OUTPUT_DIR))
+    extractor = KamiExcelExtractor(api_key=api_key, output_dir=str(OUTPUT_DIR), timeout=timeout)
     
     logger.info(f"Library Mode Pipeline started. Monitoring {INPUT_DIR}...")
     processed = set()
