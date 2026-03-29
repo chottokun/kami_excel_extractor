@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+      args:
+        APP_UID: "${UID:-1000}"
+        APP_GID: "${GID:-1000}"
     container_name: pipeline-worker-lib
     image: kami-worker:lib
     volumes:
