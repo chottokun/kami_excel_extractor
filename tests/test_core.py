@@ -2,6 +2,7 @@ import pytest
 import json
 import asyncio
 from pathlib import Path
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch, AsyncMock
 from kami_excel_extractor.core import KamiExcelExtractor
 
@@ -122,3 +123,33 @@ async def test_aget_visual_summary_failure(mock_open, mock_litellm, extractor, t
 
     summary = await extractor.aget_visual_summary(img_path)
     assert summary == "[画像概要] 解析に失敗しました。"
+
+def test_make_json_serializable(extractor):
+    """_make_json_serializable が date/datetime を正しく ISO 形式に変換することを確認"""
+    d = date(2023, 1, 1)
+    dt = datetime(2023, 1, 1, 12, 0, 0)
+
+    data = {
+        "date": d,
+        "datetime": dt,
+        "nested_dict": {
+            "date": d
+        },
+        "nested_list": [dt, {"date": d}],
+        "plain_string": "value",
+        "plain_int": 123
+    }
+
+    expected = {
+        "date": "2023-01-01",
+        "datetime": "2023-01-01T12:00:00",
+        "nested_dict": {
+            "date": "2023-01-01"
+        },
+        "nested_list": ["2023-01-01T12:00:00", {"date": "2023-01-01"}],
+        "plain_string": "value",
+        "plain_int": 123
+    }
+
+    result = extractor._make_json_serializable(data)
+    assert result == expected
