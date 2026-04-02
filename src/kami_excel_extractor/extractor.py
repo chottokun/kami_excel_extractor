@@ -129,10 +129,8 @@ class MetadataExtractor:
         attr_str = " " + " ".join(attrs) if attrs else ""
         if not val_str:
             safe_val = ""
-        elif any(c in val_str for c in '&<>\n"\''):
-            safe_val = html.escape(val_str).replace('\n', '<br>')
         else:
-            safe_val = val_str
+            safe_val = html.escape(val_str).replace('\n', '<br>')
 
         return f"<td{attr_str}>{safe_val}</td>"
 
