@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 class KamiExcelExtractor:
     """Excelから構造化JSONを抽出するメインクラス（OpenAI / Gemini / Azure対応）"""
 
+    _RE_YAML_BLOCK = re.compile(r'```(?:yaml|yml)\n(.*?)\n```', re.DOTALL)
+
     def __init__(self, api_key: str = None, output_dir: str = "output", base_url: str = None, timeout: float = 600.0):
         """
         Args:
@@ -110,7 +112,7 @@ class KamiExcelExtractor:
 
     def _parse_yaml_response(self, content: str, sheet_name: str) -> dict:
         """LLMのレスポンスからYAMLを抽出してパースする"""
-        yaml_match = re.search(r'```(?:yaml|yml)\n(.*?)\n```', content, re.DOTALL)
+        yaml_match = self._RE_YAML_BLOCK.search(content)
         yaml_str = yaml_match.group(1) if yaml_match else content
 
         try:
