@@ -17,7 +17,7 @@ class DocumentGenerator:
     RE_IMAGE = re.compile(r'!\[(.*?)\]\((.*?)\)')
 
     def __init__(self, output_dir: Path):
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir).resolve()
 
     def _render_inline(self, text: str) -> str:
         """テキストをHTMLエスケープし、インラインスタイルを適用する"""
@@ -179,7 +179,7 @@ class DocumentGenerator:
         safe_base_name = output_name.replace("/", "_").replace("\\", "_")
         
         with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
-            tmp_dir = Path(tmp_dir_str)
+            tmp_dir = Path(tmp_dir_str).resolve()
             html_content = self._simple_md_to_html(self._resolve_images_to_tmpdir(md_content, tmp_dir))
             
             # 一時ディレクトリ内ではフラットに管理
@@ -194,7 +194,7 @@ class DocumentGenerator:
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 # --outdir は一時ディレクトリのルートを指定
-                cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())]
+                cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if res.returncode != 0:
                     logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
