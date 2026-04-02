@@ -8,6 +8,7 @@ def test_secure_filename():
         ("..", "unnamed"),
         (".", "unnamed"),
         ("", "unnamed"),
+        (None, "unnamed"),
         ("!@#$%^&*()", "unnamed"),
         ("Sheet (1)", "Sheet_1"),
         ("シート１", "シート1"),  # Japanese support
