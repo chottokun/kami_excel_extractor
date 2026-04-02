@@ -92,11 +92,5 @@ def test_convert_pdftocairo_failure(tmp_path):
         with pytest.raises(RuntimeError, match="pdftocairo conversion failed: pdftocairo Error"):
             converter.convert(input_file)
 
-        # Intermediate PDF should still exist if pdftocairo fails (based on current code)
-        # Actually, looking at the code:
-        # if res_png.returncode != 0:
-        #     raise RuntimeError(...)
-        # if original_pdf.exists():
-        #     original_pdf.unlink()
-        # The unlink is AFTER the raise, so it should still exist.
-        assert pdf_file.exists()
+        # Intermediate PDF should be unlinked even if pdftocairo fails
+        assert not pdf_file.exists()
