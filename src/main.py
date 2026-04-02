@@ -47,7 +47,9 @@ def main():
                     sheet_results, full_structured_data = extractor.extract_rag_chunks(f, model=model)
                     import json
                     
-                    target_dir = OUTPUT_DIR / f.stem
+                    # 安全なディレクトリ名の作成
+                    safe_stem = secure_filename(f.stem)
+                    target_dir = OUTPUT_DIR / safe_stem
                     target_dir.mkdir(parents=True, exist_ok=True)
                     
                     # 構造化された抽出結果全体（参考用）
