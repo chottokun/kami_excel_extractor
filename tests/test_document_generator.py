@@ -33,26 +33,41 @@ def test_simple_md_to_html_visual_summary(doc_gen):
     assert 'これはテストです。' in html
 
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_success(mock_run, doc_gen, tmp_path):
-    # subprocess.run のモック
-    mock_run.return_value = MagicMock(returncode=0)
+def test_generate_pdf_discovery_normal(mock_run, doc_gen, tmp_path):
+    """標準的なパス（expected_pdf が存在する）で PDF が生成・移動されることを確認"""
+    def create_pdf_side_effect(cmd, **kwargs):
+        # cmd: ["soffice", ..., "--outdir", tmp_dir, temp_html]
+        outdir = Path(cmd[5])
+        html_file = Path(cmd[6])
+        expected_pdf = outdir / f"{html_file.stem}.pdf"
+        expected_pdf.write_text("dummy pdf content")
+        return MagicMock(returncode=0)
+
+    mock_run.side_effect = create_pdf_side_effect
     
-    # 実際には soffice は PDF を生成しないので、手動で作成してシミュレートする
-    # DocumentGenerator.generate_pdf は tmp_dir 内で PDF を探し、output_dir に移動する
-    # そのため、少し工夫が必要。generate_pdf の内部で作成される tmp_dir を特定しにくいので、
-    # shutil.move をモックするか、あるいは glob の結果を操作する。
+    result = doc_gen.generate_pdf("# Test Content", "test_report")
     
-    with patch("shutil.move") as mock_move, \
-         patch("pathlib.Path.rglob") as mock_rglob:
-        
-        mock_pdf = MagicMock(spec=Path)
-        mock_rglob.return_value = [mock_pdf]
-        
-        result = doc_gen.generate_pdf("# Test Content", "test_report")
-        
-        mock_run.assert_called_once()
-        assert result == tmp_path / "test_report.pdf"
-        assert mock_move.called
+    assert result == tmp_path / "test_report.pdf"
+    assert (tmp_path / "test_report.pdf").exists()
+    mock_run.assert_called_once()
+
+@patch("kami_excel_extractor.document_generator.subprocess.run")
+def test_generate_pdf_discovery_fallback(mock_run, doc_gen, tmp_path):
+    """expected_pdf が存在せず、fallback (rglob) で PDF が見つかるケースを確認"""
+    def create_differently_named_pdf_side_effect(cmd, **kwargs):
+        outdir = Path(cmd[5])
+        # 期待される名前とは異なる名前で PDF を作成
+        unexpected_pdf = outdir / "different_name.pdf"
+        unexpected_pdf.write_text("dummy pdf content")
+        return MagicMock(returncode=0)
+
+    mock_run.side_effect = create_differently_named_pdf_side_effect
+
+    result = doc_gen.generate_pdf("# Test Content", "test_report")
+
+    assert result == tmp_path / "test_report.pdf"
+    assert (tmp_path / "test_report.pdf").exists()
+    mock_run.assert_called_once()
 
 @patch("subprocess.run")
 def test_generate_pdf_subprocess_error(mock_run, doc_gen):
@@ -65,6 +80,13 @@ def test_generate_pdf_subprocess_error(mock_run, doc_gen):
 def test_generate_pdf_exception(mock_run, doc_gen):
     """subprocess.run が例外を投げた場合のテスト"""
     mock_run.side_effect = OSError("Subprocess crash")
+    result = doc_gen.generate_pdf("# Test Content", "test_report")
+    assert result is None
+
+@patch("kami_excel_extractor.document_generator.subprocess.run")
+def test_generate_pdf_unexpected_exception(mock_run, doc_gen):
+    """予期せぬ例外（Exception）が発生した場合のテスト"""
+    mock_run.side_effect = RuntimeError("Unexpected crash")
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
@@ -94,22 +116,3 @@ def test_resolve_images_to_tmpdir(doc_gen, tmp_path):
     assert "file://" in resolved_md
     assert (work_dir / "test.png").exists()
 
-@patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_failure(mock_run, doc_gen):
-    # Mock subprocess.run to return non-zero exit code
-    mock_run.return_value = MagicMock(returncode=1)
-
-    result = doc_gen.generate_pdf("# Test Content", "test_report")
-
-    mock_run.assert_called_once()
-    assert result is None
-
-@patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_exception_custom(mock_run, doc_gen):
-    # Mock subprocess.run to raise an OSError
-    mock_run.side_effect = OSError("Subprocess failed")
-
-    result = doc_gen.generate_pdf("# Test Content", "test_report")
-
-    mock_run.assert_called_once()
-    assert result is None
