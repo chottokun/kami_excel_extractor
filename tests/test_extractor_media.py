@@ -101,6 +101,23 @@ def test_extract_media_failure_skips_image(tmp_path):
         expected_path_ok = tmp_path / "media" / "Sheet1_img_A1_0.png"
         mock_pillow_img_ok.save.assert_called_with(expected_path_ok, "PNG")
 
+def test_extract_media_value_error(tmp_path):
+    """ValueError during Image.open should be caught and skipped."""
+    extractor = MetadataExtractor(output_dir=tmp_path)
+    mock_ws = MagicMock()
+    mock_img = MagicMock()
+    mock_img.anchor._from.row = 0
+    mock_img.anchor._from.col = 0
+    mock_img.ref.read.return_value = b"some_data"
+    mock_ws._images = [mock_img]
+
+    with patch("PIL.Image.open") as mock_open:
+        mock_open.side_effect = ValueError("Invalid image parameters")
+
+        media_info = extractor._extract_media(mock_ws, "Sheet1")
+
+        assert media_info == []
+
 def test_extract_media_no_images(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
     mock_ws = MagicMock()
