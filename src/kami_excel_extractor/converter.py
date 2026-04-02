@@ -9,9 +9,10 @@ class ExcelConverter:
     """Excelを画像に変換するクラス (PDF経由)"""
     
     def __init__(self, output_dir: Path):
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir).resolve()
 
     def convert(self, input_file: Path) -> Path:
+        input_file = input_file.resolve()
         output_png = self.output_dir / f"{input_file.stem}.png"
 
         # 入力ファイルの存在確認
