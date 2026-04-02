@@ -11,6 +11,14 @@ from .utils import secure_filename
 
 logger = logging.getLogger(__name__)
 
+# セキュリティ設定: 画像の最大ピクセル数と最大バイト数
+# デコンプレッションボム（DoS攻撃）対策
+MAX_IMAGE_PIXELS = 25000000  # 25MP
+MAX_IMAGE_BYTES = 20971520   # 20MB (20 * 1024 * 1024)
+
+# Pillowのデフォルト制限を設定（Noneに設定されている場合の対策）
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
 class MetadataExtractor:
     """Excelからメタデータとメディアを抽出するクラス"""
     
@@ -45,6 +53,11 @@ class MetadataExtractor:
                 # 生のバイナリを取得
                 raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
                 
+                # セキュリティチェック: ファイルサイズが大きすぎる場合はスキップ
+                if len(raw_data) > MAX_IMAGE_BYTES:
+                    logger.warning(f"Skipping large image at {coord} on sheet {sheet_name} (size: {len(raw_data)} bytes)")
+                    continue
+
                 # Pillowを使って画像として読み込み、PNGとして再保存
                 # これによりEMF/WMF等の互換性問題を解決し、標準的なPNGヘッダーを付与する
                 with Image.open(io.BytesIO(raw_data)) as pillow_img:
@@ -54,8 +67,8 @@ class MetadataExtractor:
                     pillow_img.save(save_path, "PNG")
                 
                 media_info.append({"coord": coord, "filename": str(image_filename), "type": "image"})
-            except (UnidentifiedImageError, OSError, ValueError, AttributeError) as e:
-                # 変換不能な形式（メタファイル以外等）はスキップ
+            except (UnidentifiedImageError, OSError, ValueError, AttributeError, Image.DecompressionBombError) as e:
+                # 変換不能な形式やデコンプレッションボム（巨大画像）はスキップ
                 logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
         return media_info
 
