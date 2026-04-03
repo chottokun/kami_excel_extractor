@@ -55,3 +55,17 @@ def test_xss_with_inline_styles(doc_gen):
     expected_inner = f"bold {html.escape(payload)}"
     assert f"<li><b>{expected_inner}</b></li>" in html_out
     assert "<script>" not in html_out
+
+def test_xss_in_image(doc_gen):
+    payload_alt = '"> <script>alert("alt")</script>'
+    # Use a payload without parentheses in the path to avoid regex confusion
+    payload_path = '"> <script>alert"path"</script>'
+    md = f"![{payload_alt}]({payload_path})"
+    html_out = doc_gen._simple_md_to_html(md)
+
+    expected_alt = html.escape(payload_alt)
+    expected_path = html.escape(payload_path, quote=True)
+
+    assert f'alt="{expected_alt}"' in html_out
+    assert f'src="{expected_path}"' in html_out
+    assert "<script>" not in html_out
