@@ -3,8 +3,9 @@ import base64
 import asyncio
 import os
 import re
+import json
 import yaml
-from typing import Optional
+from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 from datetime import date, datetime
 import litellm
@@ -12,6 +13,7 @@ from .extractor import MetadataExtractor
 from .converter import ExcelConverter
 from .rag_converter import JsonToMarkdownConverter, RagChunker
 from .document_generator import DocumentGenerator
+from .schema import SheetData
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,7 @@ class KamiExcelExtractor:
     """Excelから構造化JSONを抽出するメインクラス（OpenAI / Gemini / Azure対応）"""
 
     _RE_YAML_BLOCK = re.compile(r'```(?:yaml|yml)\n(.*?)\n```', re.DOTALL)
+    _RE_JSON_BLOCK = re.compile(r'```json\n(.*?)\n```', re.DOTALL)
 
     def __init__(self, api_key: str = None, output_dir: str = "output", base_url: str = None, timeout: float = 600.0):
         """
@@ -102,43 +105,66 @@ class KamiExcelExtractor:
         if image_url:
             content.append({"type": "image_url", "image_url": {"url": image_url}})
             
-        content.append({"type": "text", "text": "提供されたExcelシートのデータを構造化データとしてYAMLで出力してください。Markdownのコードブロック(```yaml)を含めてください。"})
+        content.append({"type": "text", "text": "提供されたExcelシートのデータを解析し、構造化されたJSONオブジェクトとして出力してください。Markdownのコードブロック(```json)を含めてください。"})
         
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": content}
         ]
 
-    def _parse_yaml_response(self, content: str, sheet_name: str) -> dict:
-        """LLMのレスポンスからYAMLを抽出してパースする"""
-        yaml_match = self._RE_YAML_BLOCK.search(content)
-        yaml_str = yaml_match.group(1) if yaml_match else content
+    def _parse_llm_response(self, content: str, sheet_name: str) -> dict:
+        """LLMのレスポンスからJSONまたはYAMLを抽出してパースし、Pydanticで検証する"""
+        # JSONブロックの抽出を優先
+        json_match = self._RE_JSON_BLOCK.search(content)
+        json_str = json_match.group(1) if json_match else ""
+        
+        data = None
+        raw_str = ""
+
+        if json_str:
+            try:
+                data = json.loads(json_str)
+                raw_str = json_str
+            except json.JSONDecodeError:
+                pass
+
+        # JSONで見つからない、またはパース失敗した場合はYAMLを試行
+        if data is None:
+            yaml_match = self._RE_YAML_BLOCK.search(content)
+            yaml_str = yaml_match.group(1) if yaml_match else content
+            try:
+                data = yaml.safe_load(yaml_str)
+                raw_str = yaml_str
+            except Exception as e:
+                logger.error(f"Failed to parse YAML for sheet {sheet_name}: {e}")
+                return {"error": str(e), "_raw_data": content}
 
         try:
-            sheet_data = yaml.safe_load(yaml_str) or {}
-            if not isinstance(sheet_data, dict):
-                sheet_data = {"data": sheet_data}
+            # データの整形
+            if not isinstance(data, dict):
+                data = {"data": data}
+            
+            # 階層構造の正規化 (sheets[sheet_name] 形式の場合)
+            if "sheets" in data and sheet_name in data["sheets"]:
+                data = data["sheets"][sheet_name]
 
-            if "sheets" in sheet_data and sheet_name in sheet_data["sheets"]:
-                result = sheet_data["sheets"][sheet_name]
-            else:
-                result = sheet_data
-
-            result["_raw_yaml"] = yaml_str
+            # Pydanticによるバリデーション
+            validated = SheetData(**data)
+            result = validated.model_dump()
+            result["_raw_data"] = raw_str
             return result
         except Exception as e:
-            logger.error(f"Failed to parse YAML for sheet {sheet_name}: {e}")
-            return {"error": str(e), "_raw_yaml": yaml_str}
+            logger.error(f"Validation failed for sheet {sheet_name}: {e}")
+            return {"error": f"Validation failed: {str(e)}", "_raw_data": raw_str}
 
     async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True) -> tuple:
-        """単一のシートを解析して構造化データを取得する"""
+        """単一のシートを解析して構造化データを取得する（リトライロジック付き）"""
         if sheet_content.get("is_simple"):
             logger.info(f"Using simple table extraction for sheet: {sheet_name}")
-            # simple table の場合は _raw_yaml は空か、あるいは生成したものを入れる
             result = sheet_content.get("structured_data", [])
             if not isinstance(result, dict):
                 result = {"data": result}
-            result["_raw_yaml"] = ""
+            result["_raw_data"] = ""
             return sheet_name, result
 
         async with (semaphore if semaphore else asyncio.Lock()):
@@ -146,19 +172,41 @@ class KamiExcelExtractor:
             actual_image_url = image_url if use_visual_context else None
             messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
 
-            try:
-                response = await litellm.acompletion(
-                    model=model,
-                    messages=messages,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    timeout=self.timeout
-                )
-                result = self._parse_yaml_response(response.choices[0].message.content, sheet_name)
-                return sheet_name, result
-            except Exception as e:
-                logger.error(f"Structured extraction (YAML) failed for sheet {sheet_name}: {e}")
-                return sheet_name, {"error": str(e), "_raw_yaml": ""}
+            # リトライループ
+            max_retries = 1
+            last_error = None
+            
+            for attempt in range(max_retries + 1):
+                if attempt > 0:
+                    logger.warning(f"Retry attempt {attempt} for sheet: {sheet_name} due to error: {last_error}")
+                    # エラーフィードバックを含めたメッセージを構築
+                    messages.append({"role": "assistant", "content": f"エラー内容: {last_error}\n恐れ入りますが、上記のパースエラーを修正した正しいJSON形式で再度出力してください。"})
+
+                try:
+                    # JSON出力の強制 (モデルがサポートしている場合)
+                    response_format = {"type": "json_object"} if "ollama" in model or "gpt" in model or "gemini" in model else None
+                    
+                    response = await litellm.acompletion(
+                        model=model,
+                        messages=messages,
+                        api_key=self.api_key,
+                        base_url=self.base_url,
+                        timeout=self.timeout,
+                        response_format=response_format
+                    )
+                    content = response.choices[0].message.content
+                    result = self._parse_llm_response(content, sheet_name)
+                    
+                    if "error" not in result:
+                        return sheet_name, result
+                    
+                    last_error = result["error"]
+                except Exception as e:
+                    logger.error(f"Extraction failed for sheet {sheet_name} (Attempt {attempt}): {e}")
+                    last_error = str(e)
+                
+            # リトライ後も失敗した場合
+            return sheet_name, {"error": f"Failed after {max_retries} retries. Last error: {last_error}", "_raw_data": ""}
 
     async def _aprocess_media_summary(self, media_item: dict, model: str, semaphore: Optional[asyncio.Semaphore]) -> Optional[dict]:
         """単一のメディアアイテムの要約文を生成する"""
@@ -211,7 +259,7 @@ class KamiExcelExtractor:
                 logger.warning(f"Excel-to-image conversion failed (skipping visual context): {e}")
         
         if not system_prompt:
-            system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをYAML形式で出力してください。出力は必ず ```yaml と ``` で囲んだブロック内のみとしてください。"
+            system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"
 
         # 各シートの解析タスクの実行
         sheets_data = raw_data.get("sheets", {})
@@ -289,9 +337,9 @@ class KamiExcelExtractor:
         sheet_results = {}
         try:
             for sheet_name, sheet_data in structured_data.get("sheets", {}).items():
-                yaml_source = ""
+                raw_data_source = ""
                 if isinstance(sheet_data, dict):
-                    yaml_source = sheet_data.pop("_raw_yaml", "")
+                    raw_data_source = sheet_data.pop("_raw_data", "")
                 
                 single_sheet_data = {"sheets": {sheet_name: sheet_data}}
                 if "media" in structured_data:
@@ -307,7 +355,7 @@ class KamiExcelExtractor:
                     "chunks": chunks,
                     "markdown": markdown_text,
                     "structured": single_sheet_data,
-                    "yaml": yaml_source
+                    "raw_data": raw_data_source
                 }
         finally:
             self.rag_converter.list_format = original_format
