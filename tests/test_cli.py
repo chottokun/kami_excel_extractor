@@ -90,10 +90,11 @@ def test_main_file_not_found(caplog):
     with patch("sys.argv", ["kami-excel", "non_existent.xlsx"]), \
          patch("pathlib.Path.exists", return_value=False), \
          patch("asyncio.run"), \
-         patch("sys.exit") as mock_exit:
+         patch("sys.exit", side_effect=SystemExit(1)) as mock_exit:
 
         with caplog.at_level(logging.ERROR):
-            main()
+            with pytest.raises(SystemExit):
+                main()
 
         mock_exit.assert_called_once_with(1)
         assert "入力ファイルが見つかりません" in caplog.text
@@ -106,10 +107,11 @@ def test_main_extraction_error(mock_extractor, caplog):
 
     with patch("sys.argv", ["kami-excel", "test.xlsx"]), \
          patch("pathlib.Path.exists", return_value=True), \
-         patch("sys.exit") as mock_exit:
+         patch("sys.exit", side_effect=SystemExit(1)) as mock_exit:
 
         with caplog.at_level(logging.ERROR):
-            main()
+            with pytest.raises(SystemExit):
+                main()
 
         mock_exit.assert_called_once_with(1)
         assert "実行中にエラーが発生しました: Extraction failed" in caplog.text

@@ -52,7 +52,6 @@ async def run_async(args):
                 model=args.model,
                 use_visual_context=use_visual_context
             )
-            # 注: aextract_rag_chunks に引数を追加し忘れたので、後で core.py を微調整する
             result_data = structured_data
         else:
             result_data = await extractor.aextract_structured_data(
