@@ -4,7 +4,7 @@ import shutil
 import logging
 import html
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
