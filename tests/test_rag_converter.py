@@ -110,3 +110,44 @@ End"""
     assert chunks[0]["metadata"]["section"] == "Title"
     assert "## Subtitle" in chunks[0]["content"]
     assert chunks[1]["metadata"]["section"] == "Another Section"
+
+def test_json_to_markdown_list_strings():
+    """Verify that a list of strings is converted to a markdown list"""
+    converter = JsonToMarkdownConverter()
+    data = ["Apple", "Banana", "Cherry"]
+    result = converter.convert(data)
+    expected = "- Apple\n- Banana\n- Cherry"
+    assert result == expected
+
+def test_json_to_markdown_list_integers():
+    """Verify that a list of integers is converted to a markdown list"""
+    converter = JsonToMarkdownConverter()
+    data = [1, 2, 3]
+    result = converter.convert(data)
+    expected = "- 1\n- 2\n- 3"
+    assert result == expected
+
+def test_json_to_markdown_list_mixed():
+    """Verify that a list of mixed types is correctly processed"""
+    converter = JsonToMarkdownConverter()
+    data = ["Text", 123, None]
+    result = converter.convert(data)
+    expected = "- Text\n- 123\n- None"
+    assert result == expected
+
+def test_json_to_markdown_list_nested():
+    """Verify the behavior for nested lists.
+
+    Note: The current implementation produces suboptimal markdown for nested lists
+    (sub-items are not properly indented under the parent item), but these tests
+    ensure that the current behavior is preserved and documented.
+    """
+    converter = JsonToMarkdownConverter()
+    data = ["Outer", ["Inner1", "Inner2"]]
+    result = converter.convert(data)
+    # The current implementation (level management) results in:
+    # - Outer
+    # - - Inner1
+    # - Inner2
+    expected = "- Outer\n- - Inner1\n- Inner2"
+    assert result == expected
