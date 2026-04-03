@@ -14,6 +14,13 @@ class ExcelConverter:
     def convert(self, input_file: Path) -> Path:
         input_file = input_file.resolve()
         output_png = self.output_dir / f"{input_file.stem}.png"
+        original_pdf = self.output_dir / f"{input_file.stem}.pdf"
+
+        # Cleanup existing targets to avoid permission/stale issues
+        if output_png.exists():
+            output_png.unlink()
+        if original_pdf.exists():
+            original_pdf.unlink()
 
         # 入力ファイルの存在確認
         if not input_file.exists():

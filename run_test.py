@@ -4,24 +4,24 @@ from pathlib import Path
 from dotenv import load_dotenv
 import json
 
-project_root = Path("/app")
+project_root = Path(__file__).parent
 sys.path.append(str(project_root / "src"))
 
 from kami_excel_extractor import KamiExcelExtractor
 
 load_dotenv(project_root / ".env")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    print("GEMINI_API_KEY not set")
-    sys.exit(1)
+API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
+MODEL = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
+if not API_KEY and not os.getenv("LLM_BASE_URL") and not os.getenv("OLLAMA_BASE_URL"):
+    print("Warning: API_KEY or custom BASE_URL not set. Extraction might fail depending on the model.")
 
 OUTPUT_DIR = project_root / "data" / "output"
 INPUT_FILE = project_root / "data" / "input" / "complex_report.xlsx"
 
-extractor = KamiExcelExtractor(api_key=GEMINI_API_KEY, output_dir=str(OUTPUT_DIR))
-print(f"Processing: {INPUT_FILE.name}")
+extractor = KamiExcelExtractor(api_key=API_KEY, output_dir=str(OUTPUT_DIR))
+print(f"Processing: {INPUT_FILE.name} with model {MODEL}")
 
-rag_results, augmented_data = extractor.extract_rag_chunks(INPUT_FILE, model="gemini/gemini-3.1-flash-lite-preview")
+rag_results, augmented_data = extractor.extract_rag_chunks(INPUT_FILE, model=MODEL)
 
 # 全シートのMarkdownを統合
 md_content = "\n\n".join([res["markdown"] for res in rag_results.values()])
