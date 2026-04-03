@@ -9,9 +9,10 @@ class ExcelConverter:
     """Excelを画像に変換するクラス (PDF経由)"""
     
     def __init__(self, output_dir: Path):
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir).resolve()
 
     def convert(self, input_file: Path) -> Path:
+        input_file = input_file.resolve()
         output_png = self.output_dir / f"{input_file.stem}.png"
 
         # 入力ファイルの存在確認
@@ -27,7 +28,7 @@ class ExcelConverter:
             res_pdf = subprocess.run([
                 "soffice", f"-env:UserInstallation={user_installation}",
                 "--headless", "--convert-to", "pdf",
-                "--outdir", str(self.output_dir.resolve()), str(input_file.resolve())
+                "--outdir", str(self.output_dir), str(input_file)
             ], capture_output=True, text=True, timeout=600)
 
             if res_pdf.returncode != 0:
@@ -43,7 +44,7 @@ class ExcelConverter:
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             res_png = subprocess.run([
                 "pdftocairo", "-png", "-singlefile",
-                str(original_pdf.resolve()), str((self.output_dir / input_file.stem).resolve())
+                str(original_pdf), str(self.output_dir / input_file.stem)
             ], capture_output=True, text=True, timeout=300)
 
             if res_png.returncode != 0:
