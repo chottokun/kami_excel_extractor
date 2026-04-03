@@ -69,3 +69,23 @@ def test_xss_in_image(doc_gen):
     assert f'alt="{expected_alt}"' in html_out
     assert f'src="{expected_path}"' in html_out
     assert "<script>" not in html_out
+def test_xss_in_visual_summary(doc_gen):
+    payload = "<img src=x onerror=alert(1)>"
+    md = f"[画像概要] {payload}"
+    html_out = doc_gen._simple_md_to_html(md)
+    expected_escaped = html.escape(payload)
+    assert '<div class="visual-summary">' in html_out
+    assert expected_escaped in html_out
+    assert "<img" not in html_out
+
+def test_xss_with_quotes_in_inline_styles(doc_gen):
+    # Verify that single and double quotes are escaped before bold styling
+    payload = '"><script>alert(1)</script>'
+    md = f"**{payload}**"
+    html_out = doc_gen._simple_md_to_html(md)
+
+    # html.escape(payload) should escape " and >
+    expected_escaped = html.escape(payload)
+    assert f"<b>{expected_escaped}</b>" in html_out
+    assert "<script>" not in html_out
+    assert '"><b>' not in html_out
