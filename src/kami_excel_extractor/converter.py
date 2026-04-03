@@ -48,6 +48,8 @@ class ExcelConverter:
 
             if res_png.returncode != 0:
                 logger.error(f"pdftocairo failed: {res_png.stderr}")
+                if original_pdf.exists():
+                    original_pdf.unlink()
                 raise RuntimeError(f"pdftocairo conversion failed: {res_png.stderr}")
 
             if original_pdf.exists():
