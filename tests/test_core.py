@@ -20,15 +20,17 @@ async def test_extract_structured_data_basic(mock_litellm, mock_open, mock_extra
     mock_extract.return_value = {"sheets": {"Sheet1": {"cells": []}}}
     mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
     
+    mock_choice = MagicMock()
+    mock_choice.message.content = '```json\n{"key": "value"}\n```'
     mock_response = MagicMock()
-    mock_response.choices[0].message.content = "```yaml\nkey: value\n```"
+    mock_response.choices = [mock_choice]
     mock_litellm.return_value = mock_response
     
     # 非同期版を直接呼び出す
     result = await extractor.aextract_structured_data(sample_excel_path)
     
     assert result["sheets"]["Sheet1"]["key"] == "value"
-    assert result["sheets"]["Sheet1"]["_raw_yaml"] == "key: value"
+    assert result["sheets"]["Sheet1"]["_raw_data"] == '{"key": "value"}'
 
 @pytest.mark.asyncio
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
@@ -52,10 +54,16 @@ async def test_extract_structured_data_with_visual_summaries(mock_open, mock_lit
         }
     }
     
+    mock_choice_sheet = MagicMock()
+    mock_choice_sheet.message.content = '```json\n{"data": {"structured": "data"}}\n```'
     mock_res_sheet = MagicMock()
-    mock_res_sheet.choices[0].message.content = "```yaml\ndata: structured\n```"
+    mock_res_sheet.choices = [mock_choice_sheet]
+    
+    mock_choice_media = MagicMock()
+    mock_choice_media.message.content = "[画像概要] 要約テキスト"
     mock_res_media = MagicMock()
-    mock_res_media.choices[0].message.content = "[画像概要] 要約テキスト"
+    mock_res_media.choices = [mock_choice_media]
+    
     mock_litellm.side_effect = [mock_res_sheet, mock_res_media]
     
     result = await extractor.aextract_structured_data(sample_excel_path, include_visual_summaries=True)
@@ -72,8 +80,10 @@ async def test_get_visual_summary(mock_open, mock_litellm, extractor, tmp_path):
     img_path.write_text("binary data")
     mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
     
+    mock_choice = MagicMock()
+    mock_choice.message.content = "[画像概要] SUMMARY"
     mock_response = MagicMock()
-    mock_response.choices[0].message.content = "[画像概要] SUMMARY"
+    mock_response.choices = [mock_choice]
     mock_litellm.return_value = mock_response
     
     summary = await extractor.aget_visual_summary(img_path)
@@ -83,7 +93,7 @@ async def test_get_visual_summary(mock_open, mock_litellm, extractor, tmp_path):
 @patch("kami_excel_extractor.core.MetadataExtractor.extract")
 def test_extract_rag_chunks(mock_extract_raw, mock_extract_struct, extractor, sample_excel_path):
     mock_extract_raw.return_value = {"sheets": {"Sheet1": {"is_simple": False}}}
-    mock_extract_struct.return_value = {"sheets": {"Sheet1": {"_raw_yaml": "data: 1"}}}
+    mock_extract_struct.return_value = {"sheets": {"Sheet1": {"_raw_data": '{"data": 1}'}}}
     
     sheet_results, raw_data = extractor.extract_rag_chunks(sample_excel_path)
     
@@ -100,15 +110,18 @@ async def test_extraction_yaml_parsing_failure(mock_open, mock_extract, mock_con
     mock_extract.return_value = {"sheets": {"Sheet1": {"html": "<table></table>"}}}
     mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
     
+    mock_choice = MagicMock()
+    mock_choice.message.content = "```json\n{\"key\": [unclosed list\n```"
     mock_response = MagicMock()
-    mock_response.choices[0].message.content = "```yaml\nkey: [unclosed list\n```"
+    mock_response.choices = [mock_choice]
     mock_litellm.return_value = mock_response
     
     result = await extractor.aextract_structured_data(sample_excel_path)
     
     sheet_data = result["sheets"]["Sheet1"]
     assert "error" in sheet_data
-    assert "key: [unclosed list" in sheet_data["_raw_yaml"]
+    # リトライ後も失敗した場合は _raw_data は空になる実装に合わせる
+    assert sheet_data["_raw_data"] == ""
 
 @pytest.mark.asyncio
 @patch("litellm.acompletion")
