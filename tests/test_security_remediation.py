@@ -49,10 +49,15 @@ def test_excel_converter_uses_timeout_and_absolute_paths(tmp_path):
         mock_which.side_effect = lambda x: f"/usr/bin/{x}"
 
         def mock_run_side_effect(args, **kwargs):
+            mock_res = MagicMock()
+            mock_res.returncode = 0
             # Create PDF file when soffice is called
             if "/usr/bin/soffice" in args[0]:
                 (output_dir / "test.pdf").touch()
-            return MagicMock(returncode=0)
+            # Create PNG file when pdftocairo is called
+            if "/usr/bin/pdftocairo" in args[0]:
+                (output_dir / "test.png").touch()
+            return mock_res
 
         mock_run.side_effect = mock_run_side_effect
 

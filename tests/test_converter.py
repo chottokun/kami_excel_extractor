@@ -23,8 +23,10 @@ def test_convert_success(tmp_path):
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if "soffice" in args[0]:
+        if "/usr/bin/soffice" in args[0]:
             pdf_file.touch()
+        if "/usr/bin/pdftocairo" in args[0]:
+            png_file.touch()
         return mock_res
 
     with patch("subprocess.run", side_effect=mock_run) as mock_subprocess:
@@ -77,7 +79,76 @@ def test_convert_pdf_missing(tmp_path):
         with pytest.raises(FileNotFoundError, match="PDF not found after conversion"):
             converter.convert(input_file)
 
-def test_convert_pdftocairo_failure(tmp_path):
+def test_convert_fallback_to_fitz(tmp_path):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    converter = ExcelConverter(output_dir)
+
+    input_file = tmp_path / "test.xlsx"
+    input_file.touch()
+
+    pdf_file = output_dir / "test.pdf"
+    png_file = output_dir / "test.png"
+
+    def mock_run(args, **kwargs):
+        mock_res = MagicMock()
+        if "/usr/bin/soffice" in args[0]:
+            mock_res.returncode = 0
+            pdf_file.touch()
+        elif "/usr/bin/pdftocairo" in args[0]:
+            mock_res.returncode = 1
+            mock_res.stderr = "pdftocairo Error"
+        return mock_res
+
+    mock_fitz = MagicMock()
+    mock_doc = mock_fitz.open.return_value
+    mock_page = mock_doc.load_page.return_value
+
+    def mock_save(path):
+        png_file.touch()
+
+    mock_page.get_pixmap.return_value.save.side_effect = mock_save
+
+    with patch("subprocess.run", side_effect=mock_run):
+        with patch.dict("sys.modules", {"fitz": mock_fitz}):
+            result = converter.convert(input_file)
+            assert result == png_file
+            assert png_file.exists()
+            assert not pdf_file.exists()
+            mock_fitz.open.assert_called_once()
+
+def test_convert_fallback_to_imagemagick(tmp_path):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    converter = ExcelConverter(output_dir)
+
+    input_file = tmp_path / "test.xlsx"
+    input_file.touch()
+
+    pdf_file = output_dir / "test.pdf"
+    png_file = output_dir / "test.png"
+
+    def mock_run(args, **kwargs):
+        mock_res = MagicMock()
+        if "/usr/bin/soffice" in args[0]:
+            mock_res.returncode = 0
+            pdf_file.touch()
+        elif "/usr/bin/pdftocairo" in args[0]:
+            mock_res.returncode = 1
+        elif "/usr/bin/magick" in args[0]:
+            mock_res.returncode = 0
+            png_file.touch()
+        return mock_res
+
+    # Mock fitz as missing
+    with patch("subprocess.run", side_effect=mock_run):
+        with patch.dict("sys.modules", {"fitz": None}):
+            result = converter.convert(input_file)
+            assert result == png_file
+            assert png_file.exists()
+            assert not pdf_file.exists()
+
+def test_convert_all_fallbacks_fail(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
     converter = ExcelConverter(output_dir)
@@ -92,14 +163,15 @@ def test_convert_pdftocairo_failure(tmp_path):
         if "/usr/bin/soffice" in args[0]:
             mock_res.returncode = 0
             pdf_file.touch()
-        elif "/usr/bin/pdftocairo" in args[0]:
+        else:
             mock_res.returncode = 1
-            mock_res.stderr = "pdftocairo Error"
+            mock_res.stderr = "All fail"
         return mock_res
 
     with patch("subprocess.run", side_effect=mock_run):
-        with pytest.raises(RuntimeError, match="pdftocairo conversion failed: pdftocairo Error"):
-            converter.convert(input_file)
+        with patch.dict("sys.modules", {"fitz": None}):
+            with pytest.raises(RuntimeError, match="All PDF to PNG conversion methods failed"):
+                converter.convert(input_file)
 
-        # Intermediate PDF should be unlinked even if pdftocairo fails
+        # Intermediate PDF should be unlinked even if all fail
         assert not pdf_file.exists()
