@@ -15,6 +15,8 @@ class DocumentGenerator:
     RE_HEADER = re.compile(r'^#+')
     RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
     RE_IMAGE = re.compile(r'!\[(.*?)\]\((.*?)\)')
+    RE_LIST_ITEM_START = re.compile(r'^[-*](\s+|$)')
+    RE_LIST_ITEM_CONTENT = re.compile(r'^[-*]\s+(.*)$')
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir).resolve()
@@ -61,7 +63,7 @@ class DocumentGenerator:
     def _render_list_item(self, stripped_line: str) -> str:
         """リストアイテムをレンダリングする"""
         # 行頭の - または * とその後のスペースを除去 (正規表現で確実に分離)
-        match = re.match(r'^[-*]\s+(.*)$', stripped_line)
+        match = self.RE_LIST_ITEM_CONTENT.match(stripped_line)
         if match:
             content = match.group(1)
         else:
@@ -140,9 +142,9 @@ class DocumentGenerator:
             elif self.RE_HEADER.match(stripped):
                 body_parts.append(self._render_header(stripped))
                 i += 1
-            elif re.match(r'^[-*](\s+|$)', stripped):
+            elif self.RE_LIST_ITEM_START.match(stripped):
                 body_parts.append("<ul>")
-                while i < len(lines) and re.match(r'^[-*](\s+|$)', lines[i].strip()):
+                while i < len(lines) and self.RE_LIST_ITEM_START.match(lines[i].strip()):
                     body_parts.append(self._render_list_item(lines[i].strip()))
                     i += 1
                 body_parts.append("</ul>")
