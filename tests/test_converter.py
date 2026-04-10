@@ -17,11 +17,12 @@ def test_convert_success(tmp_path):
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if "soffice" in args:
+        if any("soffice" in arg for arg in args):
             pdf_file.touch()
         return mock_res
 
-    with patch("subprocess.run", side_effect=mock_run) as mock_subprocess:
+    with patch("subprocess.run", side_effect=mock_run) as mock_subprocess, \
+         patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
         result = converter.convert(input_file)
 
         assert result == png_file
@@ -46,7 +47,8 @@ def test_convert_soffice_failure(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch("shutil.which", return_value="/usr/bin/soffice"):
         mock_run.return_value.returncode = 1
         mock_run.return_value.stderr = "LibreOffice Error"
 
@@ -61,7 +63,8 @@ def test_convert_pdf_missing(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch("shutil.which", return_value="/usr/bin/soffice"):
         mock_run.return_value.returncode = 0
         # No PDF file created
 
@@ -80,17 +83,54 @@ def test_convert_pdftocairo_failure(tmp_path):
 
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
-        if "soffice" in args:
+        if any("soffice" in arg for arg in args):
             mock_res.returncode = 0
             pdf_file.touch()
-        elif "pdftocairo" in args:
+        elif any("pdftocairo" in arg for arg in args):
             mock_res.returncode = 1
             mock_res.stderr = "pdftocairo Error"
         return mock_res
 
-    with patch("subprocess.run", side_effect=mock_run):
+    with patch("subprocess.run", side_effect=mock_run), \
+         patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
         with pytest.raises(RuntimeError, match="pdftocairo conversion failed: pdftocairo Error"):
             converter.convert(input_file)
 
         # Intermediate PDF should be unlinked even if pdftocairo fails
         assert not pdf_file.exists()
+
+def test_convert_soffice_not_found(tmp_path):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    converter = ExcelConverter(output_dir)
+    input_file = tmp_path / "test.xlsx"
+    input_file.touch()
+
+    with patch("shutil.which", return_value=None):
+        with pytest.raises(RuntimeError, match=r"LibreOffice \(soffice\) not found in PATH"):
+            converter.convert(input_file)
+
+def test_convert_pdftocairo_not_found(tmp_path):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    converter = ExcelConverter(output_dir)
+    input_file = tmp_path / "test.xlsx"
+    input_file.touch()
+    pdf_file = output_dir / "test.pdf"
+
+    def mock_run(args, **kwargs):
+        mock_res = MagicMock()
+        if any("soffice" in arg for arg in args):
+            mock_res.returncode = 0
+            pdf_file.touch()
+        return mock_res
+
+    def mock_which(cmd):
+        if cmd == "soffice":
+            return "/usr/bin/soffice"
+        return None
+
+    with patch("subprocess.run", side_effect=mock_run), \
+         patch("shutil.which", side_effect=mock_which):
+        with pytest.raises(RuntimeError, match="pdftocairo not found in PATH"):
+            converter.convert(input_file)
