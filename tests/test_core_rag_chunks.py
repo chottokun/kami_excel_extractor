@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 from kami_excel_extractor.core import KamiExcelExtractor
+from kami_excel_extractor.schema import RagOptions
 
 @pytest.fixture
 def extractor(output_dir):
@@ -32,11 +33,17 @@ async def test_extract_rag_chunks_custom_format_and_default_model(mock_aextract_
     # Let's ensure we are testing the override logic.
 
     # Case 1: Override to 'kv' and use default model
-    sheet_results, raw_data = await extractor.aextract_rag_chunks(sample_excel_path, model=None, list_format="kv")
+    sheet_results, raw_data = await extractor.aextract_rag_chunks(
+        sample_excel_path,
+        options=RagOptions(model=None, list_format="kv")
+    )
 
     # Verification
     # 1. Default model used
-    mock_aextract_struct.assert_called_with(Path(sample_excel_path), model=None, include_visual_summaries=True, use_visual_context=True)
+    mock_aextract_struct.assert_called_with(
+        Path(sample_excel_path),
+        options=RagOptions(model=None, include_visual_summaries=True, use_visual_context=True, list_format="kv")
+    )
     # The actual code in aextract_rag_chunks calls:
     # structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True)
     # where model=None (passed from extract_rag_chunks)
@@ -67,19 +74,25 @@ async def test_extract_rag_chunks_table_format(mock_aextract_struct, mock_extrac
     mock_aextract_struct.return_value = structured_data
 
     # Explicitly set to table
-    sheet_results, _ = await extractor.aextract_rag_chunks(sample_excel_path, model="openai/gpt-4o", list_format="table")
+    sheet_results, _ = await extractor.aextract_rag_chunks(
+        sample_excel_path,
+        options=RagOptions(model="openai/gpt-4o", list_format="table")
+    )
 
     markdown = sheet_results["Sheet1"]["markdown"]
     assert "| ID | Name |" in markdown
     assert "| 1 | Alice |" in markdown
 
     # Model passed correctly
-    mock_aextract_struct.assert_called_with(Path(sample_excel_path), model="openai/gpt-4o", include_visual_summaries=True, use_visual_context=True)
+    mock_aextract_struct.assert_called_with(
+        Path(sample_excel_path),
+        options=RagOptions(model="openai/gpt-4o", include_visual_summaries=True, use_visual_context=True, list_format="table")
+    )
 
 def test_extract_rag_chunks_sync_wrapper(output_dir, sample_excel_path):
     # This tests the sync wrapper specifically to ensure it calls asyncio.run correctly
     with patch("kami_excel_extractor.core.KamiExcelExtractor.aextract_rag_chunks", new_callable=AsyncMock) as mock_aextract:
         mock_aextract.return_value = ({}, {})
         extractor = KamiExcelExtractor(api_key="fake", output_dir=str(output_dir))
-        extractor.extract_rag_chunks(sample_excel_path, model="test-model", list_format="kv")
+        extractor.extract_rag_chunks(sample_excel_path, options=RagOptions(model="test-model", list_format="kv"))
         mock_aextract.assert_called_once()

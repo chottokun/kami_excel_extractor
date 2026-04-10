@@ -3,6 +3,7 @@ import logging
 import json
 from dotenv import load_dotenv
 from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.schema import ExtractionOptions
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +25,7 @@ def test_litellm_gemini_integration():
     print(f"\n--- Requesting via LiteLLM (Gemini) using {excel_path} ---")
     result = extractor.extract_structured_data(
         excel_path, 
-        model="gemini/gemini-2.5-flash"
+        options=ExtractionOptions(model="gemini/gemini-2.5-flash")
     )
     
     print("\n--- Extraction Result ---")

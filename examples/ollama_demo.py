@@ -3,6 +3,7 @@ import json
 import asyncio
 from pathlib import Path
 from kami_excel_extractor.core import KamiExcelExtractor
+from kami_excel_extractor.schema import ExtractionOptions, RagOptions
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -32,8 +33,10 @@ async def run_ollama_demo():
     try:
         results = await extractor.aextract_structured_data(
             excel_path,
-            model=target_model,
-            include_visual_summaries=False 
+            options=ExtractionOptions(
+                model=target_model,
+                include_visual_summaries=False
+            )
         )
 
         # 4. 結果の表示
@@ -44,7 +47,7 @@ async def run_ollama_demo():
         logger.info("Generating RAG chunks for downstream tasks...")
         chunks_map, structured_data = await extractor.aextract_rag_chunks(
             excel_path,
-            model=target_model
+            options=RagOptions(model=target_model)
         )
         
         for sheet_name, data in chunks_map.items():

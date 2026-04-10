@@ -8,6 +8,7 @@ project_root = Path(__file__).parent
 sys.path.append(str(project_root / "src"))
 
 from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.schema import RagOptions
 
 load_dotenv(project_root / ".env")
 API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -21,7 +22,7 @@ INPUT_FILE = project_root / "data" / "input" / "complex_report.xlsx"
 extractor = KamiExcelExtractor(api_key=API_KEY, output_dir=str(OUTPUT_DIR))
 print(f"Processing: {INPUT_FILE.name} with model {MODEL}")
 
-rag_results, augmented_data = extractor.extract_rag_chunks(INPUT_FILE, model=MODEL)
+rag_results, augmented_data = extractor.extract_rag_chunks(INPUT_FILE, options=RagOptions(model=MODEL))
 
 # 全シートのMarkdownを統合
 md_content = "\n\n".join([res["markdown"] for res in rag_results.values()])

@@ -5,7 +5,7 @@ import os
 import re
 import json
 import yaml
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional
 from pathlib import Path
 from datetime import date, datetime
 import litellm
@@ -13,7 +13,7 @@ from .extractor import MetadataExtractor
 from .converter import ExcelConverter
 from .rag_converter import JsonToMarkdownConverter, RagChunker
 from .document_generator import DocumentGenerator
-from .schema import SheetData
+from .schema import SheetData, ExtractionOptions, RagOptions
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ class KamiExcelExtractor:
             logger.error(f"Validation failed for sheet {sheet_name}: {e}")
             return {"error": f"Validation failed: {str(e)}", "_raw_data": raw_str}
 
-    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True) -> tuple:
+    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, options: ExtractionOptions, image_url: str, semaphore: Optional[asyncio.Semaphore]) -> tuple:
         """単一のシートを解析して構造化データを取得する（リトライロジック付き）"""
         if sheet_content.get("is_simple"):
             logger.info(f"Using simple table extraction for sheet: {sheet_name}")
@@ -169,8 +169,8 @@ class KamiExcelExtractor:
 
         async with (semaphore if semaphore else asyncio.Lock()):
             logger.info(f"Processing sheet via LLM: {sheet_name}")
-            actual_image_url = image_url if use_visual_context else None
-            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
+            actual_image_url = image_url if options.use_visual_context else None
+            messages = self._build_sheet_messages(options.system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
 
             # リトライループ
             max_retries = 1
@@ -184,10 +184,10 @@ class KamiExcelExtractor:
 
                 try:
                     # JSON出力の強制 (モデルがサポートしている場合)
-                    response_format = {"type": "json_object"} if "ollama" in model or "gpt" in model or "gemini" in model else None
+                    response_format = {"type": "json_object"} if "ollama" in options.model or "gpt" in options.model or "gemini" in options.model else None
                     
                     response = await litellm.acompletion(
-                        model=model,
+                        model=options.model,
                         messages=messages,
                         api_key=self.api_key,
                         base_url=self.base_url,
@@ -233,15 +233,16 @@ class KamiExcelExtractor:
                         sheet_struct["media"] = []
                     sheet_struct["media"].append(m)
 
-    def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False, use_visual_context: bool = True):
+    def extract_structured_data(self, excel_path: str, options: Optional[ExtractionOptions] = None):
         """Excelを解析して構造化データを取得する (同期版ラッパー)"""
-        return asyncio.run(self.aextract_structured_data(
-            excel_path, model=model, system_prompt=system_prompt, include_visual_summaries=include_visual_summaries, use_visual_context=use_visual_context
-        ))
+        return asyncio.run(self.aextract_structured_data(excel_path, options=options))
 
-    async def aextract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False, use_visual_context: bool = True):
+    async def aextract_structured_data(self, excel_path: str, options: Optional[ExtractionOptions] = None):
         """Excelを解析して構造化データを取得する (非同期版)"""
-        model = self._resolve_model(model)
+        options = options or ExtractionOptions()
+        model = self._resolve_model(options.model)
+        options.model = model # 解決済みモデルで更新
+
         semaphore = self._get_semaphore()
         excel_path = Path(excel_path)
         logger.info(f"Extracting structured data from {excel_path.name} using {model}...")
@@ -250,7 +251,7 @@ class KamiExcelExtractor:
         raw_data = self.extractor.extract(excel_path)
         
         image_url = None
-        if include_visual_summaries or use_visual_context:
+        if options.include_visual_summaries or options.use_visual_context:
             logger.info("Converting Excel to image for visual context/summaries...")
             try:
                 png_path = self.converter.convert(excel_path)
@@ -258,13 +259,13 @@ class KamiExcelExtractor:
             except Exception as e:
                 logger.warning(f"Excel-to-image conversion failed (skipping visual context): {e}")
         
-        if not system_prompt:
-            system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"
+        if not options.system_prompt:
+            options.system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"
 
         # 各シートの解析タスクの実行
         sheets_data = raw_data.get("sheets", {})
         tasks = [
-            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context)
+            self._aextract_single_sheet(name, content, options, image_url, semaphore)
             for name, content in sheets_data.items()
         ]
         results = await asyncio.gather(*tasks)
@@ -272,11 +273,11 @@ class KamiExcelExtractor:
         structured_data = {"sheets": structured_sheets}
 
         # ビジュアルサマリー（画像要約）の生成と紐付け
-        if include_visual_summaries:
+        if options.include_visual_summaries:
             media_tasks = []
             for sheet_name, sheet_info in sheets_data.items():
                 for media_item in sheet_info.get("media", []):
-                    media_tasks.append(self._aprocess_media_summary(media_item, model, semaphore))
+                    media_tasks.append(self._aprocess_media_summary(media_item, options.model, semaphore))
             
             if media_tasks:
                 media_results = await asyncio.gather(*media_tasks)
@@ -321,18 +322,22 @@ class KamiExcelExtractor:
             logger.error(f"Failed to generate visual summary: {e}")
             return "[画像概要] 解析に失敗しました。"
 
-    def extract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv", use_visual_context: bool = True):
+    def extract_rag_chunks(self, excel_path: str, options: Optional[RagOptions] = None):
         """Excelを解析してRAG用のチャンクを生成する (同期版ラッパー)"""
-        return asyncio.run(self.aextract_rag_chunks(excel_path, model=model, list_format=list_format, use_visual_context=use_visual_context))
+        return asyncio.run(self.aextract_rag_chunks(excel_path, options=options))
 
-    async def aextract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv", use_visual_context: bool = True):
+    async def aextract_rag_chunks(self, excel_path: str, options: Optional[RagOptions] = None):
         """Excelを解析してRAG用のチャンクを生成する (非同期版)"""
+        options = options or RagOptions()
         excel_path = Path(excel_path)
         
-        structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True, use_visual_context=use_visual_context)
+        # RAG用なのでビジュアルサマリーは強制的にTrue
+        options.include_visual_summaries = True
+
+        structured_data = await self.aextract_structured_data(excel_path, options=options)
 
         original_format = self.rag_converter.list_format
-        self.rag_converter.list_format = list_format
+        self.rag_converter.list_format = options.list_format
         
         sheet_results = {}
         try:
@@ -347,7 +352,7 @@ class KamiExcelExtractor:
                 
                 markdown_text = self.rag_converter.convert(single_sheet_data)
                 
-                metadata = {"source_file": excel_path.name, "sheet_name": sheet_name, "extraction_model": model or self.default_model}
+                metadata = {"source_file": excel_path.name, "sheet_name": sheet_name, "extraction_model": options.model or self.default_model}
                 chunker = RagChunker(metadata=metadata)
                 chunks = chunker.chunk(markdown_text, f"{excel_path.name} - {sheet_name}")
                 

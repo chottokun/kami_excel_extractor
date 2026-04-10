@@ -36,12 +36,14 @@ def test_excel_converter_uses_timeout(tmp_path):
 
     converter = ExcelConverter(output_dir)
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
-        # Mock the PDF file creation so it doesn't fail the check
-        pdf_file = output_dir / "test.pdf"
-        pdf_file.touch()
+    def mock_run_side_effect(args, **kwargs):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        if "soffice" in args:
+            (output_dir / "test.pdf").touch()
+        return mock_res
 
+    with patch("subprocess.run", side_effect=mock_run_side_effect) as mock_run:
         converter.convert(input_file)
 
         # Check if both subprocess calls had timeout
