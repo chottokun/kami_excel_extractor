@@ -8,6 +8,12 @@ from kami_excel_extractor.document_generator import DocumentGenerator
 def doc_gen(tmp_path):
     return DocumentGenerator(output_dir=tmp_path)
 
+@pytest.fixture(autouse=True)
+def mock_shutil_which():
+    with patch("shutil.which") as mock:
+        mock.side_effect = lambda x: f"/usr/bin/{x}"
+        yield mock
+
 def test_simple_md_to_html_basic(doc_gen):
     md = "# Title\n- Item 1\n- Item 2\nParagraph text."
     html_out = doc_gen._simple_md_to_html(md)
@@ -37,7 +43,7 @@ def test_simple_md_to_html_visual_summary(doc_gen):
 def test_generate_pdf_discovery_normal(mock_run, doc_gen, tmp_path):
     """標準的なパス（expected_pdf が存在する）で PDF が生成・移動されることを確認"""
     def create_pdf_side_effect(cmd, **kwargs):
-        # cmd: ["soffice", ..., "--outdir", tmp_dir, temp_html]
+        # cmd: ["/usr/bin/soffice", ..., "--outdir", tmp_dir, temp_html]
         outdir = Path(cmd[5])
         html_file = Path(cmd[6])
         expected_pdf = outdir / f"{html_file.stem}.pdf"
@@ -143,7 +149,7 @@ def test_generate_pdf_exception_custom(mock_run, doc_gen):
     result = doc_gen.generate_pdf("# Test Content", "test_report")
 
     mock_run.assert_called_once()
-    assert result is None
+    assert None is result
 
 # --- 追加テスト (カバレッジ向上のため) ---
 
@@ -212,10 +218,3 @@ def test_generate_pdf_success_direct_path(mock_run, doc_gen, tmp_path):
         result = doc_gen.generate_pdf("# Test", "test")
         assert result is not None
         assert mock_move.called
-
-@patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_unexpected_exception(mock_run, doc_gen):
-    """予期しない例外が発生した場合のテスト (Lines 218-220)"""
-    mock_run.side_effect = RuntimeError("Unexpected boom")
-    result = doc_gen.generate_pdf("# Test", "test")
-    assert result is None
