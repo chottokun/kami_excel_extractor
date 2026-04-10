@@ -17,9 +17,15 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
     try:
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
-            # Mock the PDF file creation for the second step
-            pdf_file = output_dir.resolve() / "test.pdf"
-            pdf_file.touch()
+
+            def side_effect(*args, **kwargs):
+                # Step 1 creates PDF
+                if "soffice" in args[0][0]:
+                    pdf_file = output_dir.resolve() / "test.pdf"
+                    pdf_file.touch()
+                return mock_run.return_value
+
+            mock_run.side_effect = side_effect
 
             converter.convert(input_file)
 
