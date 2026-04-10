@@ -6,7 +6,7 @@ import tempfile
 from kami_excel_extractor.document_generator import DocumentGenerator
 from kami_excel_extractor.converter import ExcelConverter
 
-def test_generate_pdf_uses_secure_temp_dir(tmp_path):
+def test_generate_pdf_uses_secure_temp_dir_and_absolute_path(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
     generator = DocumentGenerator(output_dir)
@@ -17,18 +17,25 @@ def test_generate_pdf_uses_secure_temp_dir(tmp_path):
         with patch("tempfile.TemporaryDirectory") as mock_temp:
             mock_temp.return_value.__enter__.return_value = real_temp
             
-            with patch("subprocess.run") as mock_run:
+            with patch("subprocess.run") as mock_run, \
+                 patch("shutil.which") as mock_which:
+
+                mock_which.return_value = "/usr/bin/soffice"
                 mock_run.return_value.returncode = 0
                 with patch("shutil.move"):
                     with patch("pathlib.Path.rglob") as mock_rglob:
                         mock_rglob.return_value = [Path(real_temp) / "test_report.pdf"]
                         # この呼び出しで tempfile.TemporaryDirectory が使われるはず
                         generator.generate_pdf("# Test", "test_report")
+
+                        # Check absolute path
+                        args, _ = mock_run.call_args
+                        assert args[0][0] == "/usr/bin/soffice"
             
             mock_temp.assert_called_once()
             assert mock_temp.call_args[1].get("prefix") == "pdf_gen_"
 
-def test_excel_converter_uses_timeout(tmp_path):
+def test_excel_converter_uses_timeout_and_absolute_paths(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
     output_dir = tmp_path / "output"
@@ -36,25 +43,32 @@ def test_excel_converter_uses_timeout(tmp_path):
 
     converter = ExcelConverter(output_dir)
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
-        # Mock the PDF file creation so it doesn't fail the check
-        pdf_file = output_dir / "test.pdf"
-        pdf_file.touch()
+    with patch("subprocess.run") as mock_run, \
+         patch("shutil.which") as mock_which:
+
+        mock_which.side_effect = lambda x: f"/usr/bin/{x}"
+
+        def mock_run_side_effect(args, **kwargs):
+            # Create PDF file when soffice is called
+            if "/usr/bin/soffice" in args[0]:
+                (output_dir / "test.pdf").touch()
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = mock_run_side_effect
 
         converter.convert(input_file)
 
-        # Check if both subprocess calls had timeout
+        # Check if both subprocess calls had timeout and absolute paths
         assert mock_run.call_count == 2
 
         # First call: LibreOffice
         args, kwargs = mock_run.call_args_list[0]
-        assert "soffice" in args[0]
+        assert args[0][0] == "/usr/bin/soffice"
         assert "timeout" in kwargs
 
         # Second call: pdftocairo
         args, kwargs = mock_run.call_args_list[1]
-        assert "pdftocairo" in args[0]
+        assert args[0][0] == "/usr/bin/pdftocairo"
         assert "timeout" in kwargs
 
 @pytest.fixture
