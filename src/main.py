@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.schema import RagOptions
 from kami_excel_extractor.utils import secure_filename
 
 # ロギング設定
@@ -44,7 +45,8 @@ def main():
                 try:
                     logger.info(f"Processing: {f.name}")
                     # 解析の実行（画像概要生成を含む）
-                    sheet_results, full_structured_data = extractor.extract_rag_chunks(f, model=model)
+                    rag_options = RagOptions(model=model)
+                    sheet_results, full_structured_data = extractor.extract_rag_chunks(f, options=rag_options)
                     import json
                     
                     # 安全なディレクトリ名の作成
