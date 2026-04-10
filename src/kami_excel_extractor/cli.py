@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from .core import KamiExcelExtractor
+from .schema import ExtractionOptions, RagOptions
 
 def main():
     parser = argparse.ArgumentParser(description="Kami Excel Extractor CLI - Excelを構造化データ(JSON/YAML)に変換")
@@ -55,20 +56,25 @@ def main():
         try:
             if args.rag:
                 logger.info("RAGチャンク生成モードで実行中...")
-                chunks_map, structured_data = await extractor.aextract_rag_chunks(
-                    args.input,
+                rag_options = RagOptions(
                     model=args.model,
                     use_visual_context=use_visual_context
                 )
-                # 注: aextract_rag_chunks に引数を追加し忘れたので、後で core.py を微調整する
+                chunks_map, structured_data = await extractor.aextract_rag_chunks(
+                    args.input,
+                    options=rag_options
+                )
                 result_data = structured_data
             else:
-                result_data = await extractor.aextract_structured_data(
-                    args.input,
+                extract_options = ExtractionOptions(
                     model=args.model,
                     system_prompt=args.system_prompt,
                     include_visual_summaries=include_visual_summaries,
                     use_visual_context=use_visual_context
+                )
+                result_data = await extractor.aextract_structured_data(
+                    args.input,
+                    options=extract_options
                 )
 
             # 結果の保存

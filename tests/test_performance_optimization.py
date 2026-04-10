@@ -42,5 +42,5 @@ async def test_bypass_llm_for_simple_table(mock_litellm, mock_open, mock_extract
 
     # Verify contents
     assert result["sheets"]["SimpleSheet"]["data"] == [{"col1": "val1"}]
-    assert result["sheets"]["SimpleSheet"]["_raw_yaml"] == ""
+    assert result["sheets"]["SimpleSheet"]["_raw_data"] == ""
     assert result["sheets"]["ComplexSheet"]["complex_key"] == "complex_value"
