@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import date, datetime
 from unittest.mock import MagicMock, patch, AsyncMock
 from kami_excel_extractor.core import KamiExcelExtractor
+from kami_excel_extractor.schema import ExtractionOptions
 
 @pytest.fixture
 def extractor(output_dir):
@@ -66,7 +67,8 @@ async def test_extract_structured_data_with_visual_summaries(mock_open, mock_lit
     
     mock_litellm.side_effect = [mock_res_sheet, mock_res_media]
     
-    result = await extractor.aextract_structured_data(sample_excel_path, include_visual_summaries=True)
+    options = ExtractionOptions(include_visual_summaries=True)
+    result = await extractor.aextract_structured_data(sample_excel_path, options=options)
     
     assert "Sheet1" in result["sheets"]
     assert "media" in result["sheets"]["Sheet1"]

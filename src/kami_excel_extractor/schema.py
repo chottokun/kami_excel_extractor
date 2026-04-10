@@ -20,3 +20,14 @@ class FullExtraction(BaseModel):
     """Excel全体の抽出データ"""
     model_config = ConfigDict(extra='allow')
     sheets: Dict[str, SheetData]
+
+class ExtractionOptions(BaseModel):
+    """データ抽出時のオプション設定"""
+    model: Optional[str] = None
+    system_prompt: Optional[str] = None
+    include_visual_summaries: bool = False
+    use_visual_context: bool = True
+
+class RagOptions(ExtractionOptions):
+    """RAGチャンク生成時のオプション設定"""
+    list_format: str = "kv"

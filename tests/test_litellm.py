@@ -2,7 +2,7 @@ import os
 import logging
 import json
 from dotenv import load_dotenv
-from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor import KamiExcelExtractor, ExtractionOptions
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -22,9 +22,10 @@ def test_litellm_gemini_integration():
     
     # 複雑なレポートを使用して抽出
     print(f"\n--- Requesting via LiteLLM (Gemini) using {excel_path} ---")
+    options = ExtractionOptions(model="gemini/gemini-2.5-flash")
     result = extractor.extract_structured_data(
         excel_path, 
-        model="gemini/gemini-2.5-flash"
+        options=options
     )
     
     print("\n--- Extraction Result ---")

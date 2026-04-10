@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock, mock_open
 import pytest
 from kami_excel_extractor.cli import main
+from kami_excel_extractor.schema import ExtractionOptions, RagOptions
 
 @pytest.fixture
 def mock_extractor():
@@ -35,10 +36,12 @@ def test_main_success(mock_extractor, caplog):
         # aextract_structured_data が正しく呼ばれたか
         mock_inst.aextract_structured_data.assert_called_once_with(
             "test.xlsx",
-            model=None,
-            system_prompt=None,
-            include_visual_summaries=True,
-            use_visual_context=True
+            options=ExtractionOptions(
+                model=None,
+                system_prompt=None,
+                include_visual_summaries=True,
+                use_visual_context=True
+            )
         )
 
         # 結果が保存されたか
@@ -72,8 +75,11 @@ def test_main_rag_success(mock_extractor, caplog):
         # aextract_rag_chunks が呼ばれたか
         mock_inst.aextract_rag_chunks.assert_called_once_with(
             "test.xlsx",
-            model=None,
-            use_visual_context=True
+            options=RagOptions(
+                model=None,
+                system_prompt=None,
+                use_visual_context=True
+            )
         )
 
         # 結果とRAG用データが保存されたか
@@ -155,8 +161,10 @@ def test_main_args_passing(mock_extractor):
         # aextract_structured_data の引数を確認 (--no-vision の影響)
         mock_inst.aextract_structured_data.assert_called_once_with(
             "test.xlsx",
-            model="gpt-4",
-            system_prompt=None,
-            include_visual_summaries=False,
-            use_visual_context=False
+            options=ExtractionOptions(
+                model="gpt-4",
+                system_prompt=None,
+                include_visual_summaries=False,
+                use_visual_context=False
+            )
         )

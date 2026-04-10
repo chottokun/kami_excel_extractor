@@ -15,12 +15,15 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
     input_file.touch()
 
     try:
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
-            # Mock the PDF file creation for the second step
-            pdf_file = output_dir.resolve() / "test.pdf"
-            pdf_file.touch()
+        pdf_file = output_dir.resolve() / "test.pdf"
+        def mock_run_side_effect(args, **kwargs):
+            m = MagicMock()
+            m.returncode = 0
+            if "soffice" in args:
+                pdf_file.touch()
+            return m
 
+        with patch("subprocess.run", side_effect=mock_run_side_effect) as mock_run:
             converter.convert(input_file)
 
             # First call: soffice
