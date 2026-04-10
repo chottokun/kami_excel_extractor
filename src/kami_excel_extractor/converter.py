@@ -3,6 +3,7 @@ import tempfile
 import logging
 import shutil
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,53 +28,95 @@ class ExcelConverter:
         if not input_file.exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
-        with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir:
-            user_installation = f"file://{tmp_dir}"
+        try:
+            with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir:
+                user_installation = f"file://{tmp_dir}"
 
-            # Step 1: Excel -> PDF
-            logger.info(f"Converting {input_file.name} to PDF...")
-            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-            soffice_path = shutil.which("soffice")
-            if not soffice_path:
-                logger.error("LibreOffice (soffice) not found in PATH")
-                raise RuntimeError("LibreOffice (soffice) not found in PATH")
+                # Step 1: Excel -> PDF
+                logger.info(f"Converting {input_file.name} to PDF...")
+                
+                # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+                soffice_path = shutil.which("soffice")
+                if not soffice_path:
+                    logger.error("LibreOffice (soffice) not found in PATH")
+                    raise RuntimeError("LibreOffice (soffice) not found in PATH")
 
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
-            res_pdf = subprocess.run([
-                soffice_path, f"-env:UserInstallation={user_installation}",
-                "--headless", "--convert-to", "pdf",
-                "--outdir", str(self.output_dir), str(input_file)
-            ], capture_output=True, text=True, timeout=600)
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                res_pdf = subprocess.run([
+                    soffice_path, f"-env:UserInstallation={user_installation}",
+                    "--headless", "--convert-to", "pdf",
+                    "--outdir", str(self.output_dir), str(input_file)
+                ], capture_output=True, text=True, timeout=600)
 
-            if res_pdf.returncode != 0:
-                logger.error(f"LibreOffice failed: {res_pdf.stderr}")
-                raise RuntimeError(f"LibreOffice conversion failed: {res_pdf.stderr}")
+                if res_pdf.returncode != 0:
+                    logger.error(f"LibreOffice failed: {res_pdf.stderr}")
+                    raise RuntimeError(f"LibreOffice conversion failed: {res_pdf.stderr}")
 
-            original_pdf = self.output_dir / f"{input_file.stem}.pdf"
-            if not original_pdf.exists():
-                raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
+                if not original_pdf.exists():
+                    raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
 
-            # Step 2: PDF -> PNG
-            logger.info(f"Converting PDF to PNG...")
-            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-            pdftocairo_path = shutil.which("pdftocairo")
-            if not pdftocairo_path:
-                logger.error("pdftocairo not found in PATH")
-                raise RuntimeError("pdftocairo not found in PATH")
+                # Step 2: PDF -> PNG (with fallbacks)
+                logger.info(f"Converting PDF to PNG...")
+                self._convert_pdf_to_png(original_pdf, output_png)
 
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
-            res_png = subprocess.run([
-                pdftocairo_path, "-png", "-singlefile",
-                str(original_pdf), str(self.output_dir / input_file.stem)
-            ], capture_output=True, text=True, timeout=300)
-
-            if res_png.returncode != 0:
-                logger.error(f"pdftocairo failed: {res_png.stderr}")
-                if original_pdf.exists():
-                    original_pdf.unlink()
-                raise RuntimeError(f"pdftocairo conversion failed: {res_png.stderr}")
-
+                return output_png
+        finally:
             if original_pdf.exists():
                 original_pdf.unlink()
 
-            return output_png
+    def _convert_pdf_to_png(self, pdf_path: Path, output_png: Path) -> None:
+        """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""
+
+        # 1. pdftocairo (Primary)
+        pdftocairo_path = shutil.which("pdftocairo")
+        if pdftocairo_path:
+            try:
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                res = subprocess.run([
+                    pdftocairo_path, "-png", "-singlefile",
+                    str(pdf_path), str(output_png.with_suffix(""))
+                ], capture_output=True, text=True, timeout=300)
+                if res.returncode == 0 and output_png.exists():
+                    return
+                logger.warning(f"pdftocairo failed, trying fallback: {res.stderr}")
+            except (subprocess.SubprocessError, OSError) as e:
+                logger.warning(f"pdftocairo failed: {e}")
+        else:
+            logger.warning("pdftocairo not found in PATH, trying fallback")
+
+        # 2. PyMuPDF (fitz)
+        try:
+            import fitz
+            doc = fitz.open(str(pdf_path))
+            page = doc.load_page(0)
+            # 2.0x zoom for better quality
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            pix.save(str(output_png))
+            doc.close()
+            if output_png.exists():
+                logger.info("Converted PDF to PNG using PyMuPDF (fitz)")
+                return
+        except ImportError:
+            logger.warning("PyMuPDF (fitz) not installed, trying next fallback")
+        except Exception as e:
+            logger.warning(f"PyMuPDF conversion failed: {e}")
+
+        # 3. ImageMagick (magick or convert)
+        for cmd_name in ["magick", "convert"]:
+            cmd_path = shutil.which(cmd_name)
+            if not cmd_path:
+                continue
+            try:
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                # magick [input] [output] or convert [input] [output]
+                # For PDF to PNG with ImageMagick, [0] specifies the first page
+                res = subprocess.run([
+                    cmd_path, "-density", "150", f"{pdf_path}[0]", str(output_png)
+                ], capture_output=True, text=True, timeout=300)
+                if res.returncode == 0 and output_png.exists():
+                    logger.info(f"Converted PDF to PNG using ImageMagick ({cmd_name})")
+                    return
+            except (subprocess.SubprocessError, OSError):
+                continue
+
+        raise RuntimeError("All PDF to PNG conversion methods failed")
