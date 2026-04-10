@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import logging
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,15 @@ class ExcelConverter:
         self.output_dir = Path(output_dir).resolve()
 
     def convert(self, input_file: Path) -> Path:
+        # Resolve executable paths to prevent CWE-426 (Untrusted Search Path)
+        soffice_path = shutil.which("soffice")
+        if not soffice_path:
+            raise RuntimeError("soffice executable not found in PATH")
+
+        pdftocairo_path = shutil.which("pdftocairo")
+        if not pdftocairo_path:
+            raise RuntimeError("pdftocairo executable not found in PATH")
+
         input_file = input_file.resolve()
         output_png = self.output_dir / f"{input_file.stem}.png"
         original_pdf = self.output_dir / f"{input_file.stem}.pdf"
@@ -31,9 +41,9 @@ class ExcelConverter:
 
             # Step 1: Excel -> PDF
             logger.info(f"Converting {input_file.name} to PDF...")
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection and CWE-426
             res_pdf = subprocess.run([
-                "soffice", f"-env:UserInstallation={user_installation}",
+                soffice_path, f"-env:UserInstallation={user_installation}",
                 "--headless", "--convert-to", "pdf",
                 "--outdir", str(self.output_dir), str(input_file)
             ], capture_output=True, text=True, timeout=600)
@@ -48,9 +58,9 @@ class ExcelConverter:
 
             # Step 2: PDF -> PNG
             logger.info(f"Converting PDF to PNG...")
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection and CWE-426
             res_png = subprocess.run([
-                "pdftocairo", "-png", "-singlefile",
+                pdftocairo_path, "-png", "-singlefile",
                 str(original_pdf), str(self.output_dir / input_file.stem)
             ], capture_output=True, text=True, timeout=300)
 

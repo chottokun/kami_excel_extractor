@@ -15,11 +15,14 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
     input_file.touch()
 
     try:
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
-            # Mock the PDF file creation for the second step
-            pdf_file = output_dir.resolve() / "test.pdf"
-            pdf_file.touch()
+        def mock_run_side_effect(args, **kwargs):
+            if any("soffice" in str(arg) for arg in args):
+                pdf_file = output_dir.resolve() / "test.pdf"
+                pdf_file.touch()
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=mock_run_side_effect) as mock_run, \
+             patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
 
             converter.convert(input_file)
 
@@ -47,7 +50,8 @@ def test_document_generator_uses_absolute_paths(tmp_path):
     output_dir.mkdir()
     generator = DocumentGenerator(output_dir)
 
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
         mock_run.return_value.returncode = 0
 
         # We need to mock rglob because generate_pdf uses it to find the pdf

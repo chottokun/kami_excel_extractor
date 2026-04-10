@@ -175,6 +175,11 @@ class DocumentGenerator:
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
         import tempfile
+
+        # Resolve executable path to prevent CWE-426 (Untrusted Search Path)
+        soffice_path = shutil.which("soffice")
+        if not soffice_path:
+            raise RuntimeError("soffice executable not found in PATH")
         # 安全なファイル名のベースを作成（スラッシュをアンダースコアに置換）
         safe_base_name = output_name.replace("/", "_").replace("\\", "_")
         
@@ -192,9 +197,9 @@ class DocumentGenerator:
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             
             try:
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection and CWE-426
                 # --outdir は一時ディレクトリのルートを指定
-                cmd = ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
+                cmd = [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if res.returncode != 0:
                     logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")

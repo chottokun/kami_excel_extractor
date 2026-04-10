@@ -33,8 +33,9 @@ def test_simple_md_to_html_visual_summary(doc_gen):
     assert '<div class="visual-summary">' in html_out
     assert 'これはテストです。' in html_out
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_discovery_normal(mock_run, doc_gen, tmp_path):
+def test_generate_pdf_discovery_normal(mock_run, mock_which, doc_gen, tmp_path):
     """標準的なパス（expected_pdf が存在する）で PDF が生成・移動されることを確認"""
     def create_pdf_side_effect(cmd, **kwargs):
         # cmd: ["soffice", ..., "--outdir", tmp_dir, temp_html]
@@ -60,8 +61,9 @@ def test_generate_pdf_discovery_normal(mock_run, doc_gen, tmp_path):
         assert result == tmp_path / "test_report.pdf"
         assert mock_move.called
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_discovery_fallback(mock_run, doc_gen, tmp_path):
+def test_generate_pdf_discovery_fallback(mock_run, mock_which, doc_gen, tmp_path):
     """expected_pdf が存在せず、fallback (rglob) で PDF が見つかるケースを確認"""
     def create_differently_named_pdf_side_effect(cmd, **kwargs):
         outdir = Path(cmd[5])
@@ -78,29 +80,43 @@ def test_generate_pdf_discovery_fallback(mock_run, doc_gen, tmp_path):
     assert (tmp_path / "test_report.pdf").exists()
     mock_run.assert_called_once()
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("subprocess.run")
-def test_generate_pdf_subprocess_error(mock_run, doc_gen):
+def test_generate_pdf_subprocess_error(mock_run, mock_which, doc_gen):
     """soffice がエラー（非ゼロ終了）を返した場合のテスト"""
     mock_run.return_value = MagicMock(returncode=1)
+    # soffice failed, return None
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("subprocess.run")
-def test_generate_pdf_exception(mock_run, doc_gen):
+def test_generate_pdf_exception(mock_run, mock_which, doc_gen):
     """subprocess.run が例外を投げた場合のテスト"""
     mock_run.side_effect = OSError("Subprocess crash")
+    # subprocess failed, return None
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_unexpected_exception(mock_run, doc_gen):
+def test_generate_pdf_unexpected_exception(mock_run, mock_which, doc_gen):
     """予期せぬ例外（Exception）が発生した場合のテスト"""
     mock_run.side_effect = RuntimeError("Unexpected crash")
+    # Exception occurred, return None
     result = doc_gen.generate_pdf("# Test Content", "test_report")
     assert result is None
 
+@patch("shutil.which", side_effect=lambda x: None)
 @patch("subprocess.run")
-def test_generate_pdf_no_output(mock_run, doc_gen):
+def test_generate_pdf_missing_soffice(mock_run, mock_which, doc_gen):
+    """soffice が見つからない場合に RuntimeError を投げることを確認"""
+    with pytest.raises(RuntimeError, match="soffice executable not found in PATH"):
+        doc_gen.generate_pdf("# Test Content", "test_report")
+
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
+@patch("subprocess.run")
+def test_generate_pdf_no_output(mock_run, mock_which, doc_gen):
     """soffice は成功したが、PDFファイルが生成されなかった場合のテスト"""
     mock_run.return_value = MagicMock(returncode=0)
     with patch("pathlib.Path.rglob") as mock_rglob:
@@ -125,8 +141,9 @@ def test_resolve_images_to_tmpdir(doc_gen, tmp_path):
     assert "file://" in resolved_md
     assert (work_dir / "test.png").exists()
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_failure(mock_run, doc_gen):
+def test_generate_pdf_failure(mock_run, mock_which, doc_gen):
     # Mock subprocess.run to return non-zero exit code
     mock_run.return_value = MagicMock(returncode=1)
 
@@ -135,8 +152,9 @@ def test_generate_pdf_failure(mock_run, doc_gen):
     mock_run.assert_called_once()
     assert result is None
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_exception_custom(mock_run, doc_gen):
+def test_generate_pdf_exception_custom(mock_run, mock_which, doc_gen):
     # Mock subprocess.run to raise an OSError
     mock_run.side_effect = OSError("Subprocess failed")
 
@@ -193,8 +211,9 @@ def test_resolve_images_not_found(doc_gen, tmp_path):
     resolved = doc_gen._resolve_images_to_tmpdir(md, work_dir)
     assert resolved == md # 変更されない
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_success_direct_path(mock_run, doc_gen, tmp_path):
+def test_generate_pdf_success_direct_path(mock_run, mock_which, doc_gen, tmp_path):
     """期待されるパスにPDFが直接生成された場合のテスト (Lines 206-207)"""
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -213,8 +232,9 @@ def test_generate_pdf_success_direct_path(mock_run, doc_gen, tmp_path):
         assert result is not None
         assert mock_move.called
 
+@patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
-def test_generate_pdf_unexpected_exception(mock_run, doc_gen):
+def test_generate_pdf_unexpected_exception_last(mock_run, mock_which, doc_gen):
     """予期しない例外が発生した場合のテスト (Lines 218-220)"""
     mock_run.side_effect = RuntimeError("Unexpected boom")
     result = doc_gen.generate_pdf("# Test", "test")

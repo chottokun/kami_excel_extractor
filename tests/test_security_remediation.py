@@ -17,7 +17,8 @@ def test_generate_pdf_uses_secure_temp_dir(tmp_path):
         with patch("tempfile.TemporaryDirectory") as mock_temp:
             mock_temp.return_value.__enter__.return_value = real_temp
             
-            with patch("subprocess.run") as mock_run:
+            with patch("subprocess.run") as mock_run, \
+                 patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
                 mock_run.return_value.returncode = 0
                 with patch("shutil.move"):
                     with patch("pathlib.Path.rglob") as mock_rglob:
@@ -36,11 +37,14 @@ def test_excel_converter_uses_timeout(tmp_path):
 
     converter = ExcelConverter(output_dir)
 
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
-        # Mock the PDF file creation so it doesn't fail the check
-        pdf_file = output_dir / "test.pdf"
-        pdf_file.touch()
+    def mock_run_side_effect(args, **kwargs):
+        if any("soffice" in str(arg) for arg in args):
+            pdf_file = output_dir / "test.pdf"
+            pdf_file.touch()
+        return MagicMock(returncode=0)
+
+    with patch("subprocess.run", side_effect=mock_run_side_effect) as mock_run, \
+         patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
 
         converter.convert(input_file)
 
@@ -49,12 +53,12 @@ def test_excel_converter_uses_timeout(tmp_path):
 
         # First call: LibreOffice
         args, kwargs = mock_run.call_args_list[0]
-        assert "soffice" in args[0]
+        assert "soffice" in str(args[0])
         assert "timeout" in kwargs
 
         # Second call: pdftocairo
         args, kwargs = mock_run.call_args_list[1]
-        assert "pdftocairo" in args[0]
+        assert "pdftocairo" in str(args[0])
         assert "timeout" in kwargs
 
 @pytest.fixture
