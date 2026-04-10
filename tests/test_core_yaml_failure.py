@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from kami_excel_extractor.core import KamiExcelExtractor
+from kami_excel_extractor.core import KamiExcelExtractor, ExtractionConfig
 
 @pytest.fixture
 def extractor(output_dir):
@@ -74,12 +74,15 @@ async def test_aextract_single_sheet_api_failure(mock_litellm, extractor):
 
     sheet_name = "Sheet1"
     sheet_content = {"html": "<table></table>"}
-    model = "gpt-3.5-turbo"
-    system_prompt = "test prompt"
-    image_url = "http://example.com/image.png"
+    config = ExtractionConfig(
+        model="gpt-3.5-turbo",
+        system_prompt="test prompt",
+        image_url="http://example.com/image.png",
+        semaphore=None
+    )
 
     name, result = await extractor._aextract_single_sheet(
-        sheet_name, sheet_content, model, system_prompt, image_url, semaphore=None
+        sheet_name, sheet_content, config
     )
 
     assert name == sheet_name
@@ -104,9 +107,15 @@ async def test_aextract_single_sheet_is_simple_list(extractor):
         "is_simple": True,
         "structured_data": [{"col1": "val1"}]
     }
+    config = ExtractionConfig(
+        model="model",
+        system_prompt="prompt",
+        image_url="url",
+        semaphore=None
+    )
 
     name, result = await extractor._aextract_single_sheet(
-        sheet_name, sheet_content, "model", "prompt", "url", None
+        sheet_name, sheet_content, config
     )
 
     assert name == sheet_name
@@ -121,9 +130,15 @@ async def test_aextract_single_sheet_is_simple_dict(extractor):
         "is_simple": True,
         "structured_data": {"custom": "data"}
     }
+    config = ExtractionConfig(
+        model="model",
+        system_prompt="prompt",
+        image_url="url",
+        semaphore=None
+    )
 
     name, result = await extractor._aextract_single_sheet(
-        sheet_name, sheet_content, "model", "prompt", "url", None
+        sheet_name, sheet_content, config
     )
 
     assert name == sheet_name

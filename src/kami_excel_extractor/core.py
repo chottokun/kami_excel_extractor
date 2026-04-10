@@ -7,6 +7,7 @@ import json
 import yaml
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
+from dataclasses import dataclass
 from datetime import date, datetime
 import litellm
 from .extractor import MetadataExtractor
@@ -16,6 +17,15 @@ from .document_generator import DocumentGenerator
 from .schema import SheetData
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class ExtractionConfig:
+    """抽出処理の設定を保持するデータクラス"""
+    model: str
+    system_prompt: str
+    image_url: Optional[str]
+    semaphore: Optional[asyncio.Semaphore]
+    use_visual_context: bool = True
 
 class KamiExcelExtractor:
     """Excelから構造化JSONを抽出するメインクラス（OpenAI / Gemini / Azure対応）"""
@@ -157,7 +167,7 @@ class KamiExcelExtractor:
             logger.error(f"Validation failed for sheet {sheet_name}: {e}")
             return {"error": f"Validation failed: {str(e)}", "_raw_data": raw_str}
 
-    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True) -> tuple:
+    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, config: ExtractionConfig) -> tuple:
         """単一のシートを解析して構造化データを取得する（リトライロジック付き）"""
         if sheet_content.get("is_simple"):
             logger.info(f"Using simple table extraction for sheet: {sheet_name}")
@@ -167,10 +177,10 @@ class KamiExcelExtractor:
             result["_raw_data"] = ""
             return sheet_name, result
 
-        async with (semaphore if semaphore else asyncio.Lock()):
+        async with (config.semaphore if config.semaphore else asyncio.Lock()):
             logger.info(f"Processing sheet via LLM: {sheet_name}")
-            actual_image_url = image_url if use_visual_context else None
-            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
+            actual_image_url = config.image_url if config.use_visual_context else None
+            messages = self._build_sheet_messages(config.system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
 
             # リトライループ
             max_retries = 1
@@ -184,6 +194,7 @@ class KamiExcelExtractor:
 
                 try:
                     # JSON出力の強制 (モデルがサポートしている場合)
+                    model = config.model
                     response_format = {"type": "json_object"} if "ollama" in model or "gpt" in model or "gemini" in model else None
                     
                     response = await litellm.acompletion(
@@ -261,10 +272,18 @@ class KamiExcelExtractor:
         if not system_prompt:
             system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"
 
+        config = ExtractionConfig(
+            model=model,
+            system_prompt=system_prompt,
+            image_url=image_url,
+            semaphore=semaphore,
+            use_visual_context=use_visual_context
+        )
+
         # 各シートの解析タスクの実行
         sheets_data = raw_data.get("sheets", {})
         tasks = [
-            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context)
+            self._aextract_single_sheet(name, content, config)
             for name, content in sheets_data.items()
         ]
         results = await asyncio.gather(*tasks)
