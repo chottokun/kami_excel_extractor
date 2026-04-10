@@ -253,7 +253,7 @@ class KamiExcelExtractor:
         if include_visual_summaries or use_visual_context:
             logger.info("Converting Excel to image for visual context/summaries...")
             try:
-                png_path = self.converter.convert(excel_path)
+                png_path = await asyncio.to_thread(self.converter.convert, excel_path)
                 image_url = await self._encode_image_to_base64_url(png_path)
             except Exception as e:
                 logger.warning(f"Excel-to-image conversion failed (skipping visual context): {e}")
