@@ -25,16 +25,20 @@ ollama pull llava
 
 ```python
 from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.schema import ExtractionOptions
 
 # Ollama サーバーの URL を指定 (デフォルトは http://localhost:11434)
 extractor = KamiExcelExtractor(base_url="http://localhost:11434")
 
 # テキスト抽出を実行 (qwen3.5:4b 等)
 # include_visual_summaries=False にすることでテキストのみの抽出が可能です
-result = extractor.extract_structured_data(
-    "path/to/excel.xlsx",
+options = ExtractionOptions(
     model="ollama/qwen3.5:4b",
     include_visual_summaries=False
+)
+result = extractor.extract_structured_data(
+    "path/to/excel.xlsx",
+    options=options
 )
 print(result)
 ```
@@ -47,12 +51,16 @@ print(result)
 2.  **フラグの有効化**: `include_visual_summaries=True` をセットしてください。
 
 ```python
-```python
+from kami_excel_extractor.schema import ExtractionOptions
+
 # Vision モデルを使用する場合の例
-result = extractor.extract_structured_data(
-    "path/to/excel.xlsx",
+options = ExtractionOptions(
     model="ollama/llava", # Vision 対応モデル
     include_visual_summaries=True
+)
+result = extractor.extract_structured_data(
+    "path/to/excel.xlsx",
+    options=options
 )
 ```
 

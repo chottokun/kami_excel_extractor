@@ -13,7 +13,7 @@ from .extractor import MetadataExtractor
 from .converter import ExcelConverter
 from .rag_converter import JsonToMarkdownConverter, RagChunker
 from .document_generator import DocumentGenerator
-from .schema import SheetData
+from .schema import SheetData, ExtractionOptions, RagOptions
 
 logger = logging.getLogger(__name__)
 
@@ -233,15 +233,18 @@ class KamiExcelExtractor:
                         sheet_struct["media"] = []
                     sheet_struct["media"].append(m)
 
-    def extract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False, use_visual_context: bool = True):
+    def extract_structured_data(self, excel_path: str, options: Optional[ExtractionOptions] = None):
         """Excelを解析して構造化データを取得する (同期版ラッパー)"""
-        return asyncio.run(self.aextract_structured_data(
-            excel_path, model=model, system_prompt=system_prompt, include_visual_summaries=include_visual_summaries, use_visual_context=use_visual_context
-        ))
+        return asyncio.run(self.aextract_structured_data(excel_path, options=options))
 
-    async def aextract_structured_data(self, excel_path: str, model: str = None, system_prompt: str = None, include_visual_summaries: bool = False, use_visual_context: bool = True):
+    async def aextract_structured_data(self, excel_path: str, options: Optional[ExtractionOptions] = None):
         """Excelを解析して構造化データを取得する (非同期版)"""
-        model = self._resolve_model(model)
+        options = options or ExtractionOptions()
+        model = self._resolve_model(options.model)
+        system_prompt = options.system_prompt
+        include_visual_summaries = options.include_visual_summaries
+        use_visual_context = options.use_visual_context
+
         semaphore = self._get_semaphore()
         excel_path = Path(excel_path)
         logger.info(f"Extracting structured data from {excel_path.name} using {model}...")
@@ -321,18 +324,26 @@ class KamiExcelExtractor:
             logger.error(f"Failed to generate visual summary: {e}")
             return "[画像概要] 解析に失敗しました。"
 
-    def extract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv", use_visual_context: bool = True):
+    def extract_rag_chunks(self, excel_path: str, options: Optional[RagOptions] = None):
         """Excelを解析してRAG用のチャンクを生成する (同期版ラッパー)"""
-        return asyncio.run(self.aextract_rag_chunks(excel_path, model=model, list_format=list_format, use_visual_context=use_visual_context))
+        return asyncio.run(self.aextract_rag_chunks(excel_path, options=options))
 
-    async def aextract_rag_chunks(self, excel_path: str, model: str = None, list_format: str = "kv", use_visual_context: bool = True):
+    async def aextract_rag_chunks(self, excel_path: str, options: Optional[RagOptions] = None):
         """Excelを解析してRAG用のチャンクを生成する (非同期版)"""
+        options = options or RagOptions()
         excel_path = Path(excel_path)
         
-        structured_data = await self.aextract_structured_data(excel_path, model=model, include_visual_summaries=True, use_visual_context=use_visual_context)
+        # RAG生成時は画像要約が必要なため include_visual_summaries=True を強制する
+        extract_options = ExtractionOptions(
+            model=options.model,
+            system_prompt=options.system_prompt,
+            include_visual_summaries=True,
+            use_visual_context=options.use_visual_context
+        )
+        structured_data = await self.aextract_structured_data(excel_path, options=extract_options)
 
         original_format = self.rag_converter.list_format
-        self.rag_converter.list_format = list_format
+        self.rag_converter.list_format = options.list_format
         
         sheet_results = {}
         try:
@@ -347,7 +358,7 @@ class KamiExcelExtractor:
                 
                 markdown_text = self.rag_converter.convert(single_sheet_data)
                 
-                metadata = {"source_file": excel_path.name, "sheet_name": sheet_name, "extraction_model": model or self.default_model}
+                metadata = {"source_file": excel_path.name, "sheet_name": sheet_name, "extraction_model": options.model or self.default_model}
                 chunker = RagChunker(metadata=metadata)
                 chunks = chunker.chunk(markdown_text, f"{excel_path.name} - {sheet_name}")
                 

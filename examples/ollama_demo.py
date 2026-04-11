@@ -3,6 +3,7 @@ import json
 import asyncio
 from pathlib import Path
 from kami_excel_extractor.core import KamiExcelExtractor
+from kami_excel_extractor.schema import ExtractionOptions, RagOptions
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -30,10 +31,13 @@ async def run_ollama_demo():
     # 3. 構造化データの抽出 (テキスト抽出のみを確認するため include_visual_summaries=False)
     # 実際には Excel の HTML 表現が LLM に送信されます
     try:
+        extract_options = ExtractionOptions(
+            model=target_model,
+            include_visual_summaries=False
+        )
         results = await extractor.aextract_structured_data(
             excel_path,
-            model=target_model,
-            include_visual_summaries=False 
+            options=extract_options
         )
 
         # 4. 結果の表示
@@ -42,9 +46,10 @@ async def run_ollama_demo():
         
         # 5. RAG チャンクの生成デモ
         logger.info("Generating RAG chunks for downstream tasks...")
+        rag_options = RagOptions(model=target_model)
         chunks_map, structured_data = await extractor.aextract_rag_chunks(
             excel_path,
-            model=target_model
+            options=rag_options
         )
         
         for sheet_name, data in chunks_map.items():
