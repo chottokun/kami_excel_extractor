@@ -167,3 +167,37 @@ def test_main_args_passing(mock_extractor):
                 use_visual_context=False
             )
         )
+
+def test_main_extraction_error_verbose(mock_extractor, caplog):
+    """verboseモードでの例外発生時にtracebackが出力されることを確認"""
+    mock_inst = mock_extractor.return_value
+    mock_inst.aextract_structured_data = AsyncMock()
+    mock_inst.aextract_structured_data.side_effect = Exception("Extraction failed verbose")
+
+    with patch("sys.argv", ["kami-excel", "test.xlsx", "--verbose"]), \
+         patch("pathlib.Path.exists", return_value=True), \
+         patch("traceback.print_exc") as mock_print_exc, \
+         patch("sys.exit") as mock_exit:
+
+        with caplog.at_level(logging.ERROR):
+            main()
+
+        mock_exit.assert_called_once_with(1)
+        assert "実行中にエラーが発生しました: Extraction failed verbose" in caplog.text
+        mock_print_exc.assert_called_once()
+
+def test_main_rag_extraction_error(mock_extractor, caplog):
+    """RAGモードでの抽出失敗を確認"""
+    mock_inst = mock_extractor.return_value
+    mock_inst.aextract_rag_chunks = AsyncMock()
+    mock_inst.aextract_rag_chunks.side_effect = Exception("RAG Extraction failed")
+
+    with patch("sys.argv", ["kami-excel", "test.xlsx", "--rag"]), \
+         patch("pathlib.Path.exists", return_value=True), \
+         patch("sys.exit") as mock_exit:
+
+        with caplog.at_level(logging.ERROR):
+            main()
+
+        mock_exit.assert_called_once_with(1)
+        assert "実行中にエラーが発生しました: RAG Extraction failed" in caplog.text

@@ -250,16 +250,17 @@ class KamiExcelExtractor:
         logger.info(f"Extracting structured data from {excel_path.name} using {model}...")
 
         # 変換・抽出・画像URL化
-        raw_data = self.extractor.extract(excel_path)
-        
+        raw_data = await asyncio.to_thread(self.extractor.extract, excel_path)
+
         image_url = None
-        if include_visual_summaries or use_visual_context:
+        if options.include_visual_summaries or options.use_visual_context:
             logger.info("Converting Excel to image for visual context/summaries...")
             try:
-                png_path = self.converter.convert(excel_path)
+                png_path = await asyncio.to_thread(self.converter.convert, excel_path)
                 image_url = await self._encode_image_to_base64_url(png_path)
             except Exception as e:
                 logger.warning(f"Excel-to-image conversion failed (skipping visual context): {e}")
+
         
         if not system_prompt:
             system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"

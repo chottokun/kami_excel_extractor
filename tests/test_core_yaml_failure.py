@@ -129,3 +129,26 @@ async def test_aextract_single_sheet_is_simple_dict(extractor):
     assert name == sheet_name
     assert result["custom"] == "data"
     assert result["_raw_data"] == ""
+
+def test_parse_llm_response_invalid_json_and_invalid_yaml(extractor):
+    """Test fallback from invalid JSON block to invalid YAML content"""
+    content = """
+Some text
+```json
+{ "invalid": [ json
+```
+```yaml
+invalid: [ yaml
+```
+"""
+    sheet_name = "Sheet1"
+
+    result = extractor._parse_llm_response(content, sheet_name)
+
+    assert "error" in result
+    # It should have tried to parse the YAML block and failed
+    assert "scanner" in result["error"].lower() or "expected" in result["error"].lower()
+    # In the current implementation, if JSON fails, it looks for YAML.
+    # If it finds a YAML block, yaml_str becomes the content of that block.
+    # If it fails to parse that, it returns the error and the WHOLE content as _raw_data.
+    assert result["_raw_data"] == content
