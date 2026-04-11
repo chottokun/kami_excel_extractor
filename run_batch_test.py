@@ -13,6 +13,7 @@ project_root = Path(__file__).parent.resolve()
 sys.path.append(str(project_root / "src"))
 
 from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.schema import RagOptions
 
 # ログの設定
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -53,7 +54,8 @@ def main():
         try:
             # 1. RAG チャンクの抽出
             # 実データのため、視覚的な要約 (include_visual_summaries) も含めて実行
-            rag_results, augmented_data = extractor.extract_rag_chunks(input_file, model=model)
+            rag_options = RagOptions(model=model)
+            rag_results, augmented_data = extractor.extract_rag_chunks(input_file, options=rag_options)
             
             # 2. 結果の保存 (JSON)
             result_path = output_dir / f"{input_file.stem}_lib_result.json"

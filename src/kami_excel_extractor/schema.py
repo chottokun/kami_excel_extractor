@@ -1,6 +1,17 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Any, Optional, Union
 
+class ExtractionOptions(BaseModel):
+    """データ抽出時のオプション"""
+    model: Optional[str] = None
+    system_prompt: Optional[str] = None
+    include_visual_summaries: bool = False
+    use_visual_context: bool = True
+
+class RagOptions(ExtractionOptions):
+    """RAGチャンク生成時のオプション"""
+    list_format: str = "kv"
+
 class ExtractionResult(BaseModel):
     """LLMからの抽出結果を個別に保持するモデル"""
     model_config = ConfigDict(extra='allow')
