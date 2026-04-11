@@ -8,7 +8,8 @@ from pathlib import Path
 from .core import KamiExcelExtractor
 from .schema import ExtractionOptions, RagOptions
 
-def main():
+def create_parser():
+    """CLIパーサーを作成する"""
     parser = argparse.ArgumentParser(description="Kami Excel Extractor CLI - Excelを構造化データ(JSON/YAML)に変換")
     
     parser.add_argument("input", help="対象のExcelファイルパス")
@@ -22,7 +23,77 @@ def main():
     parser.add_argument("--rag", action="store_true", help="RAG用のMarkdownチャンクも同時に生成する")
     parser.add_argument("--system-prompt", help="カスタムシステムプロンプト")
     parser.add_argument("--verbose", action="store_true", help="詳細なログを出力する")
+    return parser
 
+async def run_async(args):
+    """非同期実行のメインロジック"""
+    logger = logging.getLogger("kami-excel-cli")
+
+    # RPM制限を環境変数にセット (extractor._get_semaphore で参照されるため)
+    if args.rpm is not None:
+        os.environ["LLM_RPM_LIMIT"] = str(args.rpm)
+
+    extractor = KamiExcelExtractor(
+        api_key=args.api_key,
+        base_url=args.base_url,
+        output_dir=args.output_dir,
+        timeout=args.timeout
+    )
+
+    logger.info(f"解析開始: {args.input}")
+    
+    # vision設定の解決
+    use_visual_context = not args.no_vision
+    include_visual_summaries = not args.no_vision
+
+    try:
+        if args.rag:
+            logger.info("RAGチャンク生成モードで実行中...")
+            rag_options = RagOptions(
+                model=args.model,
+                use_visual_context=use_visual_context
+            )
+            chunks_map, structured_data = await extractor.aextract_rag_chunks(
+                args.input,
+                options=rag_options
+            )
+            result_data = structured_data
+        else:
+            extract_options = ExtractionOptions(
+                model=args.model,
+                system_prompt=args.system_prompt,
+                include_visual_summaries=include_visual_summaries,
+                use_visual_context=use_visual_context
+            )
+            result_data = await extractor.aextract_structured_data(
+                args.input,
+                options=extract_options
+            )
+
+        # 結果の保存
+        output_path = Path(args.output_dir) / f"{Path(args.input).stem}_result.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(result_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"結果を保存しました: {output_path}")
+        
+        if args.rag:
+            rag_path = Path(args.output_dir) / f"{Path(args.input).stem}_rag.json"
+            serializable_chunks = {k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()}
+            with open(rag_path, "w", encoding="utf-8") as f:
+                json.dump(serializable_chunks, f, indent=2, ensure_ascii=False)
+            logger.info(f"RAG用データを保存しました: {rag_path}")
+
+    except Exception as e:
+        logger.error(f"実行中にエラーが発生しました: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+def main():
+    """CLIエントリーポイント"""
+    parser = create_parser()
     args = parser.parse_args()
 
     # ログ設定
@@ -34,72 +105,7 @@ def main():
         logger.error(f"入力ファイルが見つかりません: {args.input}")
         sys.exit(1)
 
-    async def run():
-        # RPM制限を環境変数にセット (extractor._get_semaphore で参照されるため)
-        if args.rpm is not None:
-            os.environ["LLM_RPM_LIMIT"] = str(args.rpm)
-
-        extractor = KamiExcelExtractor(
-            api_key=args.api_key,
-            base_url=args.base_url,
-            output_dir=args.output_dir,
-            timeout=args.timeout
-        )
-
-        logger.info(f"解析開始: {args.input}")
-        
-        # vision設定の解決
-        # --no-vision が指定された場合は、抽出時の画像コンテキストも、抽出後のビジュアルサマリーもOFFにする
-        use_visual_context = not args.no_vision
-        include_visual_summaries = not args.no_vision
-
-        try:
-            if args.rag:
-                logger.info("RAGチャンク生成モードで実行中...")
-                rag_options = RagOptions(
-                    model=args.model,
-                    use_visual_context=use_visual_context
-                )
-                chunks_map, structured_data = await extractor.aextract_rag_chunks(
-                    args.input,
-                    options=rag_options
-                )
-                result_data = structured_data
-            else:
-                extract_options = ExtractionOptions(
-                    model=args.model,
-                    system_prompt=args.system_prompt,
-                    include_visual_summaries=include_visual_summaries,
-                    use_visual_context=use_visual_context
-                )
-                result_data = await extractor.aextract_structured_data(
-                    args.input,
-                    options=extract_options
-                )
-
-            # 結果の保存
-            output_path = Path(args.output_dir) / f"{Path(args.input).stem}_result.json"
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(result_data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"結果を保存しました: {output_path}")
-            
-            if args.rag:
-                rag_path = Path(args.output_dir) / f"{Path(args.input).stem}_rag.json"
-                # 簡易的な保存 (実際には chunks_map をシリアライズ)
-                serializable_chunks = {k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()}
-                with open(rag_path, "w", encoding="utf-8") as f:
-                    json.dump(serializable_chunks, f, indent=2, ensure_ascii=False)
-                logger.info(f"RAG用データを保存しました: {rag_path}")
-
-        except Exception as e:
-            logger.error(f"実行中にエラーが発生しました: {e}")
-            if args.verbose:
-                import traceback
-                traceback.print_exc()
-            sys.exit(1)
-
-    asyncio.run(run())
+    asyncio.run(run_async(args))
 
 if __name__ == "__main__":
     main()

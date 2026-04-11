@@ -115,18 +115,21 @@ class JsonToMarkdownConverter:
 class RagChunker:
     """Markdownをセクションごとに分割してチャンク化するクラス"""
     
+    RE_SECTION_SPLIT = re.compile(r'\n(?=# )')
+    RE_HEADER = re.compile(r'^#\s+(.*)')
+
     def __init__(self, metadata: Dict[str, Any] = None):
         self.metadata = metadata or {}
 
     def chunk(self, markdown_text: str, source_id: str = "") -> List[Dict[str, Any]]:
-        sections = re.split(r'\n(?=# )', "\n" + markdown_text)
+        sections = self.RE_SECTION_SPLIT.split("\n" + markdown_text)
         chunks = []
         
         for section in sections:
             section = section.strip()
             if not section: continue
             
-            header_match = re.match(r'^#\s+(.*)', section)
+            header_match = self.RE_HEADER.match(section)
             section_name = header_match.group(1).strip() if header_match else ""
             
             chunk_metadata = self.metadata.copy()
