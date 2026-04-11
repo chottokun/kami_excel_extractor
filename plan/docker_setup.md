@@ -1,87 +1,57 @@
-# **Dockerインフラ構成詳細**
+# **Dockerインフラ構成詳細 (完全版)**
 
-本システムは Docker Compose を利用し、レンダリング環境（Pipeline Worker）と LLM ゲートウェイ（LiteLLM）を完全に分離して管理する。
+本システムは Docker Compose を利用し、LibreOffice を含む複雑な依存関係を完全にパッケージ化している。これにより、環境に依存せず高品質な Excel レンダリングと VLM 抽出を可能にする。
 
-## **1. docker-compose.yml 構成**
+## **1. システム構成のポイント**
 
-```yaml
-version: '3.8'
+### **A. 多層変換エンジンの統合**
+`Dockerfile.worker` 内に以下のツールを統合し、PDF 変換のフォールバックチェーンを 100% 機能させる。
+- **LibreOffice (soffice)**: Excel から PDF への変換。
+- **Poppler (pdftocairo)**: 高品質な PDF to PNG 変換（優先）。
+- **Ghostscript & ImageMagick**: 最終的なフォールバック変換。セキュリティポリシーを調整し PDF 読み込みを許可済み。
+- **fonts-noto-cjk**: 日本語 Excel の文字化けとレイアウト崩れを完全に防止。
 
-services:
-  litellm-proxy:
-    image: ghcr.io/berriai/litellm:main
-    container_name: litellm-proxy
-    ports:
-      - "4000:4000"
-    volumes:
-      - ./litellm-config.yaml:/app/config.yaml
-    environment:
-      - LLM_API_KEY=${LLM_API_KEY}
-      - AZURE_API_KEY=${AZURE_API_KEY}
-      - AZURE_API_BASE=${AZURE_API_BASE}
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    restart: always
+### **B. uv による高速・堅牢なパッケージ管理**
+ astral-sh/uv を採用し、ビルド時間の短縮と決定論的な依存関係（uv.lock）の解決を実現。
 
-  pipeline-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
-    container_name: pipeline-worker
-    volumes:
-      - ./src:/app/src
-      - ./data/input:/app/input
-      - ./data/output:/app/output
-      - ./templates:/app/templates
-    environment:
-      - LITELLM_PROXY_URL=http://litellm-proxy:4000
-      - PYTHONUNBUFFERED=1
-    depends_on:
-      - litellm-proxy
-    restart: unless-stopped
+### **C. 権限の不整合防止 (UID/GID Mapping)**
+ホストOSとコンテナ間でのファイル書き込み権限問題を避けるため、環境変数 `UID` / `GID` に基づいた実行ユーザーの動的生成を行う。
+
+## **2. 使い方 (Docker Compose)**
+
+### **A. 監視パイプラインの起動 (常駐型)**
+`data/input` ディレクトリを監視し、ファイルが投入されるたびに自動解析を行う。
+
+```bash
+docker compose up -d --build
 ```
 
-## **2. Dockerfile.worker (Pipeline Worker用)**
+### **B. CLI による手動解析 (タスク型)**
+特定のファイルに対して、個別のモデルやオプションを指定して即座に実行する。
 
-LibreOffice と日本語フォントを含む堅牢な実行環境を構築する。
+```bash
+# 基本実行 (data/input/sample.xlsx を解析)
+docker compose run --rm cli sample.xlsx --model gemini/gemini-1.5-flash
 
-```dockerfile
-FROM python:3.10-slim-bullseye
+# RAG チャンク生成を有効化
+docker compose run --rm cli sample.xlsx --rag
 
-# システムパッケージとLibreOfficeのインストール
-RUN apt-get update && apt-get install -y --no-install-recommends 
-    libreoffice-calc 
-    libreoffice-java-common 
-    default-jre 
-    fonts-noto-cjk 
-    fonts-liberation 
-    curl 
-    && apt-get clean 
-    && rm -rf /var/lib/apt/lists/*
-
-# 作業ディレクトリの設定
-WORKDIR /app
-
-# 依存ライブラリのインストール
-COPY pyproject.toml .
-RUN pip install --no-cache-dir .
-
-# ソースコードのコピー
-COPY src/ /app/src/
-COPY templates/ /app/templates/
-
-# アプリケーションの実行
-CMD ["python", "src/main.py"]
+# 画像解析を無効化 (テキストのみ)
+docker compose run --rm cli sample.xlsx --no-vision
 ```
 
-## **3. 設定のポイント**
+## **3. 運用設定 (.env)**
 
-### **A. フォントの重要性**
-`fonts-noto-cjk` をインストールすることで、Excel 内の日本語文字が LibreOffice レンダリング時に文字化けしたり、レイアウトが崩れたりすることを防ぐ。
+コンテナの挙動はプロジェクトルートの `.env` で制御する。
 
-### **B. LiteLLM Proxy の利用**
-Worker 側には個別の LLM SDK (Google / OpenAI) を入れず、標準の `openai` ライブラリのみを使用する。これにより、モデルの切り替えは `litellm-config.yaml` の変更のみで完結する。
+| 変数名 | 説明 | 推奨値 |
+| :--- | :--- | :--- |
+| `LLM_MODEL` | 使用する LLM モデル名 | `gemini/gemini-1.5-flash` |
+| `LLM_API_KEY` | 各プロバイダーの API キー | (必須) |
+| `LLM_RPM_LIMIT` | 1分あたりのリクエスト制限 | `1` (ローカルLLM時), `15` (API時) |
+| `UID` / `GID` | ホストOSのユーザーID/グループID | `id -u` / `id -g` の結果 |
 
-### **C. ボリュームマウント**
-- `input`: Excel ファイル投入用。
-- `output`: 抽出結果 JSON およびデバッグ用 PNG 保存用。
-- `templates`: ヘッダー・フッター無効設定済みの `.ots` (LibreOffice テンプレート) 格納用。
+## **4. トラブルシューティング**
+
+- **PDF 生成に失敗する場合**: コンテナ内の `soffice` が正常に起動しているか確認。`docker exec -it pipeline-worker-lib soffice --version` で確認可能。
+- **画像抽出がスキップされる**: ログに `cannot identify image file` が出る場合、Excel 独自の図形形式（zlib圧縮）であり、現在の Pillow では非対応。構造化データ（JSON）自体は抽出されるため、運用上は問題ない。

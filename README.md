@@ -12,12 +12,20 @@
 - **多形式アウトプット**: 解析結果を JSON, YAML, Markdown形式で同時出力。
 - **高度な互換性**: 
     - 抽出画像を Pillow で自動正規化（PNG変換）し、VLMの読み取りエラーを防止。
-    - Excel特有の日付データ（datetime）を自動的に文字列（ISO形式）へ変換。
+    - PDFからPNGへの変換において、**3層のフォールバックチェーン**（pdftocairo, PyMuPDF, ImageMagick）を搭載。
 - **セキュアな設計**: 徹底した HTML エスケープと引数注入対策、`tempfile` による安全な一時管理。
 
 ## 🚀 セットアップ
 
-### 1. 環境設定
+### 1. 依存パッケージ（Linux）
+PDF変換や画像処理のために、以下のツールがインストールされていることが推奨されます。
+
+```bash
+# Ubuntu/Debian 例
+sudo apt-get install libreoffice poppler-utils imagemagick
+```
+
+### 2. 環境設定
 `.env` ファイルに LLM の提供プロバイダーに合わせた設定を行ってください。
 
 ```env
@@ -27,13 +35,9 @@ LLM_API_KEY=your_api_key_here
 
 # 必要に応じてベース URL やタイムアウト、RPM 制限を指定可能
 # LLM_BASE_URL=http://localhost:11434
-# LLM_TIMEOUT=1800  # 複雑な解析（方眼紙など）には 1800秒(30分) 以上を推奨
+# LLM_TIMEOUT=600   # デフォルト 600秒(10分)
 # LLM_RPM_LIMIT=15  # 1分あたりの最大リクエスト数
 ```
-
-### 2. Ollama (ローカル LLM) の利用
-Ollama を使用してローカル環境で抽出を行うことも可能です。
-※ Linux Docker コンテナ内からホスト側の Ollama に接続する場合は、`LLM_BASE_URL=http://172.17.0.1:11434` を使用してください。詳細は [Ollama 利用ガイド](docs/ollama.md) を参照。
 
 ### 3. 起動
 Docker Compose を使用して、監視パイプラインを起動します。
@@ -42,29 +46,58 @@ Docker Compose を使用して、監視パイプラインを起動します。
 docker compose up -d --build
 ```
 
-## 📂 ディレクトリ構成と成果物
+## 🛠️ 使い方 (CLI)
 
-- `src/kami_excel_extractor/`: コアライブラリ（完全パッケージ化）
-- `data/input/`: 処理待ちExcelの投入先
-- `data/output/`: 成果物の出力先。ファイルごとに以下の構成で出力されます。
-    - `full_lib_result.json`: 全シートの統合抽出結果
-    - `(シート名)_lib_result.json/yaml`: シートごとの構造化データ
-    - `(シート名)_rag.md`: RAG/閲覧用の Markdown
-    - **`(シート名)_report.pdf`**: セキュアに生成されたビジュアル報告書
-
-## 🧪 テストと検証
+特定のファイルに対して手動で解析を実行できます。
 
 ```bash
-# 全自動テストの実行 (コンテナ内推奨)
-docker exec pipeline-worker-lib uv run pytest tests/
+# 基本的な実行
+uv run python -m kami_excel_extractor.cli sample.xlsx --model gemini/gemini-1.5-flash
 
-# 特定のファイルに対する手動解析 (CLI)
-docker exec pipeline-worker-lib uv run python -m kami_excel_extractor.cli data/input/sample.xlsx --model ollama/qwen3.5:4b
+# RAG用Markdownチャンクも同時に生成
+uv run python -m kami_excel_extractor.cli sample.xlsx --rag
+
+# 画像解析を無効化（テキスト抽出のみ）
+uv run python -m kami_excel_extractor.cli sample.xlsx --no-vision
+
+# 詳細ログを表示
+uv run python -m kami_excel_extractor.cli sample.xlsx --verbose
 ```
 
-## 🛡️ セキュリティ
+## 📦 ライブラリとしての利用
 
-本ツールは業務利用を想定し、以下の対策を標準で備えています。
-- **XSS 対策**: 生成されるレポート内の全外部入力（Excel内容、画像属性等）に対し HTML エスケープを徹底。
-- **引数注入対策**: 外部コマンド（LibreOffice等）実行時のパス正規化。
-- **堅牢なエラーハンドリング**: 破損画像や推論エラー発生時も、プロセスを停止させずスキップ・記録。
+Python コード内から直接呼び出すことも可能です。
+
+```python
+import asyncio
+from pathlib import Path
+from kami_excel_extractor import KamiExcelExtractor
+from kami_excel_extractor.schema import ExtractionOptions
+
+async def main():
+    extractor = KamiExcelExtractor(output_dir="output")
+    
+    options = ExtractionOptions(
+        model="gemini/gemini-1.5-flash",
+        include_visual_summaries=True
+    )
+    
+    result = await extractor.aextract_structured_data("report.xlsx", options=options)
+    print(result)
+
+asyncio.run(main())
+```
+
+## 🛡️ セキュリティと制限
+
+### セキュリティ対策
+- **XSS 対策**: 生成されるレポート内の全外部入力に対し HTML エスケープを徹底。
+- **引数注入対策**: 外部コマンド（soffice, pdftocairo等）実行時の絶対パス解決 (CWE-426対策)。
+- **パス・トラバーサル防止**: レポート出力名のサニタイズ (`secure_filename`)。
+- **堅牢性**: 破損画像や推論エラー発生時も、プロセスを停止させずスキップ・記録。
+
+### 既知の制限
+- **特殊な埋め込み画像**: Excel内の「図形（Shape）」や「メタファイル（EMF/WMF）」、zlib圧縮された内部形式での画像埋め込みは現在抽出対象外（スキップ）となります。将来的に `pyvips` 等によるサポートを検討中です。
+
+## 📜 ライセンス
+[MIT License](LICENSE)

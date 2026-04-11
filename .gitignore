@@ -139,6 +139,12 @@ dmypy.json
 data/
 sample_map.json
 sample_hoganshi.xlsx
+test_full_results/
+test_out/
+test_verify_out/
+test_verify_results/
+full_batch_test.log
+container_full_verify.log
 
 # Docker related
 docker-compose.override.yml
