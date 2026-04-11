@@ -5,6 +5,7 @@ import logging
 import html
 from pathlib import Path
 from typing import List, Optional
+from .utils import secure_filename
 
 logger = logging.getLogger(__name__)
 
@@ -175,20 +176,20 @@ class DocumentGenerator:
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
         import tempfile
-        # 安全なファイル名のベースを作成（スラッシュをアンダースコアに置換）
-        safe_base_name = output_name.replace("/", "_").replace("\\", "_")
+        # 安全なファイル名を作成
+        safe_output_name = secure_filename(output_name)
         
         with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str).resolve()
             html_content = self._simple_md_to_html(self._resolve_images_to_tmpdir(md_content, tmp_dir))
             
             # 一時ディレクトリ内ではフラットに管理
-            temp_html = (tmp_dir / f"{safe_base_name}.html").resolve()
+            temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
             with open(temp_html, "w", encoding="utf-8") as f:
                 f.write(html_content)
             
             # 最終的な出力パス
-            pdf_path = self.output_dir / f"{output_name}.pdf"
+            pdf_path = self.output_dir / f"{safe_output_name}.pdf"
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             
             try:
