@@ -1,4 +1,5 @@
 services:
+  # 監視パイプライン・サービス (常駐型)
   pipeline-worker:
     build:
       context: .
@@ -11,13 +12,27 @@ services:
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
-      - ./run_test.py:/app/run_test.py
       - ./data/input:/app/data/input
       - ./data/output:/app/data/output
     env_file:
       - .env
     environment:
-      - PYTHONPATH=/app/src # パッケージを読み込めるように設定
+      - PYTHONPATH=/app/src
       - PYTHONUNBUFFERED=1
-    command: ["uv", "run", "python", "/app/src/main.py"]
+    command: ["uv", "run", "src/main.py"]
     restart: unless-stopped
+
+  # CLI 実行サービス (使い捨てタスク型)
+  # 使用例: docker compose run --rm cli sample.xlsx --model gemini/gemini-1.5-flash
+  cli:
+    image: kami-worker:lib
+    volumes:
+      - ./src:/app/src
+      - ./data/input:/app/data/input:ro
+      - ./data/output:/app/data/output
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app/src
+    entrypoint: ["uv", "run", "python", "-m", "kami_excel_extractor.cli"]
+    working_dir: /app/data/input

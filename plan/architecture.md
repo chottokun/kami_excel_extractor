@@ -25,16 +25,21 @@ graph TD
 
 ## **2. 実装済みコンポーネントの役割**
 
-### **A. ExcelConverter (LibreOffice + Poppler)**
+### **A. ExcelConverter (LibreOffice + Multi-Engine Fallback)**
 - **役割:** Excelを物理画像に変換。
-- **2-Step Process:** ヘッドレス環境でのCalcの不安定さを回避するため、「Excel -> PDF (soffice)」→「PDF -> PNG (pdftocairo)」のフローを採用。
+- **2-Step Process:** ヘッドレス環境でのCalcの不安定さを回避するため、「Excel -> PDF (soffice)」→「PDF -> PNG」のフローを採用。
+- **3-Layer Fallback Chain:** PDFからPNGへの変換において、以下のエンジンを順次試行し、環境依存の失敗を最小化。
+    1.  **pdftocairo (Poppler)**: 高品質なベクターレンダリング。
+    2.  **PyMuPDF (fitz)**: Pythonネイティブな高速レンダリング（pdftocairo不在時のバックアップ）。
+    3.  **ImageMagick (magick/convert)**: 汎用的な最終フォールバック。
 - **並行処理:** UUIDベースの一時プロファイル（UserInstallation）による隔離実行。
 
 ### **B. MetadataExtractor (openpyxl + Media Logic)**
 - **論理抽出:** セル結合やスタイルを維持したまま、巨大なシートも軽量な **HTMLの `<table>` タグ** として構造化抽出（Promptのトークン量を約90%削減）。
-- **メディア抽出:** シート内に埋め込まれた画像（現場写真等）を物理ファイルとして抽出し、紐付け。
+- **メディア抽出:** シート内に埋め込まれた画像（現場写真等）を物理ファイルとして抽出し、紐付け。Pillowによるフォーマット正規化を実施。
 
 ### **C. KamiExcelExtractor (Core Orchestrator)**
+- **構成管理:** `ExtractionOptions` および `RagOptions` (Pydantic) による柔軟なパラメータ制御。
 - **統合ロジック:** 視覚情報と論理情報を統合し、マルチモーダル・プロンプト（OpenAI互換形式）を構成。
 - **モデル自動判別:** 利用可能な最新のFlashモデルを自動的に選択。
 - **非同期オーケストレーション:**
