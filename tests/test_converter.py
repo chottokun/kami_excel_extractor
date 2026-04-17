@@ -39,6 +39,45 @@ def test_convert_success(tmp_path):
         assert mock_subprocess.call_args_list[0][0][0][0] == "/usr/bin/soffice"
         assert mock_subprocess.call_args_list[1][0][0][0] == "/usr/bin/pdftocairo"
 
+        # Verify pdftocairo arguments are resolved
+        pdftocairo_args = mock_subprocess.call_args_list[1][0][0]
+        assert Path(pdftocairo_args[3]).is_absolute()
+        assert Path(pdftocairo_args[4]).is_absolute()
+
+def test_convert_dpi_propagation(tmp_path):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    converter = ExcelConverter(output_dir, dpi=300)
+
+    input_file = tmp_path / "test.xlsx"
+    input_file.touch()
+
+    pdf_file = output_dir / "test.pdf"
+    png_file = output_dir / "test.png"
+
+    def mock_run(args, **kwargs):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        if "/usr/bin/soffice" in args[0]:
+            pdf_file.touch()
+        elif "/usr/bin/magick" in args[0]:
+            png_file.touch()
+        return mock_res
+
+    # Mock pdftocairo as missing to trigger ImageMagick
+    with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}" if x != "pdftocairo" else None):
+        with patch("subprocess.run", side_effect=mock_run) as mock_subprocess:
+            with patch.dict("sys.modules", {"fitz": None}):
+                result = converter.convert(input_file)
+                assert result == png_file
+
+                # Find the magick call
+                magick_call = next(c for c in mock_subprocess.call_args_list if "/usr/bin/magick" in c[0][0])
+                args = magick_call[0][0]
+                assert args[2] == "300" # DPI
+                assert Path(args[3].replace("[0]", "")).is_absolute()
+                assert Path(args[4]).is_absolute()
+
 def test_convert_input_missing(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
