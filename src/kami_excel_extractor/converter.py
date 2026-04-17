@@ -29,23 +29,25 @@ class ExcelConverter:
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
         try:
-            with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir:
+            with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
+                tmp_dir = Path(tmp_dir_str).resolve()
                 user_installation = f"file://{tmp_dir}"
 
                 # Step 1: Excel -> PDF
                 logger.info(f"Converting {input_file.name} to PDF...")
                 
                 # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-                soffice_path = shutil.which("soffice")
-                if not soffice_path:
+                soffice_path_str = shutil.which("soffice")
+                if not soffice_path_str:
                     logger.error("LibreOffice (soffice) not found in PATH")
                     raise RuntimeError("LibreOffice (soffice) not found in PATH")
+                soffice_path = str(Path(soffice_path_str).resolve())
 
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 res_pdf = subprocess.run([
                     soffice_path, f"-env:UserInstallation={user_installation}",
                     "--headless", "--convert-to", "pdf",
-                    "--outdir", str(self.output_dir), str(input_file)
+                    "--outdir", str(self.output_dir.resolve()), str(input_file.resolve())
                 ], capture_output=True, text=True, timeout=600)
 
                 if res_pdf.returncode != 0:
@@ -68,13 +70,14 @@ class ExcelConverter:
         """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""
 
         # 1. pdftocairo (Primary)
-        pdftocairo_path = shutil.which("pdftocairo")
-        if pdftocairo_path:
+        pdftocairo_path_str = shutil.which("pdftocairo")
+        if pdftocairo_path_str:
+            pdftocairo_path = str(Path(pdftocairo_path_str).resolve())
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 res = subprocess.run([
                     pdftocairo_path, "-png", "-singlefile",
-                    str(pdf_path), str(output_png.with_suffix(""))
+                    str(pdf_path.resolve()), str(output_png.with_suffix("").resolve())
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
                     return
@@ -103,15 +106,16 @@ class ExcelConverter:
 
         # 3. ImageMagick (magick or convert)
         for cmd_name in ["magick", "convert"]:
-            cmd_path = shutil.which(cmd_name)
-            if not cmd_path:
+            cmd_path_str = shutil.which(cmd_name)
+            if not cmd_path_str:
                 continue
+            cmd_path = str(Path(cmd_path_str).resolve())
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 # magick [input] [output] or convert [input] [output]
                 # For PDF to PNG with ImageMagick, [0] specifies the first page
                 res = subprocess.run([
-                    cmd_path, "-density", "150", f"{pdf_path}[0]", str(output_png)
+                    cmd_path, "-density", "150", f"{pdf_path.resolve()}[0]", str(output_png.resolve())
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
                     logger.info(f"Converted PDF to PNG using ImageMagick ({cmd_name})")
