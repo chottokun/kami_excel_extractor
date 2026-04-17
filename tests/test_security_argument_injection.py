@@ -4,12 +4,13 @@ from pathlib import Path
 from kami_excel_extractor.converter import ExcelConverter
 from kami_excel_extractor.document_generator import DocumentGenerator
 
-def test_excel_converter_uses_absolute_paths(tmp_path):
-    output_dir = tmp_path / "output"
+def test_excel_converter_uses_absolute_paths(tmp_path, monkeypatch):
+    # Use a relative path to ensure the fix actually makes it absolute
+    monkeypatch.chdir(tmp_path)
+    output_dir = Path("output")
     output_dir.mkdir()
     converter = ExcelConverter(output_dir)
 
-    # Use a relative path to ensure the fix actually makes it absolute
     input_file = Path("test.xlsx")
     # We need to touch it so exists() passes
     input_file.touch()
@@ -49,8 +50,10 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
         if input_file.exists():
             input_file.unlink()
 
-def test_document_generator_uses_absolute_paths(tmp_path):
-    output_dir = tmp_path / "output"
+def test_document_generator_absolute_paths_for_commands(tmp_path, monkeypatch):
+    # Use a relative path to ensure the fix actually makes it absolute
+    monkeypatch.chdir(tmp_path)
+    output_dir = Path("test_out_rel")
     output_dir.mkdir()
     generator = DocumentGenerator(output_dir)
 
