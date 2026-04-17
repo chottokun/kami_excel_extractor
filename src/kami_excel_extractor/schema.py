@@ -7,6 +7,7 @@ class ExtractionOptions(BaseModel):
     system_prompt: Optional[str] = None
     include_visual_summaries: bool = False
     use_visual_context: bool = True
+    dpi: int = 150
 
 class RagOptions(ExtractionOptions):
     """RAGチャンク生成時のオプション"""
