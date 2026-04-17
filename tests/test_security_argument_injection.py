@@ -71,3 +71,38 @@ def test_document_generator_uses_absolute_paths(tmp_path):
         html_path = soffice_args[6]
         assert Path(outdir).is_absolute(), f"Expected absolute path for outdir, got {outdir}"
         assert Path(html_path).is_absolute(), f"Expected absolute path for html_path, got {html_path}"
+
+def test_document_generator_absolute_paths_for_commands():
+    # Use a relative path to ensure the fix actually makes it absolute
+    import shutil
+    output_dir = Path("./test_out_rel")
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        generator = DocumentGenerator(output_dir)
+        # Verify it was resolved to absolute path
+        assert generator.output_dir.is_absolute()
+
+        with patch("subprocess.run") as mock_run, \
+             patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
+            mock_run.return_value.returncode = 0
+
+            # We need to mock rglob because generate_pdf uses it to find the pdf
+            with patch("pathlib.Path.rglob") as mock_rglob:
+                # Use absolute path for the mock return value
+                mock_rglob.return_value = [output_dir.resolve() / "test.pdf"]
+                with patch("shutil.move"):
+                    generator.generate_pdf("# Test", "test_report")
+
+            # [ "/usr/bin/soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html) ]
+            soffice_args = mock_run.call_args[0][0]
+            assert soffice_args[0] == "/usr/bin/soffice"
+            outdir = soffice_args[5]
+            html_path = soffice_args[6]
+            assert Path(outdir).is_absolute(), f"Expected absolute path for outdir, got {outdir}"
+            assert Path(html_path).is_absolute(), f"Expected absolute path for html_path, got {html_path}"
+    finally:
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
