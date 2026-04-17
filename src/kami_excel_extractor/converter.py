@@ -64,27 +64,29 @@ class ExcelConverter:
             if original_pdf.exists():
                 original_pdf.unlink()
 
-    def _convert_pdf_to_png(self, pdf_path: Path, output_png: Path) -> None:
-        """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""
-
-        # 1. pdftocairo (Primary)
+    def _try_pdftocairo(self, pdf_path: Path, output_png: Path) -> bool:
+        """pdftocairoを使用してPDFをPNGに変換する"""
         pdftocairo_path = shutil.which("pdftocairo")
-        if pdftocairo_path:
-            try:
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
-                res = subprocess.run([
-                    pdftocairo_path, "-png", "-singlefile",
-                    str(pdf_path), str(output_png.with_suffix(""))
-                ], capture_output=True, text=True, timeout=300)
-                if res.returncode == 0 and output_png.exists():
-                    return
-                logger.warning(f"pdftocairo failed, trying fallback: {res.stderr}")
-            except (subprocess.SubprocessError, OSError) as e:
-                logger.warning(f"pdftocairo failed: {e}")
-        else:
-            logger.warning("pdftocairo not found in PATH, trying fallback")
+        if not pdftocairo_path:
+            logger.warning("pdftocairo not found in PATH")
+            return False
 
-        # 2. PyMuPDF (fitz)
+        try:
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            res = subprocess.run([
+                pdftocairo_path, "-png", "-singlefile",
+                str(pdf_path), str(output_png.with_suffix(""))
+            ], capture_output=True, text=True, timeout=300)
+            if res.returncode == 0 and output_png.exists():
+                logger.info("Converted PDF to PNG using pdftocairo")
+                return True
+            logger.warning(f"pdftocairo failed: {res.stderr}")
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.warning(f"pdftocairo failed with error: {e}")
+        return False
+
+    def _try_fitz(self, pdf_path: Path, output_png: Path) -> bool:
+        """PyMuPDF (fitz) を使用してPDFをPNGに変換する"""
         try:
             import fitz
             doc = fitz.open(str(pdf_path))
@@ -95,28 +97,40 @@ class ExcelConverter:
             doc.close()
             if output_png.exists():
                 logger.info("Converted PDF to PNG using PyMuPDF (fitz)")
-                return
+                return True
         except ImportError:
-            logger.warning("PyMuPDF (fitz) not installed, trying next fallback")
+            logger.warning("PyMuPDF (fitz) not installed")
         except Exception as e:
             logger.warning(f"PyMuPDF conversion failed: {e}")
+        return False
 
-        # 3. ImageMagick (magick or convert)
+    def _try_imagemagick(self, pdf_path: Path, output_png: Path) -> bool:
+        """ImageMagickを使用してPDFをPNGに変換する"""
         for cmd_name in ["magick", "convert"]:
             cmd_path = shutil.which(cmd_name)
             if not cmd_path:
                 continue
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
-                # magick [input] [output] or convert [input] [output]
-                # For PDF to PNG with ImageMagick, [0] specifies the first page
                 res = subprocess.run([
                     cmd_path, "-density", "150", f"{pdf_path}[0]", str(output_png)
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
                     logger.info(f"Converted PDF to PNG using ImageMagick ({cmd_name})")
-                    return
+                    return True
             except (subprocess.SubprocessError, OSError):
                 continue
+        return False
+
+    def _convert_pdf_to_png(self, pdf_path: Path, output_png: Path) -> None:
+        """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""
+        if self._try_pdftocairo(pdf_path, output_png):
+            return
+
+        if self._try_fitz(pdf_path, output_png):
+            return
+
+        if self._try_imagemagick(pdf_path, output_png):
+            return
 
         raise RuntimeError("All PDF to PNG conversion methods failed")

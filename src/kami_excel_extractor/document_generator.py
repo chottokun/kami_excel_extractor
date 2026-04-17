@@ -194,21 +194,7 @@ class DocumentGenerator:
             pdf_path = self.output_dir / f"{safe_output_name}.pdf"
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             
-            try:
-                # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-                soffice_path = shutil.which("soffice")
-                if not soffice_path:
-                    logger.error("LibreOffice (soffice) not found in PATH")
-                    return None
-
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
-                # --outdir は一時ディレクトリのルートを指定
-                cmd = [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if res.returncode != 0:
-                    logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
-                    return None
-                
+            if self._run_soffice_conversion(temp_html, tmp_dir):
                 # 生成されたPDFを特定（sofficeは入力ファイル名.pdfを出力する）
                 expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
                 if expected_pdf.exists():
@@ -221,10 +207,33 @@ class DocumentGenerator:
                         shutil.move(str(pdfs[0]), str(pdf_path))
                         return pdf_path
                     logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
-            except (subprocess.SubprocessError, OSError) as e:
-                logger.error(f"Failed to generate PDF for {output_name}: {e}")
+            else:
+                logger.error(f"Failed to generate PDF for {output_name}")
                 return None
-            except Exception:
-                logger.exception("Unexpected error during PDF generation")
-                return None
-        return None
+
+    def _run_soffice_conversion(self, input_file: Path, outdir: Path, user_installation: Optional[str] = None) -> bool:
+        """LibreOffice (soffice) を使用してファイルをPDFに変換する"""
+        try:
+            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            soffice_path = shutil.which("soffice")
+            if not soffice_path:
+                logger.error("LibreOffice (soffice) not found in PATH")
+                return False
+
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            cmd = [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", str(outdir)]
+            if user_installation:
+                cmd.append(f"-env:UserInstallation={user_installation}")
+            cmd.append(str(input_file))
+
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if res.returncode != 0:
+                logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
+                return False
+            return True
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.error(f"Subprocess error during soffice conversion: {e}")
+            return False
+        except Exception:
+            logger.exception("Unexpected error during soffice conversion")
+            return False
