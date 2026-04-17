@@ -3,7 +3,6 @@ import tempfile
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,7 @@ class ExcelConverter:
                     raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
 
                 # Step 2: PDF -> PNG (with fallbacks)
-                logger.info(f"Converting PDF to PNG...")
+                logger.info("Converting PDF to PNG...")
                 self._convert_pdf_to_png(original_pdf, output_png)
 
                 return output_png
@@ -68,40 +67,41 @@ class ExcelConverter:
         """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""
 
         # 1. pdftocairo (Primary)
-        pdftocairo_path = shutil.which("pdftocairo")
-        if pdftocairo_path:
-            try:
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
-                res = subprocess.run([
-                    pdftocairo_path, "-png", "-singlefile",
-                    str(pdf_path), str(output_png.with_suffix(""))
-                ], capture_output=True, text=True, timeout=300)
-                if res.returncode == 0 and output_png.exists():
-                    return
-                logger.warning(f"pdftocairo failed, trying fallback: {res.stderr}")
-            except (subprocess.SubprocessError, OSError) as e:
-                logger.warning(f"pdftocairo failed: {e}")
-        else:
-            logger.warning("pdftocairo not found in PATH, trying fallback")
+        if self._try_pdftocairo(pdf_path, output_png):
+            return
 
         # 2. PyMuPDF (fitz)
-        try:
-            import fitz
-            doc = fitz.open(str(pdf_path))
-            page = doc.load_page(0)
-            # 2.0x zoom for better quality
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-            pix.save(str(output_png))
-            doc.close()
-            if output_png.exists():
-                logger.info("Converted PDF to PNG using PyMuPDF (fitz)")
-                return
-        except ImportError:
-            logger.warning("PyMuPDF (fitz) not installed, trying next fallback")
-        except Exception as e:
-            logger.warning(f"PyMuPDF conversion failed: {e}")
+        if self._try_fitz(pdf_path, output_png):
+            return
 
         # 3. ImageMagick (magick or convert)
+        if self._try_imagemagick(pdf_path, output_png):
+            return
+
+        raise RuntimeError("All PDF to PNG conversion methods failed")
+
+    def _try_pdftocairo(self, pdf_path: Path, output_png: Path) -> bool:
+        """pdftocairoを使用してPDFをPNGに変換する"""
+        pdftocairo_path = shutil.which("pdftocairo")
+        if not pdftocairo_path:
+            logger.warning("pdftocairo not found in PATH")
+            return False
+
+        try:
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            res = subprocess.run([
+                pdftocairo_path, "-png", "-singlefile",
+                str(pdf_path), str(output_png.with_suffix(""))
+            ], capture_output=True, text=True, timeout=300)
+            if res.returncode == 0 and output_png.exists():
+                return True
+            logger.warning(f"pdftocairo failed: {res.stderr}")
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.warning(f"pdftocairo failed: {e}")
+        return False
+
+    def _try_imagemagick(self, pdf_path: Path, output_png: Path) -> bool:
+        """ImageMagickを使用してPDFをPNGに変換する"""
         for cmd_name in ["magick", "convert"]:
             cmd_path = shutil.which(cmd_name)
             if not cmd_path:
@@ -115,8 +115,26 @@ class ExcelConverter:
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
                     logger.info(f"Converted PDF to PNG using ImageMagick ({cmd_name})")
-                    return
+                    return True
             except (subprocess.SubprocessError, OSError):
                 continue
+        return False
 
-        raise RuntimeError("All PDF to PNG conversion methods failed")
+    def _try_fitz(self, pdf_path: Path, output_png: Path) -> bool:
+        """PyMuPDF (fitz) を使用してPDFをPNGに変換する"""
+        try:
+            import fitz
+            doc = fitz.open(str(pdf_path))
+            page = doc.load_page(0)
+            # 2.0x zoom for better quality
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            pix.save(str(output_png))
+            doc.close()
+            if output_png.exists():
+                logger.info("Converted PDF to PNG using PyMuPDF (fitz)")
+                return True
+        except ImportError:
+            logger.warning("PyMuPDF (fitz) not installed")
+        except Exception as e:
+            logger.warning(f"PyMuPDF conversion failed: {e}")
+        return False
