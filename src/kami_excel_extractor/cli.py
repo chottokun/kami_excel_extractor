@@ -72,16 +72,21 @@ async def run_async(args):
 
         # 結果の保存
         output_path = Path(args.output_dir) / f"{Path(args.input).stem}_result.json"
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(result_data, f, indent=2, ensure_ascii=False)
-        
+
+        def _save_json(path, data):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+        await asyncio.to_thread(_save_json, output_path, result_data)
         logger.info(f"結果を保存しました: {output_path}")
-        
+
         if args.rag:
             rag_path = Path(args.output_dir) / f"{Path(args.input).stem}_rag.json"
-            serializable_chunks = {k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()}
-            with open(rag_path, "w", encoding="utf-8") as f:
-                json.dump(serializable_chunks, f, indent=2, ensure_ascii=False)
+            serializable_chunks = {
+                k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]}
+                for k, v in chunks_map.items()
+            }
+            await asyncio.to_thread(_save_json, rag_path, serializable_chunks)
             logger.info(f"RAG用データを保存しました: {rag_path}")
 
     except Exception as e:
