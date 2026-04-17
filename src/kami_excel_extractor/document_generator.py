@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import logging
 import html
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 from .utils import secure_filename
@@ -177,7 +178,6 @@ class DocumentGenerator:
 
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
-        import tempfile
         # 安全なファイル名を作成
         safe_output_name = secure_filename(output_name)
         
@@ -194,37 +194,48 @@ class DocumentGenerator:
             pdf_path = self.output_dir / f"{safe_output_name}.pdf"
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             
-            try:
-                # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-                soffice_path = shutil.which("soffice")
-                if not soffice_path:
-                    logger.error("LibreOffice (soffice) not found in PATH")
-                    return None
+            # PDF変換実行
+            generated_pdf = self._run_soffice_conversion(tmp_dir, temp_html)
 
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
-                # --outdir は一時ディレクトリのルートを指定
-                cmd = [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if res.returncode != 0:
-                    logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
-                    return None
+            if generated_pdf and generated_pdf.exists():
+                shutil.move(str(generated_pdf), str(pdf_path))
+                return pdf_path
                 
-                # 生成されたPDFを特定（sofficeは入力ファイル名.pdfを出力する）
-                expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
-                if expected_pdf.exists():
-                    shutil.move(str(expected_pdf), str(pdf_path))
-                    return pdf_path
-                else:
-                    # フォールバック: rglobで探す
-                    pdfs = list(tmp_dir.rglob("*.pdf"))
-                    if pdfs:
-                        shutil.move(str(pdfs[0]), str(pdf_path))
-                        return pdf_path
-                    logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
-            except (subprocess.SubprocessError, OSError) as e:
-                logger.error(f"Failed to generate PDF for {output_name}: {e}")
+        return None
+
+    def _run_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
+        """LibreOfficeを使用してHTMLをPDFに変換する (内部用)"""
+        try:
+            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            soffice_path = shutil.which("soffice")
+            if not soffice_path:
+                logger.error("LibreOffice (soffice) not found in PATH")
                 return None
-            except Exception:
-                logger.exception("Unexpected error during PDF generation")
+
+            # 実行ファイルのパスを絶対パスで解決
+            soffice_path = str(Path(soffice_path).resolve())
+
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # --outdir は一時ディレクトリのルートを指定
+            cmd = [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if res.returncode != 0:
+                logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
                 return None
+
+            # 生成されたPDFを特定（sofficeは入力ファイル名.pdfを出力する）
+            expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
+            if expected_pdf.exists():
+                return expected_pdf
+            else:
+                # フォールバック: rglobで探す
+                pdfs = list(tmp_dir.rglob("*.pdf"))
+                if pdfs:
+                    return pdfs[0]
+                logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.error(f"Failed to execute soffice conversion: {e}")
+        except Exception:
+            logger.exception("Unexpected error during soffice conversion")
+
         return None
