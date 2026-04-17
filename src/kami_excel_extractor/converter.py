@@ -36,10 +36,11 @@ class ExcelConverter:
                 logger.info(f"Converting {input_file.name} to PDF...")
                 
                 # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-                soffice_path = shutil.which("soffice")
-                if not soffice_path:
+                raw_soffice_path = shutil.which("soffice")
+                if not raw_soffice_path:
                     logger.error("LibreOffice (soffice) not found in PATH")
                     raise RuntimeError("LibreOffice (soffice) not found in PATH")
+                soffice_path = str(Path(raw_soffice_path).resolve())
 
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 res_pdf = subprocess.run([
@@ -68,10 +69,11 @@ class ExcelConverter:
         """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""
 
         # 1. pdftocairo (Primary)
-        pdftocairo_path = shutil.which("pdftocairo")
-        if pdftocairo_path:
+        raw_pdftocairo_path = shutil.which("pdftocairo")
+        if raw_pdftocairo_path:
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                pdftocairo_path = str(Path(raw_pdftocairo_path).resolve())
                 res = subprocess.run([
                     pdftocairo_path, "-png", "-singlefile",
                     str(pdf_path), str(output_png.with_suffix(""))
@@ -103,13 +105,14 @@ class ExcelConverter:
 
         # 3. ImageMagick (magick or convert)
         for cmd_name in ["magick", "convert"]:
-            cmd_path = shutil.which(cmd_name)
-            if not cmd_path:
+            raw_cmd_path = shutil.which(cmd_name)
+            if not raw_cmd_path:
                 continue
             try:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 # magick [input] [output] or convert [input] [output]
                 # For PDF to PNG with ImageMagick, [0] specifies the first page
+                cmd_path = str(Path(raw_cmd_path).resolve())
                 res = subprocess.run([
                     cmd_path, "-density", "150", f"{pdf_path}[0]", str(output_png)
                 ], capture_output=True, text=True, timeout=300)
