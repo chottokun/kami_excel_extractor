@@ -28,13 +28,57 @@ class MetadataExtractor:
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_border_info(self, cell):
+        """セルの罫線情報を取得する"""
         borders = {}
         if cell.border:
-            if cell.border.left.style: borders["L"] = cell.border.left.style
-            if cell.border.right.style: borders["R"] = cell.border.right.style
-            if cell.border.top.style: borders["T"] = cell.border.top.style
-            if cell.border.bottom.style: borders["B"] = cell.border.bottom.style
+            # 線の太さやスタイルを取得
+            if cell.border.left and cell.border.left.style: 
+                borders["left"] = cell.border.left.style
+            if cell.border.right and cell.border.right.style: 
+                borders["right"] = cell.border.right.style
+            if cell.border.top and cell.border.top.style: 
+                borders["top"] = cell.border.top.style
+            if cell.border.bottom and cell.border.bottom.style: 
+                borders["bottom"] = cell.border.bottom.style
         return borders
+
+    def _get_cell_style_string(self, cell):
+        """セルのスタイル情報をCSS文字列として取得する"""
+        styles = []
+        
+        # 背景色
+        if cell.fill and hasattr(cell.fill, "start_color") and cell.fill.start_color:
+            c_idx = str(cell.fill.start_color.index)
+            # '00000000' はデフォルト（透明/自動）
+            if c_idx not in ('00000000', '0'):
+                if len(c_idx) == 8: # ARGB
+                    c_idx = c_idx[2:]
+                # 有効な16進数かチェック
+                if all(c in "0123456789ABCDEFabcdef" for c in c_idx):
+                    styles.append(f"background-color: #{c_idx}")
+
+        # 罫線
+        border_info = self._get_border_info(cell)
+        for side, style in border_info.items():
+            # thin, medium, thick などを CSS の border-style に近似
+            width = "1px"
+            if style in ('medium', 'mediumDashDot', 'mediumDashDotDot', 'mediumDashed'):
+                width = "2px"
+            elif style == 'thick':
+                width = "3px"
+            
+            line_style = "solid"
+            if 'dotted' in style.lower(): line_style = "dotted"
+            elif 'dashed' in style.lower(): line_style = "dashed"
+            
+            styles.append(f"border-{side}: {width} {line_style} black")
+
+        # フォント
+        if cell.font:
+            if cell.font.b: styles.append("font-weight: bold")
+            if cell.font.i: styles.append("font-style: italic")
+
+        return "; ".join(styles)
 
     def _extract_media(self, ws, sheet_name):
         media_info = []
@@ -59,16 +103,13 @@ class MetadataExtractor:
                     continue
 
                 # Pillowを使って画像として読み込み、PNGとして再保存
-                # これによりEMF/WMF等の互換性問題を解決し、標準的なPNGヘッダーを付与する
                 with Image.open(io.BytesIO(raw_data)) as pillow_img:
-                    # RGBに変換（透過情報の扱いや、特殊な色空間の回避）
                     if pillow_img.mode in ("RGBA", "P"):
                         pillow_img = pillow_img.convert("RGB")
                     pillow_img.save(save_path, "PNG")
                 
                 media_info.append({"coord": coord, "filename": str(image_filename), "type": "image"})
             except (UnidentifiedImageError, OSError, ValueError, AttributeError, Image.DecompressionBombError) as e:
-                # 変換不能な形式やデコンプレッションボム（巨大画像）はスキップ
                 logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
         return media_info
 
@@ -97,7 +138,6 @@ class MetadataExtractor:
         return data
 
     def _get_merged_cells_map(self, ws):
-        """Map merged cell information."""
         merged_map = {}
         for m_range in ws.merged_cells.ranges:
             for r, c in m_range.cells:
@@ -111,14 +151,12 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(self, cell, span_info):
-        """Convert a single cell to an HTML td element."""
+        """Convert a single cell to an HTML td element with rich styles."""
         val = cell.value
         if val is None:
             val_str = ""
         elif isinstance(val, (date, datetime)):
             val_str = val.isoformat()
-        elif isinstance(val, str):
-            val_str = val
         else:
             val_str = str(val)
 
@@ -129,36 +167,50 @@ class MetadataExtractor:
             if span_info["rowspan"] > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        styles = []
-        if cell.fill and hasattr(cell.fill, "start_color") and cell.fill.start_color and cell.fill.start_color.index != '00000000':
-            c_idx = str(cell.fill.start_color.index)
-            if len(c_idx) == 8:
-                c_idx = c_idx[2:]
-            styles.append(f"background-color: #{c_idx}")
-
-        if styles:
-            attrs.append(f'style="{"; ".join(styles)}"')
+        style_str = self._get_cell_style_string(cell)
+        if style_str:
+            attrs.append(f'style="{style_str}"')
+        
+        attrs.append(f'data-coord="{cell.coordinate}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        if not val_str:
-            safe_val = ""
-        else:
-            safe_val = html.escape(val_str).replace('\n', '<br>')
+        safe_val = html.escape(val_str).replace('\n', '<br>') if val_str else ""
 
         return f"<td{attr_str}>{safe_val}</td>"
 
+    def _generate_cell_metadata(self, ws):
+        merged_map = self._get_merged_cells_map(ws)
+        cell_data = []
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+            for cell in row:
+                span = merged_map.get((cell.row, cell.column))
+                if span == "skip": continue
+                cell_info = {
+                    "coord": cell.coordinate,
+                    "row": cell.row,
+                    "col": cell.column,
+                    "value": str(cell.value) if cell.value is not None else None,
+                    "style": {
+                        "borders": self._get_border_info(cell),
+                        "bold": bool(cell.font.b) if cell.font else False,
+                        "bg_color": str(cell.fill.start_color.index) if cell.fill and cell.fill.start_color else None
+                    }
+                }
+                if isinstance(span, dict):
+                    cell_info.update(span)
+                cell_data.append(cell_info)
+        return cell_data
+
     def _generate_html_table(self, ws):
-        """Generate an HTML table from a worksheet."""
         merged_map = self._get_merged_cells_map(ws)
         max_r, max_c = ws.max_row, ws.max_column
-        html_rows = ["<table border='1'>"]
+        html_rows = ["<table border='1' style='border-collapse: collapse; min-width: 100%;'>"]
         for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
             row_html = ["  <tr>"]
             for cell in row:
                 r, c = cell.row, cell.column
                 span_info = merged_map.get((r, c))
-                if span_info == "skip":
-                    continue
+                if span_info == "skip": continue
                 row_html.append(self._cell_to_html_td(cell, span_info))
             row_html.append("  </tr>")
             html_rows.append("".join(row_html))
@@ -172,6 +224,7 @@ class MetadataExtractor:
             ws = wb[sheet_name]
             full_map["sheets"][sheet_name] = {
                 "html": self._generate_html_table(ws),
+                "cells": self._generate_cell_metadata(ws),
                 "media": self._extract_media(ws, sheet_name),
                 "is_simple": self.is_simple_table(ws)
             }
