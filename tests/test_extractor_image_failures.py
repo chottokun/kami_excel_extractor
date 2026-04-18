@@ -22,7 +22,10 @@ def test_extract_media_os_error(tmp_path, caplog):
         with caplog.at_level(logging.WARNING):
             media_info = extractor._extract_media(mock_ws, "Sheet1")
 
-        assert media_info == []
+        assert len(media_info) == 1
+        assert media_info[0]["coord"] == "A1"
+        assert media_info[0]["error"] == "unidentified_format"
+
         assert "Failed to extract image at A1 on sheet Sheet1: Internal library error" in caplog.text
 
 def test_extract_media_attribute_error(tmp_path, caplog):
@@ -46,7 +49,10 @@ def test_extract_media_attribute_error(tmp_path, caplog):
         with caplog.at_level(logging.WARNING):
             media_info = extractor._extract_media(mock_ws, "Sheet2")
 
-        assert media_info == []
+        assert len(media_info) == 1
+        assert media_info[0]["coord"] == "B2"
+        assert media_info[0]["error"] == "unidentified_format"
+
         assert "Failed to extract image at B2 on sheet Sheet2: Mock attribute error" in caplog.text
 
 def test_extract_media_mixed_success_and_failure(tmp_path, caplog):
@@ -92,7 +98,9 @@ def test_extract_media_mixed_success_and_failure(tmp_path, caplog):
         with caplog.at_level(logging.WARNING):
             media_info = extractor._extract_media(mock_ws, "Sheet1")
 
-        assert len(media_info) == 2
+        assert len(media_info) == 3
+        assert media_info[1]["error"] == "unidentified_format"
+
         assert media_info[0]["coord"] == "A1"
-        assert media_info[1]["coord"] == "C3"
+        assert media_info[1]["coord"] == "B2"
         assert "Failed to extract image at B2 on sheet Sheet1: Unknown format" in caplog.text

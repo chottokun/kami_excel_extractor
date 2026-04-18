@@ -92,8 +92,10 @@ def test_extract_media_failure_skips_image(tmp_path):
 
         media_info = extractor._extract_media(mock_ws, "Sheet1")
 
-        # Only the first image should be in media_info
-        assert len(media_info) == 1
+        # Now both images should be in media_info (one with filename, one with error)
+        assert len(media_info) == 2
+        assert media_info[1]["error"] == "unidentified_format"
+
         assert media_info[0]["coord"] == "A1"
         assert media_info[0]["filename"] == "Sheet1_img_A1_0.png"
 
@@ -116,8 +118,9 @@ def test_extract_media_value_error(tmp_path):
 
         media_info = extractor._extract_media(mock_ws, "Sheet1")
 
-        assert media_info == []
-
+        assert len(media_info) == 1
+        assert media_info[0]["coord"] == "A1"
+        assert media_info[0]["error"] == "unidentified_format"
 def test_extract_media_no_images(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
     mock_ws = MagicMock()

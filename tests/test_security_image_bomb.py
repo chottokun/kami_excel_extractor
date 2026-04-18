@@ -43,8 +43,10 @@ def test_extract_media_skips_decompression_bomb(tmp_path):
 
         media_info = extractor._extract_media(mock_ws, "Sheet1")
 
-        # Should be skipped due to exception handling
-        assert len(media_info) == 0
+        # Should be kept but with error
+        assert len(media_info) == 1
+        assert media_info[0]["error"] == "unidentified_format"
+
         mock_open.assert_called_once()
 
 def test_extract_media_respects_module_level_limit():
