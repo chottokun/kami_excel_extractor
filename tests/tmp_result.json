@@ -1,0 +1,326 @@
+{
+  "sheets": {
+    "Summary": {
+      "document_title": "月次売上報告書",
+      "sheet_name": "Summary",
+      "data_structure": {
+        "header_row": [
+          {
+            "coordinate": "A1",
+            "content": "月次売上報告書",
+            "role": "Report Title"
+          },
+          {
+            "coordinate": "B1",
+            "content": null,
+            "role": null
+          },
+          {
+            "coordinate": "C1",
+            "content": null,
+            "role": null
+          },
+          {
+            "coordinate": "D1",
+            "content": null,
+            "role": null
+          }
+        ],
+        "metadata_section": [
+          {
+            "coordinate": "A3",
+            "content": "月",
+            "role": "Column Header"
+          },
+          {
+            "coordinate": "B3",
+            "content": "目標",
+            "role": "Column Header"
+          },
+          {
+            "coordinate": "C3",
+            "content": "実績",
+            "role": "Column Header"
+          },
+          {
+            "coordinate": "D3",
+            "content": "達成率",
+            "role": "Column Header"
+          }
+        ],
+        "data_rows": [
+          {
+            "row_index": 1,
+            "coordinates": [
+              "A4",
+              "B4",
+              "C4",
+              "D4"
+            ],
+            "data": {
+              "月": "2024-01",
+              "目標": 1000,
+              "実績": 1100,
+              "達成率": "110%"
+            }
+          },
+          {
+            "row_index": 2,
+            "coordinates": [
+              "A5",
+              "B5",
+              "C5",
+              "D5"
+            ],
+            "data": {
+              "月": "2024-02",
+              "目標": 1000,
+              "実績": 950,
+              "達成率": "95%"
+            }
+          },
+          {
+            "row_index": 3,
+            "coordinates": [
+              "A6",
+              "B6",
+              "C6",
+              "データ"
+            ]
+          },
+          "data_structure_note_for_A6_C6_D6_Correction_Required"
+        ],
+        "correction_note": "データソースのHTMLでA6からD6までデータが存在しますが、上記の構造化では行3のデータフィールドが不完全な可能性があります。しかし、与えられたデータ（2024-03, 1200, 1300, 108%）に基づいて、行3のデータを補完します。",
+        "corrected_data_rows": [
+          {
+            "row_index": 1,
+            "coordinates": [
+              "A4",
+              "B4",
+              "C4",
+              "D4"
+            ],
+            "data": {
+              "月": "2024-01",
+              "目標": 1000,
+              "実績": 1100,
+              "達成率": "110%"
+            }
+          },
+          {
+            "row_index": 2,
+            "coordinates": [
+              "A5",
+              "B5",
+              "C5",
+              "D5"
+            ],
+            "data": {
+              "月": "2024-02",
+              "目標": 1000,
+              "実績": 950,
+              "達成率": "95%"
+            }
+          },
+          {
+            "row_index": 3,
+            "coordinates": [
+              "A6",
+              "B6",
+              "C6",
+              "D6"
+            ],
+            "data": {
+              "月": "2024-03",
+              "目標": 1200,
+              "実績": 1300,
+              "達成率": "108%"
+            }
+          }
+        ]
+      }
+    },
+    "SitePhotos": {
+      "sheetName": "SitePhotos",
+      "structure": [
+        {
+          "sectionTitle": "現場状況写真",
+          "row": 1,
+          "cellData": {
+            "A1": "現場状況写真",
+            "B1": null,
+            "C1": null,
+            "D1": null
+          },
+          "colspan": 4
+        },
+        {
+          "sectionTitle": "空行",
+          "row": 2,
+          "cellData": {
+            "A2": null,
+            "B2": null,
+            "C2": null,
+            "D2": null
+          }
+        },
+        {
+          "sectionTitle": "写真添付エリア",
+          "row": 3,
+          "cellData": {
+            "A3": "写真添付エリア A3",
+            "B3": null,
+            "C3": "写真添付エリア C3",
+            "D3": null
+          },
+          "notes": "A3とC3には黒い枠線が設定され、写真が添付されることを示唆している。"
+        },
+        {
+          "sectionTitle": "データ入力エリア",
+          "rows": [
+            {
+              "row": 4,
+              "cellData": {
+                "A4": null,
+                "B4": null,
+                "C4": null,
+                "D4": null
+              }
+            },
+            {
+              "row": 5,
+              "cellData": {
+                "A5": null,
+                "B5": null,
+                "C5": null,
+                "D5": null
+              }
+            },
+            {
+              "row": 6,
+              "cellData": {
+                "A6": null,
+                "B6": null,
+                "C6": null,
+                "D6": null
+              }
+            },
+            {
+              "row": 7,
+              "cellData": {
+                "A7": null,
+                "B7": null,
+                "C7": null,
+                "D7": null
+              }
+            },
+            {
+              "row": 8,
+              "cellData": {
+                "A8": null,
+                "B8": null,
+                "C8": null,
+                "D8": null
+              }
+            },
+            {
+              "row": 9,
+              "cellData": {
+                "A9": null,
+                "B9": null,
+                "C9": null,
+                "D9": null
+              }
+            },
+            {
+              "row": 10,
+              "cellData": {
+                "A10": null,
+                "B10": null,
+                "C10": null,
+                "D10": null
+              }
+            },
+            {
+              "row": 11,
+              "cellData": {
+                "A11": null,
+                "B11": null,
+                "C11": null,
+                "D11": null
+              }
+            },
+            {
+              "row": 12,
+              "cellData": {
+                "A12": null,
+                "B12": null,
+                "C12": null,
+                "D12": null
+              }
+            },
+            {
+              "row": 13,
+              "cellData": {
+                "A13": null,
+                "B13": null,
+                "C13": null,
+                "D13": null
+              }
+            },
+            {
+              "row": 14,
+              "cell": {
+                "A14": null,
+                "B14": null,
+                "C14": null,
+                "D14": null
+              }
+            }
+          ]
+        },
+        {
+          "sectionTitle": "所見・評価コメント",
+          "row": 15,
+          "cellData": {
+            "A15": "所見:",
+            "B15": null,
+            "C15": null,
+            "D15": null
+          }
+        },
+        {
+          "sectionTitle": "全体の評価・特記事項",
+          "row": 16,
+          "cellData": {
+            "A16": "全体の構造に異常なし。経年劣化による微細なひび割れが認められるが、即時の補修は不要と判断される。",
+            "B16": null,
+            "C16": null,
+            "D16": null
+          },
+          "notes": "A16セルはcolspan=4, rowspan=5となっており、A16からD20（またはA16からD20まで）の広範囲にわたってこのコメントが適用されるべき領域の目印である。"
+        }
+      ]
+    }
+  },
+  "media": [
+    {
+      "coord": "E3",
+      "filename": null,
+      "type": "image",
+      "error": "unidentified_format"
+    },
+    {
+      "coord": "A3",
+      "filename": null,
+      "type": "image",
+      "error": "unidentified_format"
+    },
+    {
+      "coord": "C3",
+      "filename": null,
+      "type": "image",
+      "error": "unidentified_format"
+    }
+  ]
+}

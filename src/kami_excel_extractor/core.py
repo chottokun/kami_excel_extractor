@@ -296,7 +296,8 @@ class KamiExcelExtractor:
     def _attach_media_to_sheets(self, all_media: list, structured_sheets: dict) -> None:
         """メディア情報をシートデータに紐付ける。"""
         for m in all_media:
-            sheet_name_part = m.get("filename", "").split("_img_")[0]
+            filename = m.get("filename") or ""
+            sheet_name_part = filename.split("_img_")[0]
             if sheet_name_part in structured_sheets:
                 structured_sheets[sheet_name_part].setdefault("media", []).append(m)
 
