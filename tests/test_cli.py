@@ -40,6 +40,7 @@ def test_main_success(mock_extractor, caplog):
                 model=None,
                 system_prompt=None,
                 include_visual_summaries=True,
+                include_logic=False,
                 use_visual_context=True
             )
         )
@@ -77,6 +78,8 @@ def test_main_rag_success(mock_extractor, caplog):
             "test.xlsx",
             options=RagOptions(
                 model=None,
+                include_logic=False,
+                include_visual_summaries=True,
                 use_visual_context=True
             )
         )

@@ -79,8 +79,6 @@ async def run_async(args):
                 options=options
             )
 
-            )
-
         # 結果の保存
         output_path = Path(args.output_dir) / f"{Path(args.input).stem}_result.json"
 
