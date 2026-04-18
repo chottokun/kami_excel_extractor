@@ -25,7 +25,7 @@ class DocumentGenerator:
     def _render_inline(self, text: str) -> str:
         """テキストをHTMLエスケープし、インラインスタイルを適用する"""
         # 🔒 Security Fix: HTML escape before applying inline styles
-        return self._apply_inline_styles(html.escape(text))
+        return self._apply_inline_styles(html.escape(text, quote=True))
 
     def _apply_inline_styles(self, text: str) -> str:
         """太字等のインラインスタイルを適用する"""
@@ -77,9 +77,9 @@ class DocumentGenerator:
         img_match = self.RE_IMAGE.search(stripped_line)
         alt_text = img_match.group(1) or "画像"
         img_path = img_match.group(2)
-        # 🔒 Security Fix: HTML escape image source attribute
+        # 🔒 Security Fix: HTML escape image source attribute and alt text
         escaped_img_path = html.escape(img_path, quote=True)
-        escaped_alt = html.escape(alt_text)
+        escaped_alt = html.escape(alt_text, quote=True)
         return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
 
     def _render_paragraph(self, stripped_line: str) -> str:
