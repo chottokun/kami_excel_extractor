@@ -26,6 +26,8 @@ class SheetData(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     sections: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     data: Optional[Union[List[Any], Dict[str, Any]]] = Field(default_factory=list)
+    cells: Optional[List[Dict[str, Any]]] = Field(default_factory=list) # 追加: 詳細セル情報
+    html: Optional[str] = None # 追加: 抽出に使用したHTML
     errors: Optional[List[str]] = Field(default_factory=list)
 
 class FullExtraction(BaseModel):

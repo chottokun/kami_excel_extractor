@@ -100,12 +100,21 @@ class KamiExcelExtractor:
 
     def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: Optional[str] = None) -> list:
         """LLMへのメッセージリストを構築する"""
-        content = [{"type": "text", "text": f"対象シート: {sheet_name}\nデータソース:\n{html_content}"}]
+        # 視覚的なスタイル（罫線・色）と座標情報の重要性を強調する補足
+        context_instruction = (
+            "提供されたHTMLテーブルには、CSSスタイル属性(style)が含まれています。\n"
+            "- border属性はデータの区切りや表の構造を強く示唆しています。\n"
+            "- background-colorはヘッダーや特定のデータグループを示していることが多いです。\n"
+            "- data-coord属性はExcel上の絶対座標を示しており、離れた位置にあるデータ間の関係を推論するのに役立ちます。\n"
+            "これらの情報を最大限に活用して、人間が目で見た時と同じ論理構造を復元してください。"
+        )
+        
+        content = [{"type": "text", "text": f"対象シート: {sheet_name}\n\n{context_instruction}\n\nデータソース (HTML):\n{html_content}"}]
         
         if image_url:
             content.append({"type": "image_url", "image_url": {"url": image_url}})
             
-        content.append({"type": "text", "text": "提供されたExcelシートのデータを解析し、構造化されたJSONオブジェクトとして出力してください。Markdownのコードブロック(```json)を含めてください。"})
+        content.append({"type": "text", "text": "提供されたExcelシートのデータを解析し、意味論的に整理された構造化データをJSON形式で出力してください。Markdownのコードブロック(```json)を含めてください。"})
         
         return [
             {"role": "system", "content": system_prompt},

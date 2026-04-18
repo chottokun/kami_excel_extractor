@@ -31,14 +31,24 @@ def test_rag_options_default():
     assert options.list_format == "kv"
 
 def test_extraction_result_validation():
-    """ExtractionResult のバリデーションと extra='allow' を確認"""
+    """ExtractionResult のバリデーションとデフォルト値を確認"""
+    # デフォルト値
+    res = ExtractionResult()
+    assert res.data is None
+    assert res.error is None
+
+    # 辞書データの保持
     result = ExtractionResult(data={"key": "value"}, extra_field="extra")
     assert result.data == {"key": "value"}
     assert result.extra_field == "extra"
 
-    # data が List の場合
+    # リストデータの保持
     result_list = ExtractionResult(data=["item1", "item2"])
     assert result_list.data == ["item1", "item2"]
+
+    # エラー情報の保持
+    res_err = ExtractionResult(error="test error")
+    assert res_err.error == "test error"
 
 def test_sheet_data_default():
     """SheetData のデフォルト値を確認"""
