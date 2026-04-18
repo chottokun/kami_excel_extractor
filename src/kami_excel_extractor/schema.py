@@ -7,6 +7,7 @@ class ExtractionOptions(BaseModel):
     system_prompt: Optional[str] = None
     include_visual_summaries: bool = False
     use_visual_context: bool = True
+    include_logic: bool = False # 追加: 計算式や表示形式（単位）の抽出を有効にする
     dpi: int = 150
 
 class RagOptions(ExtractionOptions):
