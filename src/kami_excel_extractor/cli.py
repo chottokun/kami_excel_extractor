@@ -23,6 +23,8 @@ def create_parser():
     parser.add_argument("--rag", action="store_true", help="RAG用のMarkdownチャンクも同時に生成する")
     parser.add_argument("--system-prompt", help="カスタムシステムプロンプト")
     parser.add_argument("--dpi", type=int, help="変換時のDPI設定 (デフォルト: 150)")
+    parser.add_argument("--include-logic", action="store_true", help="計算式(formula)と単位情報の抽出を有効にする")
+    parser.add_argument("--visual-summaries", action="store_true", help="画像の個別解析（図表データ抽出）を有効にする")
     parser.add_argument("--verbose", action="store_true", help="詳細なログを出力する")
     return parser
 
@@ -45,7 +47,8 @@ async def run_async(args):
     
     # vision設定の解決
     use_visual_context = not args.no_vision
-    include_visual_summaries = not args.no_vision
+    # コマンドライン引数が優先されるが、デフォルトでは vision 有効時にサマリーも取る
+    include_visual_summaries = args.visual_summaries if args.visual_summaries else (not args.no_vision)
 
     try:
         if args.rag:
@@ -53,6 +56,8 @@ async def run_async(args):
             rag_options = RagOptions(
                 model=args.model,
                 use_visual_context=use_visual_context,
+                include_visual_summaries=include_visual_summaries,
+                include_logic=args.include_logic,
                 dpi=args.dpi if args.dpi is not None else 150
             )
             chunks_map, structured_data = await extractor.aextract_rag_chunks(
@@ -61,16 +66,19 @@ async def run_async(args):
             )
             result_data = structured_data
         else:
-            extract_options = ExtractionOptions(
+            options = ExtractionOptions(
                 model=args.model,
                 system_prompt=args.system_prompt,
-                include_visual_summaries=include_visual_summaries,
                 use_visual_context=use_visual_context,
+                include_visual_summaries=include_visual_summaries,
+                include_logic=args.include_logic,
                 dpi=args.dpi if args.dpi is not None else 150
             )
             result_data = await extractor.aextract_structured_data(
                 args.input,
-                options=extract_options
+                options=options
+            )
+
             )
 
         # 結果の保存
