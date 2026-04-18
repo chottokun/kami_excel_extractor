@@ -98,7 +98,7 @@ class KamiExcelExtractor:
         """RPM制限に基づいたセマフォを取得する"""
         return asyncio.Semaphore(self.litellm_rpm_limit) if self.litellm_rpm_limit > 0 else None
 
-    def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: Optional[str] = None) -> list:
+    def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: Optional[str] = None, include_logic: bool = False) -> list:
         """LLMへのメッセージリストを構築する"""
         # 視覚的なスタイル（罫線・色）と座標情報の重要性を強調する補足
         context_instruction = (
@@ -106,8 +106,15 @@ class KamiExcelExtractor:
             "- border属性はデータの区切りや表の構造を強く示唆しています。\n"
             "- background-colorはヘッダーや特定のデータグループを示していることが多いです。\n"
             "- data-coord属性はExcel上の絶対座標を示しており、離れた位置にあるデータ間の関係を推論するのに役立ちます。\n"
-            "これらの情報を最大限に活用して、人間が目で見た時と同じ論理構造を復元してください。"
         )
+        
+        if include_logic:
+            context_instruction += (
+                "- data-formula属性はセルの計算式を示しています。これが =SUM(...) 等の場合、そのセルが合計値であることを意味します。\n"
+                "- data-unit属性はセルの単位（JPY, PERCENT等）を示しています。数値の解釈に利用してください。\n"
+            )
+            
+        context_instruction += "これらの情報を最大限に活用して、人間が目で見た時と同じ論理構造を復元してください。"
         
         content = [{"type": "text", "text": f"対象シート: {sheet_name}\n\n{context_instruction}\n\nデータソース (HTML):\n{html_content}"}]
         
@@ -166,7 +173,7 @@ class KamiExcelExtractor:
             logger.error(f"Validation failed for sheet {sheet_name}: {e}")
             return {"error": f"Validation failed: {str(e)}", "_raw_data": raw_str}
 
-    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True) -> tuple:
+    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: dict, model: str, system_prompt: str, image_url: str, semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True, include_logic: bool = False) -> tuple:
         """単一のシートを解析して構造化データを取得する（リトライロジック付き）"""
         if sheet_content.get("is_simple"):
             logger.info(f"Using simple table extraction for sheet: {sheet_name}")
@@ -179,7 +186,7 @@ class KamiExcelExtractor:
         async with (semaphore if semaphore else asyncio.Lock()):
             logger.info(f"Processing sheet via LLM: {sheet_name}")
             actual_image_url = image_url if use_visual_context else None
-            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url)
+            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), actual_image_url, include_logic=include_logic)
 
             # リトライループ
             max_retries = 1
@@ -321,13 +328,14 @@ class KamiExcelExtractor:
         system_prompt = options.system_prompt
         include_visual_summaries = options.include_visual_summaries
         use_visual_context = options.use_visual_context
+        include_logic = options.include_logic
 
         semaphore = self._get_semaphore()
         excel_path = Path(excel_path)
-        logger.info(f"Extracting structured data from {excel_path.name} using {model}...")
+        logger.info(f"Extracting structured data from {excel_path.name} using {model} (logic: {include_logic})...")
 
         # 1. 基本データの抽出
-        raw_data = await asyncio.to_thread(self.extractor.extract, excel_path)
+        raw_data = await asyncio.to_thread(self.extractor.extract, excel_path, include_logic=include_logic)
         sheets_data = raw_data.get("sheets", {})
 
         # 2. 全体画像の生成（VLM用コンテキスト）
@@ -379,7 +387,7 @@ class KamiExcelExtractor:
 
         # 5. 各シートの解析タスクの実行 (強化されたHTMLを使用)
         tasks = [
-            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context)
+            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context, include_logic=include_logic)
             for name, content in sheets_data.items()
         ]
         results = await asyncio.gather(*tasks)

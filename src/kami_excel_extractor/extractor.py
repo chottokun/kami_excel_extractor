@@ -128,7 +128,7 @@ class MetadataExtractor:
                 # 🖼️ 改善: 画像自体の読み込みに失敗しても、座標情報だけは残す
                 logger.warning(f"Failed to identify image at {coord} on sheet {sheet_name}: {e}. Keeping coordinate context.")
                 media_info.append({"coord": coord, "filename": None, "type": "image", "error": "unidentified_format"})
-            return media_info
+        return media_info
 
 
     def is_simple_table(self, ws) -> bool:
@@ -168,8 +168,21 @@ class MetadataExtractor:
                     merged_map[(r, c)] = "skip"
         return merged_map
 
-    def _cell_to_html_td(self, cell, span_info):
-        """Convert a single cell to an HTML td element with rich styles and cleaned text."""
+    def _get_unit_info(self, cell):
+        """表示形式(number_format)から単位や型を推測する"""
+        fmt = cell.number_format
+        if not fmt or fmt == 'General':
+            return None
+        
+        # 通貨、パーセント、日付の判定
+        if '¥' in fmt or 'JPY' in fmt: return 'JPY'
+        if '$' in fmt: return 'USD'
+        if '%' in fmt: return 'PERCENT'
+        if 'yy' in fmt or 'mm' in fmt or 'dd' in fmt: return 'DATE'
+        return fmt
+
+    def _cell_to_html_td(self, cell, span_info, formula=None):
+        """Convert a single cell to an HTML td element with rich styles, cleaned text, and optional logic."""
         val = cell.value
         if val is None:
             val_str = ""
@@ -191,24 +204,41 @@ class MetadataExtractor:
             attrs.append(f'style="{style_str}"')
         
         attrs.append(f'data-coord="{cell.coordinate}"')
+        
+        # ロジック・インジェクション (オプション)
+        if formula and str(formula).startswith('='):
+            attrs.append(f'data-formula="{html.escape(str(formula))}"')
+        
+        unit = self._get_unit_info(cell)
+        if unit:
+            attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
         safe_val = html.escape(val_str).replace('\n', '<br>') if val_str else ""
 
         return f"<td{attr_str}>{safe_val}</td>"
 
-    def _generate_cell_metadata(self, ws):
+    def _generate_cell_metadata(self, ws, ws_formula=None):
         merged_map = self._get_merged_cells_map(ws)
         cell_data = []
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
             for cell in row:
                 span = merged_map.get((cell.row, cell.column))
                 if span == "skip": continue
+                
+                # 計算式の取得
+                formula = None
+                if ws_formula:
+                    formula = ws_formula.cell(row=cell.row, column=cell.column).value
+                    if not str(formula).startswith('='): formula = None
+
                 cell_info = {
                     "coord": cell.coordinate,
                     "row": cell.row,
                     "col": cell.column,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
+                    "formula": formula,
+                    "unit": self._get_unit_info(cell),
                     "style": {
                         "borders": self._get_border_info(cell),
                         "bold": bool(cell.font.b) if cell.font else False,
@@ -220,7 +250,7 @@ class MetadataExtractor:
                 cell_data.append(cell_info)
         return cell_data
 
-    def _generate_html_table(self, ws):
+    def _generate_html_table(self, ws, ws_formula=None):
         merged_map = self._get_merged_cells_map(ws)
         max_r, max_c = ws.max_row, ws.max_column
         html_rows = ["<table border='1' style='border-collapse: collapse; min-width: 100%;'>"]
@@ -230,17 +260,31 @@ class MetadataExtractor:
                 r, c = cell.row, cell.column
                 span_info = merged_map.get((r, c))
                 if span_info == "skip": continue
-                row_html.append(self._cell_to_html_td(cell, span_info))
+                
+                formula = None
+                if ws_formula:
+                    formula = ws_formula.cell(row=r, column=c).value
+                
+                row_html.append(self._cell_to_html_td(cell, span_info, formula=formula))
             row_html.append("  </tr>")
             html_rows.append("".join(row_html))
         html_rows.append("</table>")
         return "\n".join(html_rows)
 
-    def extract(self, excel_path: Path):
+    def extract(self, excel_path: Path, include_logic: bool = False):
+        # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
+        
+        # 計算式抽出用に data_only=False でロード (必要な場合のみ)
+        wb_formula = None
+        if include_logic:
+            wb_formula = openpyxl.load_workbook(excel_path, data_only=False)
+
         full_map = { "sheets": {} }
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
+            ws_f = wb_formula[sheet_name] if wb_formula else None
+            
             media_info = self._extract_media(ws, sheet_name)
             
             # 座標(coord)ごとにメディアをグループ化
@@ -252,10 +296,10 @@ class MetadataExtractor:
                 media_map[coord].append(m)
 
             full_map["sheets"][sheet_name] = {
-                "html": self._generate_html_table(ws),
-                "cells": self._generate_cell_metadata(ws),
+                "html": self._generate_html_table(ws, ws_formula=ws_f),
+                "cells": self._generate_cell_metadata(ws, ws_formula=ws_f),
                 "media": media_info,
-                "media_map": media_map, # 座標ベースのマッピングを追加
+                "media_map": media_map,
                 "is_simple": self.is_simple_table(ws)
             }
             if full_map["sheets"][sheet_name]["is_simple"]:
