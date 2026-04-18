@@ -7,7 +7,7 @@ import logging
 from typing import List, Dict, Any
 from datetime import date, datetime
 from PIL import Image, UnidentifiedImageError
-from .utils import secure_filename
+from .utils import secure_filename, clean_kami_text
 
 logger = logging.getLogger(__name__)
 
@@ -151,14 +151,15 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(self, cell, span_info):
-        """Convert a single cell to an HTML td element with rich styles."""
+        """Convert a single cell to an HTML td element with rich styles and cleaned text."""
         val = cell.value
         if val is None:
             val_str = ""
         elif isinstance(val, (date, datetime)):
             val_str = val.isoformat()
         else:
-            val_str = str(val)
+            # セマンティック・クリーニングを適用
+            val_str = str(clean_kami_text(val))
 
         attrs = []
         if isinstance(span_info, dict):
@@ -189,7 +190,7 @@ class MetadataExtractor:
                     "coord": cell.coordinate,
                     "row": cell.row,
                     "col": cell.column,
-                    "value": str(cell.value) if cell.value is not None else None,
+                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "style": {
                         "borders": self._get_border_info(cell),
                         "bold": bool(cell.font.b) if cell.font else False,

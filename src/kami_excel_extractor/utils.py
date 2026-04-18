@@ -6,6 +6,27 @@ _FILENAME_SANITIZE_RE = re.compile(r'[^\w\.\-]')
 _FILENAME_MULTIPLE_UNDERSCORES_RE = re.compile(r'__+')
 _FILENAME_MULTIPLE_DOTS_RE = re.compile(r'\.\.+')
 
+def clean_kami_text(text: any) -> any:
+    """
+    Excel内のテキストをクリーニングする。
+    - 全角スペースを半角スペースに正規化
+    - 漢字・ひらがな・カタカナの間に挟まった不自然な空白(1-3個)を削除 (例: "氏  名" -> "氏名")
+    """
+    if not isinstance(text, str):
+        return text
+
+    # 全角スペースを半角に
+    text = text.replace('\u3000', ' ')
+    
+    # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
+    # 正規表現の解説:
+    # ([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff]) : 前方の文字 (和字)
+    # \s{1,3} : 1〜3個の空白
+    # (?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff]) : 後方の文字 (和字) を先読み
+    res = re.sub(r'([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])', r'\1', text)
+    
+    return res.strip()
+
 def secure_filename(filename: str) -> str:
     """
     Sanitize a string to be used as a filename.
