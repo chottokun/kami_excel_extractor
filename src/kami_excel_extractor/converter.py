@@ -3,7 +3,6 @@ import tempfile
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,7 @@ class ExcelConverter:
                     raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
 
                 # Step 2: PDF -> PNG (with fallbacks)
-                logger.info(f"Converting PDF to PNG...")
+                logger.info("Converting PDF to PNG...")
                 self._convert_pdf_to_png(original_pdf, output_png)
 
                 return output_png
