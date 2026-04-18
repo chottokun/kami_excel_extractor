@@ -26,8 +26,9 @@ class SheetData(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     sections: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     data: Optional[Union[List[Any], Dict[str, Any]]] = Field(default_factory=list)
-    cells: Optional[List[Dict[str, Any]]] = Field(default_factory=list) # 追加: 詳細セル情報
-    html: Optional[str] = None # 追加: 抽出に使用したHTML
+    cells: Optional[List[Dict[str, Any]]] = Field(default_factory=list) # 詳細セル情報
+    html: Optional[str] = None # 抽出に使用したHTML
+    media_map: Optional[Dict[str, List[Dict[str, Any]]]] = Field(default_factory=dict) # 追加: coord -> media_info
     errors: Optional[List[str]] = Field(default_factory=list)
 
 class FullExtraction(BaseModel):
