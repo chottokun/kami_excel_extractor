@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 class ExcelConverter:
     """Excelを画像に変換するクラス (PDF経由)"""
     
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path, dpi: int = 150):
         self.output_dir = Path(output_dir).resolve()
+        self.dpi = dpi
 
     def convert(self, input_file: Path) -> Path:
         input_file = input_file.resolve()
@@ -76,7 +77,7 @@ class ExcelConverter:
                 pdftocairo_path = str(Path(raw_pdftocairo_path).resolve())
                 res = subprocess.run([
                     pdftocairo_path, "-png", "-singlefile",
-                    str(pdf_path), str(output_png.with_suffix(""))
+                    str(pdf_path.resolve()), str(output_png.with_suffix("").resolve())
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
                     return
@@ -114,7 +115,8 @@ class ExcelConverter:
                 # For PDF to PNG with ImageMagick, [0] specifies the first page
                 cmd_path = str(Path(raw_cmd_path).resolve())
                 res = subprocess.run([
-                    cmd_path, "-density", "150", f"{pdf_path}[0]", str(output_png)
+                    cmd_path, "-density", str(self.dpi),
+                    f"{pdf_path.resolve()}[0]", str(output_png.resolve())
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
                     logger.info(f"Converted PDF to PNG using ImageMagick ({cmd_name})")
