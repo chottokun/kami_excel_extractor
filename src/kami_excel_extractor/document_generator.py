@@ -160,11 +160,12 @@ class DocumentGenerator:
         return self._get_html_template("\n".join(body_parts))
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
+        search_dirs = [self.output_dir / "media", self.output_dir]
+
         def resolve_and_copy(match):
             alt_text = match.group(1)
             rel_path = match.group(2)
             filename = Path(rel_path).name
-            search_dirs = [self.output_dir / "media", self.output_dir]
             for search_dir in search_dirs:
                 src = search_dir / filename
                 if src.exists():
