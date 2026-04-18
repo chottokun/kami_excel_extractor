@@ -86,17 +86,32 @@ class MetadataExtractor:
             return media_info
 
         for idx, img in enumerate(ws._images):
-            row = img.anchor._from.row + 1
-            col = img.anchor._from.col + 1
-            coord = f"{get_column_letter(col)}{row}"
+            # アンカー情報の取得 (OneCellAnchor, TwoCellAnchor, または文字列)
+            row, col = None, None
+            if hasattr(img.anchor, "_from"):
+                row = img.anchor._from.row + 1
+                col = img.anchor._from.col + 1
+            elif isinstance(img.anchor, str):
+                # "A1" 形式の文字列アンカーをパース
+                from openpyxl.utils import coordinate_to_tuple
+                try:
+                    row, col = coordinate_to_tuple(img.anchor)
+                except Exception:
+                    pass
+            
+            if row is None or col is None:
+                logger.warning(f"Could not determine anchor for image {idx} on sheet {sheet_name}")
+                coord = "unknown"
+            else:
+                coord = f"{get_column_letter(col)}{row}"
+
             safe_sheet_name = secure_filename(sheet_name)
             image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
             save_path = self.media_dir / image_filename
-            
             try:
                 # 生のバイナリを取得
                 raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
-                
+
                 # セキュリティチェック: ファイルサイズが大きすぎる場合はスキップ
                 if len(raw_data) > MAX_IMAGE_BYTES:
                     logger.warning(f"Skipping large image at {coord} on sheet {sheet_name} (size: {len(raw_data)} bytes)")
@@ -107,11 +122,14 @@ class MetadataExtractor:
                     if pillow_img.mode in ("RGBA", "P"):
                         pillow_img = pillow_img.convert("RGB")
                     pillow_img.save(save_path, "PNG")
-                
+
                 media_info.append({"coord": coord, "filename": str(image_filename), "type": "image"})
             except (UnidentifiedImageError, OSError, ValueError, AttributeError, Image.DecompressionBombError) as e:
-                logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
-        return media_info
+                # 🖼️ 改善: 画像自体の読み込みに失敗しても、座標情報だけは残す
+                logger.warning(f"Failed to identify image at {coord} on sheet {sheet_name}: {e}. Keeping coordinate context.")
+                media_info.append({"coord": coord, "filename": None, "type": "image", "error": "unidentified_format"})
+            return media_info
+
 
     def is_simple_table(self, ws) -> bool:
         if ws.merged_cells.ranges: return False
@@ -223,10 +241,21 @@ class MetadataExtractor:
         full_map = { "sheets": {} }
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
+            media_info = self._extract_media(ws, sheet_name)
+            
+            # 座標(coord)ごとにメディアをグループ化
+            media_map = {}
+            for m in media_info:
+                coord = m.get("coord", "unknown")
+                if coord not in media_map:
+                    media_map[coord] = []
+                media_map[coord].append(m)
+
             full_map["sheets"][sheet_name] = {
                 "html": self._generate_html_table(ws),
                 "cells": self._generate_cell_metadata(ws),
-                "media": self._extract_media(ws, sheet_name),
+                "media": media_info,
+                "media_map": media_map, # 座標ベースのマッピングを追加
                 "is_simple": self.is_simple_table(ws)
             }
             if full_map["sheets"][sheet_name]["is_simple"]:

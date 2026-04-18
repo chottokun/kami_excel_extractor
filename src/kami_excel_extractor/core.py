@@ -217,8 +217,72 @@ class KamiExcelExtractor:
             # リトライ後も失敗した場合
             return sheet_name, {"error": f"Failed after {max_retries} retries. Last error: {last_error}", "_raw_data": ""}
 
+    async def _aprocess_chart_data(self, media_item: dict, model: str, semaphore: Optional[asyncio.Semaphore]) -> dict:
+        """画像がグラフや図表の場合、その内容を構造化データとして抽出する"""
+        if not media_item.get("filename"):
+            return media_item
+            
+        image_path = self.output_dir / "media" / media_item["filename"]
+        if not image_path.exists():
+            return media_item
+
+        async with (semaphore if semaphore else asyncio.Lock()):
+            image_url = await self._encode_image_to_base64_url(image_path)
+            
+            prompt = (
+                "この画像がグラフや図表の場合、その軸ラベル、凡例、およびデータ値を抽出し、"
+                "Markdownのテーブル形式で整理してください。グラフでない場合は概要を説明してください。"
+                "回答の冒頭に [図表データ] と付けて出力してください。"
+            )
+            
+            messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
+            
+            try:
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=messages,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    timeout=self.timeout
+                )
+                content = response.choices[0].message.content or ""
+                media_item["visual_data"] = content
+                return media_item
+            except Exception as e:
+                logger.warning(f"Failed to extract chart data for {image_path.name}: {e}")
+                return media_item
+
+    def _inject_visual_data_to_html(self, html: str, media_map: dict) -> str:
+        """HTMLテーブルの各セルに、関連する図表データを注釈として挿入する"""
+        for coord, items in media_map.items():
+            visual_context = []
+            for item in items:
+                if "visual_data" in item:
+                    visual_context.append(f"<div class='visual-insight' style='border: 1px solid #ccc; padding: 5px; margin-top: 5px;'><strong>[座標 {coord} の図表データ]:</strong><br>{item['visual_data']}</div>")
+            
+            if visual_context:
+                insight_html = "\n".join(visual_context)
+                target_attr = f'data-coord="{coord}"'
+                target_attr_alt = f"data-coord='{coord}'"
+                
+                # 詳細ログ
+                logger.info(f"Attempting injection for {coord}. Found data-coord in HTML: {target_attr in html or target_attr_alt in html}")
+                
+                if target_attr in html or target_attr_alt in html:
+                    old_tag = target_attr if target_attr in html else target_attr_alt
+                    parts = html.split(old_tag, 1)
+                    sub_parts = parts[1].split("</td>", 1)
+                    if len(sub_parts) > 1:
+                        html = parts[0] + old_tag + sub_parts[0] + f"<!-- VISUAL_INSIGHT_START -->{insight_html}<!-- VISUAL_INSIGHT_END -->" + "</td>" + sub_parts[1]
+            else:
+                logger.info(f"No visual_data found in items for coord: {coord}")
+        return html
+
     async def _aprocess_media_summary(self, media_item: dict, model: str, semaphore: Optional[asyncio.Semaphore]) -> Optional[dict]:
         """単一のメディアアイテムの要約文を生成する"""
+        if not media_item.get("filename"):
+            return media_item
+            
         media_path = self.output_dir / "media" / media_item["filename"]
         if not media_path.exists():
             return None
@@ -226,6 +290,10 @@ class KamiExcelExtractor:
         async with (semaphore if semaphore else asyncio.Lock()):
             summary = await self.aget_visual_summary(media_path, model=model)
             media_item["visual_summary"] = summary
+            
+            # グラフデータの抽出も同時に試行
+            await self._aprocess_chart_data(media_item, model, semaphore)
+            
             return media_item
 
     def _attach_media_to_sheets(self, all_media: list, structured_sheets: dict) -> None:
@@ -258,9 +326,11 @@ class KamiExcelExtractor:
         excel_path = Path(excel_path)
         logger.info(f"Extracting structured data from {excel_path.name} using {model}...")
 
-        # 変換・抽出・画像URL化
+        # 1. 基本データの抽出
         raw_data = await asyncio.to_thread(self.extractor.extract, excel_path)
+        sheets_data = raw_data.get("sheets", {})
 
+        # 2. 全体画像の生成（VLM用コンテキスト）
         image_url = None
         if options.include_visual_summaries or options.use_visual_context:
             logger.info("Converting Excel to image for visual context/summaries...")
@@ -271,21 +341,8 @@ class KamiExcelExtractor:
             except Exception as e:
                 logger.warning(f"Excel-to-image conversion failed (skipping visual context): {e}")
 
-        
-        if not system_prompt:
-            system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"
-
-        # 各シートの解析タスクの実行
-        sheets_data = raw_data.get("sheets", {})
-        tasks = [
-            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context)
-            for name, content in sheets_data.items()
-        ]
-        results = await asyncio.gather(*tasks)
-        structured_sheets = {name: res for name, res in results}
-        structured_data = {"sheets": structured_sheets}
-
-        # ビジュアルサマリー（画像要約）の生成と紐付け
+        # 3. メディア（図表・グラフ）の個別解析
+        all_media = []
         if include_visual_summaries:
             media_tasks = []
             for sheet_name, sheet_info in sheets_data.items():
@@ -295,8 +352,44 @@ class KamiExcelExtractor:
             if media_tasks:
                 media_results = await asyncio.gather(*media_tasks)
                 all_media = [m for m in media_results if m]
-                structured_data["media"] = all_media
-                self._attach_media_to_sheets(all_media, structured_sheets)
+                
+                # 🖼️ 重要: 抽出された結果を元の sheets_data に確実に反映させる
+                # (非同期処理中に参照が切れる可能性や不慮の上書きを防止)
+                for m in all_media:
+                    if "visual_data" in m:
+                        coord = m.get("coord")
+                        # すべてのシートを走査して該当する座標にデータをセット
+                        for s_name, s_info in sheets_data.items():
+                            if coord in s_info.get("media_map", {}):
+                                for mapped_m in s_info["media_map"][coord]:
+                                    if mapped_m.get("filename") == m.get("filename"):
+                                        mapped_m["visual_data"] = m["visual_data"]
+
+        # 4. 図表データをHTMLテーブルに注入
+        for sheet_name, sheet_info in sheets_data.items():
+            if "media_map" in sheet_info:
+                sheet_info["html"] = self._inject_visual_data_to_html(sheet_info["html"], sheet_info["media_map"])
+                if "VISUAL_INSIGHT" in sheet_info["html"]:
+                    logger.warning(f"Successfully injected visual insights into sheet: {sheet_name}")
+                else:
+                    logger.info(f"No visual insights to inject for sheet: {sheet_name}")
+
+        if not system_prompt:
+            system_prompt = "あなたはExcel構造化の専門家です。提供されたHTMLテーブルのデータを統合し、意味論的に整理された構造化データをJSON形式で出力してください。出力は必ず ```json と ``` で囲んだブロック内のみとしてください。"
+
+        # 5. 各シートの解析タスクの実行 (強化されたHTMLを使用)
+        tasks = [
+            self._aextract_single_sheet(name, content, model, system_prompt, image_url, semaphore, use_visual_context=use_visual_context)
+            for name, content in sheets_data.items()
+        ]
+        results = await asyncio.gather(*tasks)
+        structured_sheets = {name: res for name, res in results}
+        structured_data = {"sheets": structured_sheets}
+
+        # 6. メディア情報を最終結果に紐付け
+        if all_media:
+            structured_data["media"] = all_media
+            self._attach_media_to_sheets(all_media, structured_sheets)
                 
         # 最終出力をJSONシリアライズ可能な形式に変換
         return self._make_json_serializable(structured_data)
