@@ -1,10 +1,14 @@
-import openpyxl
-import html
-from pathlib import Path
-from openpyxl.utils import get_column_letter
-import io
+"""
+Excelファイルから詳細なメタデータ、視覚スタイル、およびロジックを抽出するエンジン。
+"""
+
 import logging
-from typing import List, Dict, Any
+import io
+import html
+import openpyxl
+from pathlib import Path
+from openpyxl.utils import get_column_letter, coordinate_to_tuple
+from typing import List, Dict, Any, Optional, Union, Tuple
 from datetime import date, datetime
 from PIL import Image, UnidentifiedImageError
 from .utils import secure_filename, clean_kami_text
@@ -12,150 +16,177 @@ from .utils import secure_filename, clean_kami_text
 logger = logging.getLogger(__name__)
 
 # セキュリティ設定: 画像の最大ピクセル数と最大バイト数
-# デコンプレッションボム（DoS攻撃）対策
 MAX_IMAGE_PIXELS = 25000000  # 25MP
-MAX_IMAGE_BYTES = 20971520   # 20MB (20 * 1024 * 1024)
-
-# Pillowのデフォルト制限を設定（Noneに設定されている場合の対策）
+MAX_IMAGE_BYTES = 20971520   # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 class MetadataExtractor:
-    """Excelからメタデータとメディアを抽出するクラス"""
+    """
+    Excelワークブックからテキスト、構造、スタイル、および埋め込みメディアを抽出する高精度エクストラクター。
     
-    def __init__(self, output_dir: Path):
+    Attributes:
+        output_dir (Path): 抽出されたメディア（画像）を保存するディレクトリ。
+        media_dir (Path): メディアファイルの具体的な保存先。
+    """
+    
+    def __init__(self, output_dir: Union[str, Path]):
+        """
+        MetadataExtractorを初期化する。
+        
+        Args:
+            output_dir: 解析結果（主に画像）を出力するディレクトリパス。
+        """
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_border_info(self, cell):
-        """セルの罫線情報を取得する"""
+    def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
+        """
+        セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
+        
+        Args:
+            cell: openpyxlのセルオブジェクト。
+            
+        Returns:
+            Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
+        """
         borders = {}
         if cell.border:
-            # 線の太さやスタイルを取得
-            if cell.border.left and cell.border.left.style: 
-                borders["left"] = cell.border.left.style
-            if cell.border.right and cell.border.right.style: 
-                borders["right"] = cell.border.right.style
-            if cell.border.top and cell.border.top.style: 
-                borders["top"] = cell.border.top.style
-            if cell.border.bottom and cell.border.bottom.style: 
-                borders["bottom"] = cell.border.bottom.style
+            sides = ['left', 'right', 'top', 'bottom']
+            for side in sides:
+                border_side = getattr(cell.border, side)
+                if border_side and border_side.style:
+                    borders[side] = border_side.style
         return borders
 
-    def _get_cell_style_string(self, cell):
-        """セルのスタイル情報をCSS文字列として取得する"""
+    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+        """
+        セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
+        
+        LLMがテーブルの構造（ヘッダー、セクションの区切り）を理解するための重要なヒントとなる。
+        
+        Args:
+            cell: openpyxlのセルオブジェクト。
+            
+        Returns:
+            str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
+        """
         styles = []
         
-        # 背景色
+        # 背景色の抽出 (ARGBをRGBに変換)
         if cell.fill and hasattr(cell.fill, "start_color") and cell.fill.start_color:
             c_idx = str(cell.fill.start_color.index)
-            # '00000000' はデフォルト（透明/自動）
             if c_idx not in ('00000000', '0'):
-                if len(c_idx) == 8: # ARGB
+                if len(c_idx) == 8: # ARGB (Alpha-RGB)
                     c_idx = c_idx[2:]
-                # 有効な16進数かチェック
                 if all(c in "0123456789ABCDEFabcdef" for c in c_idx):
                     styles.append(f"background-color: #{c_idx}")
 
-        # 罫線
+        # 罫線情報をCSSのborder属性に近似
         border_info = self._get_border_info(cell)
+        style_map = {
+            'medium': '2px solid',
+            'thick': '3px solid',
+            'thin': '1px solid',
+            'dashed': '1px dashed',
+            'dotted': '1px dotted'
+        }
+        
         for side, style in border_info.items():
-            # thin, medium, thick などを CSS の border-style に近似
-            width = "1px"
-            if style in ('medium', 'mediumDashDot', 'mediumDashDotDot', 'mediumDashed'):
-                width = "2px"
-            elif style == 'thick':
-                width = "3px"
-            
-            line_style = "solid"
-            if 'dotted' in style.lower(): line_style = "dotted"
-            elif 'dashed' in style.lower(): line_style = "dashed"
-            
-            styles.append(f"border-{side}: {width} {line_style} black")
+            css_style = style_map.get(style, '1px solid')
+            styles.append(f"border-{side}: {css_style} black")
 
-        # フォント
+        # フォントウェイト
         if cell.font:
             if cell.font.b: styles.append("font-weight: bold")
             if cell.font.i: styles.append("font-style: italic")
 
         return "; ".join(styles)
 
-    def _extract_media(self, ws, sheet_name):
+    def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
+        """
+        セルの表示形式(Number Format)からデータの単位や型を推測する。
+        
+        Args:
+            cell: openpyxlのセルオブジェクト。
+            
+        Returns:
+            Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
+        """
+        fmt = cell.number_format
+        if not fmt or fmt == 'General':
+            return None
+        
+        fmt_lower = fmt.lower()
+        if '¥' in fmt or 'jpy' in fmt_lower: return 'JPY'
+        if '$' in fmt: return 'USD'
+        if '%' in fmt: return 'PERCENT'
+        if 'yy' in fmt_lower or 'mm' in fmt_lower or 'dd' in fmt_lower: return 'DATE'
+        return fmt
+
+    def _extract_media(self, ws: openpyxl.worksheet.worksheet.Worksheet, sheet_name: str) -> List[Dict[str, Any]]:
+        """
+        ワークシートから埋め込み画像（図、グラフ、写真）を抽出し保存する。
+        
+        画像自体の読み込みに失敗した場合でも、アンカー（配置座標）情報は保持し、
+        LLMに「ここに何らかの視覚情報がある」ことを伝える。
+        
+        Args:
+            ws: openpyxlのワークシートオブジェクト。
+            sheet_name: シート名（保存ファイル名に使用）。
+            
+        Returns:
+            List[Dict[str, Any]]: 抽出されたメディア情報のリスト。
+        """
         media_info = []
         if not hasattr(ws, "_images"):
             return media_info
 
         for idx, img in enumerate(ws._images):
-            # アンカー情報の取得 (OneCellAnchor, TwoCellAnchor, または文字列)
             row, col = None, None
+            # 各種アンカー形式（OneCell, TwoCell, String）を統一的にパース
             if hasattr(img.anchor, "_from"):
                 row = img.anchor._from.row + 1
                 col = img.anchor._from.col + 1
             elif isinstance(img.anchor, str):
-                # "A1" 形式の文字列アンカーをパース
-                from openpyxl.utils import coordinate_to_tuple
                 try:
                     row, col = coordinate_to_tuple(img.anchor)
                 except Exception:
                     pass
             
-            if row is None or col is None:
-                logger.warning(f"Could not determine anchor for image {idx} on sheet {sheet_name}")
-                coord = "unknown"
-            else:
-                coord = f"{get_column_letter(col)}{row}"
-
+            coord = f"{get_column_letter(col)}{row}" if (row and col) else "unknown"
             safe_sheet_name = secure_filename(sheet_name)
             image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
             save_path = self.media_dir / image_filename
+            
+            item = {"coord": coord, "filename": str(image_filename), "type": "image"}
+            
             try:
-                # 生のバイナリを取得
                 raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
-
-                # セキュリティチェック: ファイルサイズが大きすぎる場合はスキップ
                 if len(raw_data) > MAX_IMAGE_BYTES:
-                    logger.warning(f"Skipping large image at {coord} on sheet {sheet_name} (size: {len(raw_data)} bytes)")
+                    logger.warning(f"Skipping large image at {coord} on {sheet_name}")
                     continue
 
-                # Pillowを使って画像として読み込み、PNGとして再保存
                 with Image.open(io.BytesIO(raw_data)) as pillow_img:
                     if pillow_img.mode in ("RGBA", "P"):
                         pillow_img = pillow_img.convert("RGB")
                     pillow_img.save(save_path, "PNG")
-
-                media_info.append({"coord": coord, "filename": str(image_filename), "type": "image"})
-            except (UnidentifiedImageError, OSError, ValueError, AttributeError, Image.DecompressionBombError) as e:
-                # 🖼️ 改善: 画像自体の読み込みに失敗しても、座標情報だけは残す
-                logger.warning(f"Failed to identify image at {coord} on sheet {sheet_name}: {e}. Keeping coordinate context.")
-                media_info.append({"coord": coord, "filename": None, "type": "image", "error": "unidentified_format"})
+                media_info.append(item)
+            except Exception as e:
+                logger.warning(f"Failed to identify image at {coord} on {sheet_name}: {e}")
+                item["filename"] = None
+                item["error"] = "unidentified_format"
+                media_info.append(item)
+                
         return media_info
 
-
-    def is_simple_table(self, ws) -> bool:
-        if ws.merged_cells.ranges: return False
-        max_r, max_c = ws.max_row, ws.max_column
-        if max_r < 2 or max_c < 1: return False
-        first_row = next(ws.iter_rows(min_row=1, max_row=1, min_col=1, max_col=max_c, values_only=True), [])
-        header_values = [val for val in first_row if val is not None]
-        return len(header_values) >= 2
-
-    def extract_simple_table(self, ws) -> List[Dict[str, Any]]:
-        data = []
-        max_r, max_c = ws.max_row, ws.max_column
-        header_row = next(ws.iter_rows(min_row=1, max_row=1, min_col=1, max_col=max_c, values_only=True), [])
-        headers = [str(val or f"Column{i+1}") for i, val in enumerate(header_row)]
-
-        for row in ws.iter_rows(min_row=2, max_row=max_r, min_col=1, max_col=max_c, values_only=True):
-            row_dict, has_value = {}, False
-            for i, val in enumerate(row):
-                if val is not None:
-                    has_value = True
-                    if isinstance(val, (date, datetime)): val = val.isoformat()
-                row_dict[headers[i]] = val if val is not None else ""
-            if has_value: data.append(row_dict)
-        return data
-
-    def _get_merged_cells_map(self, ws):
+    def _get_merged_cells_map(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> Dict[Tuple[int, int], Union[str, Dict[str, int]]]:
+        """
+        シート内の結合セル情報をマップ化する。
+        
+        Returns:
+            Dict: 左上セルの座標(r, c)をキーとし、スパン情報を値に持つ辞書。
+        """
         merged_map = {}
         for m_range in ws.merged_cells.ranges:
             for r, c in m_range.cells:
@@ -168,117 +199,63 @@ class MetadataExtractor:
                     merged_map[(r, c)] = "skip"
         return merged_map
 
-    def _get_unit_info(self, cell):
-        """表示形式(number_format)から単位や型を推測する"""
-        fmt = cell.number_format
-        if not fmt or fmt == 'General':
-            return None
-        
-        # 通貨、パーセント、日付の判定
-        if '¥' in fmt or 'JPY' in fmt: return 'JPY'
-        if '$' in fmt: return 'USD'
-        if '%' in fmt: return 'PERCENT'
-        if 'yy' in fmt or 'mm' in fmt or 'dd' in fmt: return 'DATE'
-        return fmt
-
-    def _cell_to_html_td(self, cell, span_info, formula=None):
-        """Convert a single cell to an HTML td element with rich styles, cleaned text, and optional logic."""
+    def _cell_to_html_td(self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None) -> str:
+        """
+        単一のセルを、詳細属性付きのHTML <td> タグに変換する。
+        """
         val = cell.value
-        if val is None:
-            val_str = ""
-        elif isinstance(val, (date, datetime)):
-            val_str = val.isoformat()
-        else:
-            # セマンティック・クリーニングを適用
-            val_str = str(clean_kami_text(val))
+        val_str = val.isoformat() if isinstance(val, (date, datetime)) else str(clean_kami_text(val)) if val is not None else ""
 
-        attrs = []
+        attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
-            if span_info["colspan"] > 1:
-                attrs.append(f'colspan="{span_info["colspan"]}"')
-            if span_info["rowspan"] > 1:
-                attrs.append(f'rowspan="{span_info["rowspan"]}"')
+            if span_info.get("colspan", 1) > 1: attrs.append(f'colspan="{span_info["colspan"]}"')
+            if span_info.get("rowspan", 1) > 1: attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
         style_str = self._get_cell_style_string(cell)
-        if style_str:
-            attrs.append(f'style="{style_str}"')
+        if style_str: attrs.append(f'style="{style_str}"')
         
-        attrs.append(f'data-coord="{cell.coordinate}"')
-        
-        # ロジック・インジェクション (オプション)
         if formula and str(formula).startswith('='):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
         
         unit = self._get_unit_info(cell)
-        if unit:
-            attrs.append(f'data-unit="{html.escape(unit)}"')
+        if unit: attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(val_str).replace('\n', '<br>') if val_str else ""
-
+        safe_val = html.escape(val_str).replace('\n', '<br>')
         return f"<td{attr_str}>{safe_val}</td>"
 
-    def _generate_cell_metadata(self, ws, ws_formula=None):
-        merged_map = self._get_merged_cells_map(ws)
-        cell_data = []
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
-            for cell in row:
-                span = merged_map.get((cell.row, cell.column))
-                if span == "skip": continue
-                
-                # 計算式の取得
-                formula = None
-                if ws_formula:
-                    formula = ws_formula.cell(row=cell.row, column=cell.column).value
-                    if not str(formula).startswith('='): formula = None
+    def is_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
+        """シートが単純な表形式（結合なし、1行目見出し）かどうかを判定する。"""
+        if ws.merged_cells.ranges: return False
+        if ws.max_row < 2 or ws.max_column < 1: return False
+        first_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
+        return len([v for v in first_row if v is not None]) >= 2
 
-                cell_info = {
-                    "coord": cell.coordinate,
-                    "row": cell.row,
-                    "col": cell.column,
-                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
-                    "formula": formula,
-                    "unit": self._get_unit_info(cell),
-                    "style": {
-                        "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b) if cell.font else False,
-                        "bg_color": str(cell.fill.start_color.index) if cell.fill and cell.fill.start_color else None
-                    }
-                }
-                if isinstance(span, dict):
-                    cell_info.update(span)
-                cell_data.append(cell_info)
-        return cell_data
+    def extract_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> List[Dict[str, Any]]:
+        """単純な表形式のシートからデータを高速に抽出する。"""
+        data = []
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows: return []
+        headers = [str(v or f"Col{i+1}") for i, v in enumerate(rows[0])]
+        for row in rows[1:]:
+            row_dict = {headers[i]: (v.isoformat() if isinstance(v, (date, datetime)) else v) for i, v in enumerate(row) if v is not None}
+            if row_dict: data.append(row_dict)
+        return data
 
-    def _generate_html_table(self, ws, ws_formula=None):
-        merged_map = self._get_merged_cells_map(ws)
-        max_r, max_c = ws.max_row, ws.max_column
-        html_rows = ["<table border='1' style='border-collapse: collapse; min-width: 100%;'>"]
-        for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
-            row_html = ["  <tr>"]
-            for cell in row:
-                r, c = cell.row, cell.column
-                span_info = merged_map.get((r, c))
-                if span_info == "skip": continue
-                
-                formula = None
-                if ws_formula:
-                    formula = ws_formula.cell(row=r, column=c).value
-                
-                row_html.append(self._cell_to_html_td(cell, span_info, formula=formula))
-            row_html.append("  </tr>")
-            html_rows.append("".join(row_html))
-        html_rows.append("</table>")
-        return "\n".join(html_rows)
-
-    def extract(self, excel_path: Path, include_logic: bool = False):
+    def extract(self, excel_path: Path, include_logic: bool = False) -> Dict[str, Any]:
+        """
+        Excelファイルを解析し、詳細な構造、スタイル、ロジック、メディアを抽出する。
+        
+        Args:
+            excel_path: 解析対象のエクセルファイルのパス。
+            include_logic: 計算式(formula)の抽出を有効にするかどうか。
+            
+        Returns:
+            Dict: 全シートの解析データを含む辞書。
+        """
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
-        
-        # 計算式抽出用に data_only=False でロード (必要な場合のみ)
-        wb_formula = None
-        if include_logic:
-            wb_formula = openpyxl.load_workbook(excel_path, data_only=False)
+        wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
 
         full_map = { "sheets": {} }
         for sheet_name in wb.sheetnames:
@@ -286,22 +263,51 @@ class MetadataExtractor:
             ws_f = wb_formula[sheet_name] if wb_formula else None
             
             media_info = self._extract_media(ws, sheet_name)
-            
-            # 座標(coord)ごとにメディアをグループ化
             media_map = {}
             for m in media_info:
                 coord = m.get("coord", "unknown")
-                if coord not in media_map:
-                    media_map[coord] = []
-                media_map[coord].append(m)
+                media_map.setdefault(coord, []).append(m)
+
+            # HTMLテーブルと詳細メタデータの生成
+            merged_map = self._get_merged_cells_map(ws)
+            html_rows = ["<table border='1' style='border-collapse: collapse; min-width: 100%;'>"]
+            cell_metadata = []
+
+            for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+                row_html = ["  <tr>"]
+                for cell in row:
+                    r, c = cell.row, cell.column
+                    span = merged_map.get((r, c))
+                    if span == "skip": continue
+                    
+                    formula = ws_f.cell(row=r, column=c).value if ws_f else None
+                    td_html = self._cell_to_html_td(cell, span, formula=formula)
+                    row_html.append(td_html)
+                    
+                    # メタデータの構築
+                    cell_info = {
+                        "coord": cell.coordinate, "row": r, "col": c,
+                        "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
+                        "formula": formula if str(formula).startswith('=') else None,
+                        "unit": self._get_unit_info(cell),
+                        "style": {"borders": self._get_border_info(cell), "bold": bool(cell.font.b if cell.font else False)}
+                    }
+                    if isinstance(span, dict): cell_info.update(span)
+                    cell_metadata.append(cell_info)
+                
+                row_html.append("  </tr>")
+                html_rows.append("".join(row_html))
+            
+            html_rows.append("</table>")
 
             full_map["sheets"][sheet_name] = {
-                "html": self._generate_html_table(ws, ws_formula=ws_f),
-                "cells": self._generate_cell_metadata(ws, ws_formula=ws_f),
+                "html": "\n".join(html_rows),
+                "cells": cell_metadata,
                 "media": media_info,
                 "media_map": media_map,
                 "is_simple": self.is_simple_table(ws)
             }
             if full_map["sheets"][sheet_name]["is_simple"]:
                 full_map["sheets"][sheet_name]["structured_data"] = self.extract_simple_table(ws)
+                
         return full_map
