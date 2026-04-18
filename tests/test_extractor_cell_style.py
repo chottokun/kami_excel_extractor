@@ -11,7 +11,8 @@ def test_cell_to_html_td_styles(tmp_path):
     cell_8.value = "Test8"
     cell_8.fill.start_color.index = "FFFF0000" # Red
     html_8 = extractor._cell_to_html_td(cell_8, None)
-    assert 'style="background-color: #FF0000"' in html_8
+    assert 'background-color: #FF0000' in html_8
+    assert '>Test8</td>' in html_8
     assert ">Test8</td>" in html_8
 
     # Case 2: 6-digit color index (e.g., RRGGBB) -> Should keep as is
@@ -19,15 +20,17 @@ def test_cell_to_html_td_styles(tmp_path):
     cell_6.value = "Test6"
     cell_6.fill.start_color.index = "00FF00" # Green
     html_6 = extractor._cell_to_html_td(cell_6, None)
-    assert 'style="background-color: #00FF00"' in html_6
+    assert 'background-color: #00FF00' in html_6
+    assert '>Test6</td>' in html_6
     assert ">Test6</td>" in html_6
 
-    # Case 3: '00000000' color index -> Should result in no style
+    # Case 3: '00000000' color index -> Should result in no background style
     cell_0 = MagicMock()
     cell_0.value = "Test0"
     cell_0.fill.start_color.index = "00000000"
     html_0 = extractor._cell_to_html_td(cell_0, None)
-    assert 'style=' not in html_0
+    assert 'background-color' not in html_0
+    assert ">Test0</td>" in html_0
     assert ">Test0</td>" in html_0
 
     # Case 4: No fill
@@ -35,7 +38,8 @@ def test_cell_to_html_td_styles(tmp_path):
     cell_no_fill.value = "TestNoFill"
     cell_no_fill.fill = None
     html_no_fill = extractor._cell_to_html_td(cell_no_fill, None)
-    assert 'style=' not in html_no_fill
+    assert 'background-color' not in html_no_fill
+    assert ">TestNoFill</td>" in html_no_fill
     assert ">TestNoFill</td>" in html_no_fill
 
     # Case 5: Fill without start_color
@@ -43,5 +47,5 @@ def test_cell_to_html_td_styles(tmp_path):
     cell_no_color.value = "TestNoColor"
     cell_no_color.fill.start_color = None
     html_no_color = extractor._cell_to_html_td(cell_no_color, None)
-    assert 'style=' not in html_no_color
+    assert 'background-color' not in html_no_color
     assert ">TestNoColor</td>" in html_no_color

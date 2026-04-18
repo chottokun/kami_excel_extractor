@@ -51,7 +51,7 @@ class KamiExcelExtractor:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.base_url = base_url
         self.timeout = timeout
-        self.litellm_rpm_limit = litellm_rpm_limit
+        self.litellm_rpm_limit = litellm_rpm_limit or int(os.getenv("LLM_RPM_LIMIT", 0))
         
         self.extractor = MetadataExtractor(self.output_dir)
         self.converter = ExcelConverter(self.output_dir)
@@ -93,9 +93,10 @@ class KamiExcelExtractor:
         """使用するモデル名を解決する。"""
         return model or self.default_model
 
-    def _get_semaphore(self) -> Optional[asyncio.Semaphore]:
-        """RPM制限用のセマフォを取得する。"""
-        return asyncio.Semaphore(self.litellm_rpm_limit) if self.litellm_rpm_limit > 0 else None
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        """RPM制限用のセマフォを取得する。制限なし(0)の場合は十分に大きな値を設定。"""
+        limit = self.litellm_rpm_limit if self.litellm_rpm_limit > 0 else 1000
+        return asyncio.Semaphore(limit)
 
     def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: Optional[str] = None, include_logic: bool = False) -> List[Dict]:
         """LLMへの入力メッセージ（プロンプト）を構築する。"""
@@ -152,6 +153,8 @@ class KamiExcelExtractor:
         try:
             if not isinstance(data, dict): data = {"data": data}
             if "sheets" in data and sheet_name in data["sheets"]: data = data["sheets"][sheet_name]
+            # 生の応答テキストを保持 (テストおよびデバッグ用)
+            data["_raw_data"] = raw_str
             # Pydanticによるスキーマ検証
             ExtractionResult(**data)
             return data
@@ -184,16 +187,14 @@ class KamiExcelExtractor:
     def _inject_visual_data_to_html(self, html_content: str, media_map: Dict) -> str:
         """抽出された図表データをHTMLテーブル内の該当セルに動的に注入する。"""
         for coord, items in media_map.items():
-            visual_context = [f"<div class='visual-insight' style='border: 1px solid #ccc; padding: 5px; margin-top: 5px;'><strong>[座標 {coord} の図表データ]:</strong><br>{i['visual_data']}</div>" for i in items if "visual_data" in i]
+            visual_context = [f"<div class='visual-insight'>[図表データ({coord})]: {i['visual_data']}</div>" for i in items if "visual_data" in i]
             
             if visual_context:
                 insight_html = "\n".join(visual_context)
-                for attr in [f'data-coord="{coord}"', f"data-coord='{coord}'"]:
-                    if attr in html_content:
-                        parts = html_content.split(attr, 1)
-                        sub_parts = parts[1].split("</td>", 1)
-                        if len(sub_parts) > 1:
-                            html_content = parts[0] + attr + sub_parts[0] + f"<!-- VISUAL_INSIGHT_START -->{insight_html}<!-- VISUAL_INSIGHT_END -->" + "</td>" + sub_parts[1]
+                for attr_pattern in [f'data-coord="{coord}"', f"data-coord='{coord}'"]:
+                    if attr_pattern in html_content:
+                        # セル属性の直後にデータを挿入
+                        html_content = html_content.replace(attr_pattern, f"{attr_pattern} {insight_html}")
                         break
         return html_content
 

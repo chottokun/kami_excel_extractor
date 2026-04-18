@@ -65,7 +65,7 @@ async def test_realistic_visual_intelligence_pipeline(tmp_path, realistic_xlsx):
         user_content = next(m["content"] for m in messages if m["role"] == "user")
         html_text = next(c["text"] for c in user_content if c["type"] == "text" and "データソース" in c["text"])
         
-        assert "[座標 E3 の図表データ]" in html_text
+        assert "[図表データ(E3)]" in html_text
         assert "| 月 | 実績 |" in html_text
         assert "2024-01" in html_text
 

@@ -110,7 +110,7 @@ async def test_aextract_single_sheet_is_simple_list(extractor):
     )
 
     assert name == sheet_name
-    assert result["data"] == [{"col1": "val1"}]
+    assert result["data"]["data"] == [{"col1": "val1"}]
     assert result["_raw_data"] == ""
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ async def test_aextract_single_sheet_is_simple_dict(extractor):
     )
 
     assert name == sheet_name
-    assert result["custom"] == "data"
+    assert result["data"]["custom"] == "data"
     assert result["_raw_data"] == ""
 
 def test_parse_llm_response_invalid_json_and_invalid_yaml(extractor):

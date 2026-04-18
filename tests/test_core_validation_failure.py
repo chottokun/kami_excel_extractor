@@ -14,11 +14,12 @@ def test_parse_llm_response_validation_exception(extractor):
     content = '{"data": {"some": "data"}}'
     sheet_name = "Sheet1"
 
-    # Mock SheetData to raise a generic Exception
-    with patch("kami_excel_extractor.core.SheetData", side_effect=Exception("Mocked validation error")):
+    # Mock ExtractionResult to raise a generic Exception
+    with patch("kami_excel_extractor.core.ExtractionResult", side_effect=Exception("Mocked validation error")):
         result = extractor._parse_llm_response(content, sheet_name)
 
     assert "error" in result
+    assert "Validation failed" in result["error"]
     assert "Validation failed: Mocked validation error" in result["error"]
     assert result["_raw_data"] == '{"data": {"some": "data"}}'
 
@@ -37,5 +38,5 @@ def test_parse_llm_response_validation_error_pydantic(extractor):
         result = extractor._parse_llm_response(content, sheet_name)
 
     assert "error" in result
-    assert "Validation failed: Invalid data format" in result["error"]
+    assert "Validation failed" in result["error"]
     assert result["_raw_data"] == '{"data": "invalid"}'

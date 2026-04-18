@@ -64,16 +64,18 @@ async def test_extract_structured_data_with_visual_summaries(mock_open, mock_lit
     mock_choice_media.message.content = "[画像概要] 要約テキスト"
     mock_res_media = MagicMock()
     mock_res_media.choices = [mock_choice_media]
-    
-    mock_litellm.side_effect = [mock_res_sheet, mock_res_media]
-    
+
+    # パイプライン順序: 1.要約 & 図表解析(並列) 2.シート解析
+    # 画像1枚につき aget_visual_summary と _aprocess_chart_data が呼ばれる
+    mock_litellm.side_effect = [mock_res_media, mock_res_media, mock_res_sheet]
+
     options = ExtractionOptions(include_visual_summaries=True)
     result = await extractor.aextract_structured_data(sample_excel_path, options=options)
-    
+
     assert "Sheet1" in result["sheets"]
+    # 最終結果は _attach_media_to_sheets によって統合される
     assert "media" in result["sheets"]["Sheet1"]
     assert result["sheets"]["Sheet1"]["media"][0]["visual_summary"] == "[画像概要] 要約テキスト"
-
 @pytest.mark.asyncio
 @patch("litellm.acompletion")
 @patch("builtins.open", new_callable=MagicMock)
@@ -137,7 +139,7 @@ async def test_aget_visual_summary_failure(mock_open, mock_litellm, extractor, t
     mock_litellm.side_effect = Exception("LiteLLM API error")
 
     summary = await extractor.aget_visual_summary(img_path)
-    assert summary == "[画像概要] 解析に失敗しました。"
+    assert summary == "[画像概要] 解析失敗。"
 
 def test_make_json_serializable(extractor):
     """_make_json_serializable が date/datetime を正しく ISO 形式に変換することを確認"""

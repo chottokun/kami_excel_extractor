@@ -34,10 +34,10 @@ def test_llm_config_passing():
     assert extractor.base_url == "http://my-ollama:11434"
     assert extractor.timeout == 120.0
 
-def test_rpm_limit_from_env():
+def test_rpm_limit_from_env(monkeypatch):
     # RPM制限が環境変数から読み取られるか
-    os.environ["LLM_RPM_LIMIT"] = "50"
-    extractor = KamiExcelExtractor()
-    sem = extractor._get_semaphore()
-    # セマフォの内部値を確認 (litellm_rpm_limit に基づく)
+    monkeypatch.setenv("LLM_RPM_LIMIT", "50")
+    extractor = KamiExcelExtractor(api_key="fake")
     assert extractor.litellm_rpm_limit == 50
+    sem = extractor._get_semaphore()
+    assert sem._value == 50

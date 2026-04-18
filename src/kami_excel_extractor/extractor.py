@@ -173,7 +173,7 @@ class MetadataExtractor:
                     pillow_img.save(save_path, "PNG")
                 media_info.append(item)
             except Exception as e:
-                logger.warning(f"Failed to identify image at {coord} on {sheet_name}: {e}")
+                logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
                 item["filename"] = None
                 item["error"] = "unidentified_format"
                 media_info.append(item)
@@ -236,11 +236,34 @@ class MetadataExtractor:
         data = []
         rows = list(ws.iter_rows(values_only=True))
         if not rows: return []
-        headers = [str(v or f"Col{i+1}") for i, v in enumerate(rows[0])]
+        headers = [str(v or f"Column{i+1}") for i, v in enumerate(rows[0])]
         for row in rows[1:]:
             row_dict = {headers[i]: (v.isoformat() if isinstance(v, (date, datetime)) else v) for i, v in enumerate(row) if v is not None}
             if row_dict: data.append(row_dict)
         return data
+
+    def _generate_html_table(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None) -> str:
+        """シートからHTMLテーブルを生成する。"""
+        merged_map = self._get_merged_cells_map(ws)
+        max_r, max_c = ws.max_row, ws.max_column
+        html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
+
+        for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
+            row_html = ["  <tr>"]
+            for cell in row:
+                r, c = cell.row, cell.column
+                span = merged_map.get((r, c))
+                if span == "skip": continue
+                
+                formula = ws_formula.cell(row=r, column=c).value if ws_formula else None
+                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                row_html.append(td_html)
+            
+            row_html.append("  </tr>")
+            html_rows.append("".join(row_html))
+        
+        html_rows.append("</table>")
+        return "\n".join(html_rows)
 
     def extract(self, excel_path: Path, include_logic: bool = False) -> Dict[str, Any]:
         """
@@ -268,21 +291,17 @@ class MetadataExtractor:
                 coord = m.get("coord", "unknown")
                 media_map.setdefault(coord, []).append(m)
 
-            # HTMLテーブルと詳細メタデータの生成
+            # 詳細メタデータの生成
             merged_map = self._get_merged_cells_map(ws)
-            html_rows = ["<table border='1' style='border-collapse: collapse; min-width: 100%;'>"]
             cell_metadata = []
 
             for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
-                row_html = ["  <tr>"]
                 for cell in row:
                     r, c = cell.row, cell.column
                     span = merged_map.get((r, c))
                     if span == "skip": continue
                     
                     formula = ws_f.cell(row=r, column=c).value if ws_f else None
-                    td_html = self._cell_to_html_td(cell, span, formula=formula)
-                    row_html.append(td_html)
                     
                     # メタデータの構築
                     cell_info = {
@@ -294,14 +313,9 @@ class MetadataExtractor:
                     }
                     if isinstance(span, dict): cell_info.update(span)
                     cell_metadata.append(cell_info)
-                
-                row_html.append("  </tr>")
-                html_rows.append("".join(row_html))
-            
-            html_rows.append("</table>")
 
             full_map["sheets"][sheet_name] = {
-                "html": "\n".join(html_rows),
+                "html": self._generate_html_table(ws, ws_formula=ws_f),
                 "cells": cell_metadata,
                 "media": media_info,
                 "media_map": media_map,

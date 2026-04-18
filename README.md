@@ -1,103 +1,54 @@
 # Kami Excel Extractor
 
-「方眼紙エクセル」や「複雑な業務報告書」を、視覚情報（画像）と論理構造（XMLメタデータ）の両面から解析し、VLM (Vision Language Model) を用いて高精度に構造化データ (JSON) へ変換するパイプラインです。
+「方眼紙エクセル」や「非構造化された業務報告書」を、人間のような知性で読み解く。
+視覚情報（スタイル・画像）と論理構造（計算式・メタデータ）を統合し、VLM (Vision Language Model) を用いて高精度に構造化データ (JSON) へ変換する次世代抽出パイプラインです。
 
-## 🌟 特徴
+## 🌟 主な特徴
 
-- **方眼紙エクセル対応**: セル結合や細かいグリッドを論理的に解釈し、ラベルと値のペアを正確に特定。
-- **マルチモーダル解析**: LibreOffice による画像レンダリングと `openpyxl` による構造抽出を統合。
-- **物理抽出最適化**: 単純な表構造を自動検知。LLMを使わず直接抽出することで、100%の精度確保とコスト削減を両立。
-- **非同期・並列処理**: `asyncio` による複数シート・画像の並列解析。GPUリソースに応じた速度向上。
-- **RAG最適化出力**: RAG検索精度を向上させる「Key: Value」形式のMarkdown出力に対応。
-- **多形式アウトプット**: 解析結果を JSON, YAML, Markdown形式で同時出力。
-- **高度な互換性**: 
-    - 抽出画像を Pillow で自動正規化（PNG変換）し、VLMの読み取りエラーを防止。
-    - PDFからPNGへの変換において、**3層のフォールバックチェーン**（pdftocairo, PyMuPDF, ImageMagick）を搭載。
-- **セキュアな設計**: 徹底した HTML エスケープと引数注入対策、`tempfile` による安全な一時管理。
+- **Style-Aware Extraction**: セルの罫線、背景色、フォントスタイルを CSS 形式で AI に伝達。表の境界や見出しを視覚的に理解。
+- **Logic-Aware Injection**: セルの「計算式」と「表示形式」を解析。合計値の特定や単位（円, %, 日付）の誤認を防止。
+- **Visual Intelligence**: シート内の図表やグラフを VLM で自動解析し、数値データとして HTML 内に動的に埋め込み。
+- **Semantic Cleaning**: レイアウト目的の不自然な空白（例: 「氏　名」）を自動除去し、正確な単語として復元。
+- **Docker-First 設計**: LibreOffice, Poppler, ImageMagick を完備したコンテナ環境で、依存関係なしに即座に実行可能。
+- **RAG & Search 最適化**: 構造化 JSON に加え、RAG 検索精度を最大化する Markdown チャンクを同時生成。
+- **プロフェッショナル品質**: 徹底した型ヒント、詳細なドキュメント、および 170 件以上の自動テストによる堅牢な信頼性。
 
-## 🚀 セットアップ
+## 📖 ドキュメント
 
-### 1. 依存パッケージ（Linux）
-PDF変換や画像処理のために、以下のツールがインストールされていることが推奨されます。
+詳細な情報は以下のドキュメントを参照してください：
+- **[ユーザマニュアル (USAGE.md)](USAGE.md)**: セットアップから CLI/API の詳細な使い方まで。
+- **[抽出エンジン技術解説 (docs/extraction_engine.md)](docs/extraction_engine.md)**: 5つのレイヤーによる高度な解析アルゴリズムの解説。
+- **[改善提案ロードマップ (docs/improvement_proposals.md)](docs/improvement_proposals.md)**: 今後の精度向上に向けた考察。
 
-```bash
-# Ubuntu/Debian 例
-sudo apt-get install libreoffice poppler-utils imagemagick
-```
+## 🚀 クイックスタート (Docker)
 
-### 2. 環境設定
-`.env` ファイルに LLM の提供プロバイダーに合わせた設定を行ってください。
-
-```env
-# LiteLLM 形式のモデル名 (openai/gpt-4o, gemini/gemini-1.5-flash, ollama/qwen3.5:4b 等)
-LLM_MODEL=gemini/gemini-1.5-flash
-LLM_API_KEY=your_api_key_here
-
-# 必要に応じてベース URL やタイムアウト、RPM 制限を指定可能
-# LLM_BASE_URL=http://localhost:11434
-# LLM_TIMEOUT=600   # デフォルト 600秒(10分)
-# LLM_RPM_LIMIT=15  # 1分あたりの最大リクエスト数
-```
-
-### 3. 起動
-Docker Compose を使用して、監視パイプラインを起動します。
+最も推奨される実行方法は Docker Compose です。
 
 ```bash
+# 1. 起動（data/input ディレクトリの監視を開始）
 docker compose up -d --build
+
+# 2. CLI による単発実行
+docker compose run --rm cli sample.xlsx --include-logic --visual-summaries
 ```
 
-## 🛠️ 使い方 (CLI)
-
-特定のファイルに対して手動で解析を実行できます。
+## 🛠️ 基本的な使い方 (Local CLI)
 
 ```bash
-# 基本的な実行
-uv run python -m kami_excel_extractor.cli sample.xlsx --model gemini/gemini-1.5-flash
-
-# RAG用Markdownチャンクも同時に生成
-uv run python -m kami_excel_extractor.cli sample.xlsx --rag
-
-# 画像解析を無効化（テキスト抽出のみ）
-uv run python -m kami_excel_extractor.cli sample.xlsx --no-vision
-
-# 詳細ログを表示
-uv run python -m kami_excel_extractor.cli sample.xlsx --verbose
+# 高精度フルオプション解析
+uv run python -m kami_excel_extractor.cli report.xlsx \
+    --include-logic \
+    --visual-summaries \
+    --dpi 300
 ```
 
-## 📦 ライブラリとしての利用
+## 🛡️ セキュリティ
 
-Python コード内から直接呼び出すことも可能です。
-
-```python
-import asyncio
-from pathlib import Path
-from kami_excel_extractor import KamiExcelExtractor
-from kami_excel_extractor.schema import ExtractionOptions
-
-async def main():
-    extractor = KamiExcelExtractor(output_dir="output")
-    
-    options = ExtractionOptions(
-        model="gemini/gemini-1.5-flash",
-        include_visual_summaries=True
-    )
-    
-    result = await extractor.aextract_structured_data("report.xlsx", options=options)
-    print(result)
-
-asyncio.run(main())
-```
-
-## 🛡️ セキュリティと制限
-
-### セキュリティ対策
-- **XSS 対策**: 生成されるレポート内の全外部入力に対し HTML エスケープを徹底。
-- **引数注入対策**: 外部コマンド（soffice, pdftocairo等）実行時の絶対パス解決 (CWE-426対策)。
-- **パス・トラバーサル防止**: レポート出力名のサニタイズ (`secure_filename`)。
-- **堅牢性**: 破損画像や推論エラー発生時も、プロセスを停止させずスキップ・記録。
-
-### 既知の制限
-- **特殊な埋め込み画像**: Excel内の「図形（Shape）」や「メタファイル（EMF/WMF）」、zlib圧縮された内部形式での画像埋め込みは現在抽出対象外（スキップ）となります。将来的に `pyvips` 等によるサポートを検討中です。
+本プロジェクトは実務での利用を想定し、以下のセキュリティ対策を徹底しています：
+- **CWE-426 (Untrusted Search Path) 対策**: 外部コマンドの絶対パス強制解決。
+- **XSS 防御**: `quote=True` を含む厳格な HTML エスケープ。
+- **DoS 対策**: 画像のピクセル数・ファイルサイズ制限による「画像爆弾」への耐性。
+- **Path Traversal 防止**: 出力ファイル名の厳格なサニタイズ。
 
 ## 📜 ライセンス
-[MIT License](LICENSE)
+MIT License

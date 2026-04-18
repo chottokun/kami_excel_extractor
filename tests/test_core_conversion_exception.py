@@ -37,8 +37,7 @@ async def test_aextract_structured_data_conversion_failure(
 
     # Verification
     # Check that warning was logged
-    assert "Excel-to-image conversion failed (skipping visual context): Conversion process failed" in caplog.text
-
+    assert "Excel-to-image failed: Conversion process failed" in caplog.text
     # Check that extraction still completed
     assert "Sheet1" in result["sheets"]
     assert result["sheets"]["Sheet1"]["data"] == [{"item": "success"}]

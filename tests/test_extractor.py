@@ -36,11 +36,12 @@ def test_extract_html_table(tmp_path, sample_html_excel):
     html_content = result["sheets"]["HTML_Test"]["html"]
     
     # テーブル構造が保たれているか
-    assert "<table border='1'>" in html_content
+    assert "<table" in html_content
+    assert 'style="border-collapse: collapse; min-width: 100%;"' in html_content
     assert "</table>" in html_content
     
-    # 1. 普通のセル
-    assert "<td>Normal Text</td>" in html_content
+    # 1. 普通のセル (data-coord が付与されるようになった)
+    assert 'data-coord="A1">Normal Text</td>' in html_content
     
     # 2. 結合セル (colspan=2, rowspan=2が展開され、左上以外はskipされていること)
     assert 'colspan="2"' in html_content
