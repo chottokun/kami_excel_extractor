@@ -294,13 +294,18 @@ class KamiExcelExtractor:
                 
         return self._make_json_serializable(final_data)
 
+    def _extract_sheet_name_from_filename(self, filename: str) -> str:
+        """メディアファイル名からシート名を推測する (例: Sheet1_img_A1_0.png -> Sheet1)。"""
+        if not filename:
+            return ""
+        return filename.split("_img_")[0] if "_img_" in filename else filename.split("_")[0]
+
     def _attach_media_to_sheets(self, all_media: list, structured_sheets: dict) -> None:
         """メディア情報をシートデータに紐付ける。"""
         for m in all_media:
-            filename = m.get("filename") or ""
-            sheet_name_part = filename.split("_img_")[0]
-            if sheet_name_part in structured_sheets:
-                structured_sheets[sheet_name_part].setdefault("media", []).append(m)
+            sheet_name = self._extract_sheet_name_from_filename(m.get("filename", ""))
+            if sheet_name in structured_sheets:
+                structured_sheets[sheet_name].setdefault("media", []).append(m)
 
     async def aget_visual_summary(self, image_path: Path, model: Optional[str] = None) -> str:
         """画像の視覚的要約を生成する。"""
