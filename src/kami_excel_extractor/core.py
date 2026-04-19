@@ -187,15 +187,25 @@ class KamiExcelExtractor:
     def _inject_visual_data_to_html(self, html_content: str, media_map: Dict) -> str:
         """抽出された図表データをHTMLテーブル内の該当セルに動的に注入する。"""
         for coord, items in media_map.items():
-            visual_context = [f"<div class='visual-insight'>[図表データ({coord})]: {i['visual_data']}</div>" for i in items if "visual_data" in i]
-            
-            if visual_context:
-                insight_html = "\n".join(visual_context)
-                for attr_pattern in [f'data-coord="{coord}"', f"data-coord='{coord}'"]:
-                    if attr_pattern in html_content:
-                        # セル属性の直後にデータを挿入
-                        html_content = html_content.replace(attr_pattern, f"{attr_pattern} {insight_html}")
-                        break
+            insight_html = self._format_visual_insights(coord, items)
+            if insight_html:
+                html_content = self._inject_insight_to_html(html_content, coord, insight_html)
+        return html_content
+
+    def _format_visual_insights(self, coord: str, items: List[Dict]) -> str:
+        """指定された座標の図表データをHTML形式にフォーマットする。"""
+        insights = [
+            f"<div class='visual-insight'>[図表データ({coord})]: {i['visual_data']}</div>"
+            for i in items if "visual_data" in i
+        ]
+        return "\n".join(insights)
+
+    def _inject_insight_to_html(self, html_content: str, coord: str, insight_html: str) -> str:
+        """HTML内の特定の座標属性を持つ箇所にインサイトを注入する。"""
+        for attr_pattern in [f'data-coord="{coord}"', f"data-coord='{coord}'"]:
+            if attr_pattern in html_content:
+                # セル属性の直後にデータを挿入
+                return html_content.replace(attr_pattern, f"{attr_pattern} {insight_html}")
         return html_content
 
     async def _aprocess_media_summary(self, media_item: Dict, model: str, semaphore: Optional[asyncio.Semaphore]) -> Optional[Dict]:
