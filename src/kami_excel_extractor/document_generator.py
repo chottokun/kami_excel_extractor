@@ -86,6 +86,23 @@ class DocumentGenerator:
         """段落要素をレンダリングする"""
         return f"<p>{self._render_inline(stripped_line)}</p>"
 
+    def _process_table_block(self, lines: List[str], index: int) -> tuple[str, int]:
+        """テーブルブロックを抽出してHTMLに変換する"""
+        table_lines = []
+        while index < len(lines) and lines[index].strip().startswith('|'):
+            table_lines.append(lines[index])
+            index += 1
+        return self._render_table(table_lines), index
+
+    def _process_list_block(self, lines: List[str], index: int) -> tuple[str, int]:
+        """リストブロックを抽出してHTMLに変換する"""
+        list_parts = ["<ul>"]
+        while index < len(lines) and self.RE_LIST_ITEM_START.match(lines[index].strip()):
+            list_parts.append(self._render_list_item(lines[index].strip()))
+            index += 1
+        list_parts.append("</ul>")
+        return "\n".join(list_parts), index
+
     def _get_html_template(self, body_html: str) -> str:
         """HTMLテンプレートを生成する"""
         return f"""<!DOCTYPE html>
@@ -125,38 +142,29 @@ class DocumentGenerator:
         """簡易的なMarkdownをHTMLに変換する"""
         lines = md_content.split('\n')
         body_parts = []
-        
+
         i = 0
         while i < len(lines):
             line = lines[i]
             stripped = line.strip()
             if not stripped:
                 i += 1
-                continue
-            
             elif stripped.startswith('|'):
-                table_lines = []
-                while i < len(lines) and lines[i].strip().startswith('|'):
-                    table_lines.append(lines[i])
-                    i += 1
-                body_parts.append(self._render_table(table_lines))
+                html_table, i = self._process_table_block(lines, i)
+                body_parts.append(html_table)
             elif self.RE_HEADER.match(stripped):
                 body_parts.append(self._render_header(stripped))
                 i += 1
             elif self.RE_LIST_ITEM_START.match(stripped):
-                body_parts.append("<ul>")
-                while i < len(lines) and self.RE_LIST_ITEM_START.match(lines[i].strip()):
-                    body_parts.append(self._render_list_item(lines[i].strip()))
-                    i += 1
-                body_parts.append("</ul>")
+                html_list, i = self._process_list_block(lines, i)
+                body_parts.append(html_list)
             elif stripped.startswith('!['):
-
                 body_parts.append(self._render_image_element(stripped))
                 i += 1
             else:
                 body_parts.append(self._render_paragraph(stripped))
                 i += 1
-        
+
         return self._get_html_template("\n".join(body_parts))
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
