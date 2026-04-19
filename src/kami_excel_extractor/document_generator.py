@@ -167,11 +167,11 @@ class DocumentGenerator:
             rel_path = match.group(2)
             filename = Path(rel_path).name
             for search_dir in search_dirs:
-                src = search_dir / filename
+                src = (search_dir / filename).resolve()
                 if src.exists():
-                    dst = tmp_dir / filename
+                    dst = (tmp_dir / filename).resolve()
                     shutil.copy2(str(src), str(dst))
-                    return f'![{alt_text}](file://{dst.resolve()})'
+                    return f'![{alt_text}](file://{dst})'
             return match.group(0)
         
         return self.RE_IMAGE.sub(resolve_and_copy, md_content)
@@ -188,7 +188,10 @@ class DocumentGenerator:
 
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             # --outdir は一時ディレクトリのルートを指定
-            cmd = [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html)]
+            cmd = [
+                soffice_path, "--headless", "--convert-to", "pdf",
+                "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())
+            ]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if res.returncode != 0:
                 logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
@@ -197,12 +200,12 @@ class DocumentGenerator:
             # 生成されたPDFを特定（sofficeは入力ファイル名.pdfを出力する）
             expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
             if expected_pdf.exists():
-                return expected_pdf
+                return expected_pdf.resolve()
 
             # フォールバック: rglobで探す
             pdfs = list(tmp_dir.rglob("*.pdf"))
             if pdfs:
-                return pdfs[0]
+                return pdfs[0].resolve()
 
             logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
             return None
@@ -226,13 +229,13 @@ class DocumentGenerator:
                 f.write(html_content)
 
             # 最終的な出力パス
-            pdf_path = self.output_dir / f"{safe_output_name}.pdf"
+            pdf_path = (self.output_dir / f"{safe_output_name}.pdf").resolve()
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
 
             try:
                 generated_pdf = self._run_soffice_conversion(tmp_dir, temp_html)
                 if generated_pdf and generated_pdf.exists():
-                    shutil.move(str(generated_pdf), str(pdf_path))
+                    shutil.move(str(generated_pdf.resolve()), str(pdf_path))
                     return pdf_path
             except Exception:
                 logger.exception("Unexpected error during PDF generation")
