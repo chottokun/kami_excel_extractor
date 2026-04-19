@@ -22,6 +22,30 @@ LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT") or 1800.0)
 
+def _save_sheet_results(sheet_name: str, res: dict, target_dir: Path, extractor: KamiExcelExtractor) -> None:
+    """1つのシートの抽出結果を各種フォーマットで保存する。"""
+    # 安全なファイル名の作成
+    safe_sheet_name = secure_filename(sheet_name)
+
+    sheet_struct_path = target_dir / f"{safe_sheet_name}_lib_result.json"
+    with open(sheet_struct_path, "w", encoding="utf-8") as out_f:
+        json.dump(res["structured"], out_f, ensure_ascii=False, indent=2)
+
+    sheet_yaml_path = target_dir / f"{safe_sheet_name}_lib_result.yaml"
+    with open(sheet_yaml_path, "w", encoding="utf-8") as out_f:
+        out_f.write(res["yaml"])
+
+    sheet_rag_path = target_dir / f"{safe_sheet_name}_rag_chunks.json"
+    with open(sheet_rag_path, "w", encoding="utf-8") as out_f:
+        json.dump(res["chunks"], out_f, ensure_ascii=False, indent=2)
+
+    sheet_md_path = target_dir / f"{safe_sheet_name}_rag.md"
+    with open(sheet_md_path, "w", encoding="utf-8") as out_f:
+        out_f.write(res["markdown"])
+
+    logger.info(f"Generating PDF report for sheet {sheet_name}...")
+    extractor.doc_generator.generate_pdf(res["markdown"], f"{target_dir.name}/{safe_sheet_name}_report")
+
 def process_file(f: Path, extractor: KamiExcelExtractor, model: str) -> bool:
     """
     1つのExcelファイルを処理し、結果を保存する。
@@ -44,33 +68,21 @@ def process_file(f: Path, extractor: KamiExcelExtractor, model: str) -> bool:
             json.dump(full_structured_data, out_f, ensure_ascii=False, indent=2)
 
         for sheet_name, res in sheet_results.items():
-            # 安全なファイル名の作成
-            safe_sheet_name = secure_filename(sheet_name)
-
-            sheet_struct_path = target_dir / f"{safe_sheet_name}_lib_result.json"
-            with open(sheet_struct_path, "w", encoding="utf-8") as out_f:
-                json.dump(res["structured"], out_f, ensure_ascii=False, indent=2)
-
-            sheet_yaml_path = target_dir / f"{safe_sheet_name}_lib_result.yaml"
-            with open(sheet_yaml_path, "w", encoding="utf-8") as out_f:
-                out_f.write(res["yaml"])
-
-            sheet_rag_path = target_dir / f"{safe_sheet_name}_rag_chunks.json"
-            with open(sheet_rag_path, "w", encoding="utf-8") as out_f:
-                json.dump(res["chunks"], out_f, ensure_ascii=False, indent=2)
-
-            sheet_md_path = target_dir / f"{safe_sheet_name}_rag.md"
-            with open(sheet_md_path, "w", encoding="utf-8") as out_f:
-                out_f.write(res["markdown"])
-
-            logger.info(f"Generating PDF report for sheet {sheet_name}...")
-            extractor.doc_generator.generate_pdf(res["markdown"], f"{target_dir.name}/{safe_sheet_name}_report")
+            _save_sheet_results(sheet_name, res, target_dir, extractor)
 
         logger.info(f"Success: Outputs saved to {target_dir}")
         return True
     except Exception as e:
         logger.error(f"Failed to process {f.name}: {e}")
         return False
+
+def _process_pending_files(extractor: KamiExcelExtractor, model: str, processed: set[Path]) -> None:
+    """入力ディレクトリを監視し、未処理のファイルを処理する。"""
+    files = list(INPUT_DIR.glob("*.xlsx"))
+    for f in files:
+        if f not in processed:
+            if process_file(f, extractor, model):
+                processed.add(f)
 
 def main():
     # 実行時に最新の値を取得 (テストパッチ対応)
@@ -90,12 +102,7 @@ def main():
     processed = set()
     
     while True:
-        files = list(INPUT_DIR.glob("*.xlsx"))
-        for f in files:
-            if f not in processed:
-                if process_file(f, extractor, model):
-                    processed.add(f)
-        
+        _process_pending_files(extractor, model, processed)
         time.sleep(10)
 
 if __name__ == "__main__":
