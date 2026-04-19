@@ -187,7 +187,7 @@ class DocumentGenerator:
             soffice_path = str(Path(raw_path).resolve())
 
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
-            # --outdir は一時ディレクトリのルートを指定
+            # --outdir must specify the root of the temporary directory
             cmd = [
                 soffice_path, "--headless", "--convert-to", "pdf",
                 "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())
