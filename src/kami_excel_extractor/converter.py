@@ -128,15 +128,17 @@ class ExcelConverter:
     def _try_imagemagick(self, pdf_path: Path, output_png: Path) -> bool:
         """ImageMagick (magick or convert) を使用してPDFをPNGに変換する"""
         for cmd_name in ["magick", "convert"]:
-            raw_path = shutil.which(cmd_name)
-            if not raw_path:
+            raw_cmd_path = shutil.which(cmd_name)
+            if not raw_cmd_path:
                 continue
             try:
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection and CWE-426
-                cmd_path = str(Path(raw_path).resolve())
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                # magick [input] [output] or convert [input] [output]
+                # For PDF to PNG with ImageMagick, [0] specifies the first page
+                cmd_path = str(Path(raw_cmd_path).resolve())
                 res = subprocess.run([
                     cmd_path, "-density", str(self.dpi),
-                    f"{pdf_path.resolve()}[0]", str(output_png.resolve())
+                    f"{str(pdf_path.resolve())}[0]", str(output_png.resolve())
                 ], capture_output=True, text=True, timeout=300)
 
                 if res.returncode == 0 and output_png.exists():

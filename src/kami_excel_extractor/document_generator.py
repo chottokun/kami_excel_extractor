@@ -188,11 +188,10 @@ class DocumentGenerator:
 
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             # --outdir は一時ディレクトリのルートを指定
-            cmd = [
+            res = subprocess.run([
                 soffice_path, "--headless", "--convert-to", "pdf",
                 "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())
-            ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            ], capture_output=True, text=True, timeout=60)
             if res.returncode != 0:
                 logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
                 return None
