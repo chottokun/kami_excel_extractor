@@ -266,13 +266,22 @@ class KamiExcelExtractor:
             if media_tasks:
                 media_results = await asyncio.gather(*media_tasks)
                 all_media = [m for m in media_results if m]
-                # 抽出された結果をメタデータに同期
+                # 抽出された結果をメタデータに同期 (O(1) lookup で高速化)
+                # (coord, filename) をキーにして、該当する全シートのメディアアイテムを保持
+                lookup = {}
+                for s_info in sheets_data.values():
+                    for coord, mapped_list in s_info.get("media_map", {}).items():
+                        for mapped_m in mapped_list:
+                            if filename := mapped_m.get("filename"):
+                                lookup.setdefault((coord, filename), []).append(mapped_m)
+
                 for m in all_media:
                     if "visual_data" in m:
                         coord = m.get("coord")
-                        for s_info in sheets_data.values():
-                            for mapped_m in s_info.get("media_map", {}).get(coord, []):
-                                if mapped_m.get("filename") == m.get("filename"): mapped_m["visual_data"] = m["visual_data"]
+                        filename = m.get("filename")
+                        if coord and filename:
+                            for target in lookup.get((coord, filename), []):
+                                target["visual_data"] = m["visual_data"]
 
         # 4. 図表データの注入
         for sheet_name, sheet_info in sheets_data.items():
