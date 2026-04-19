@@ -4,6 +4,7 @@ Kami Excel Extractor のコアオーケストレーションエンジン。
 """
 
 import asyncio
+import aiofiles
 import base64
 import json
 import logging
@@ -59,6 +60,7 @@ class KamiExcelExtractor:
         self.doc_generator = DocumentGenerator(self.output_dir)
 
         self._image_cache = {}
+        self._image_locks = {}
         self._visual_summary_cache = {}
         
         self.default_model = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
@@ -80,14 +82,22 @@ class KamiExcelExtractor:
         if cache_key in self._image_cache:
             return self._image_cache[cache_key]
             
-        def _read_and_encode():
-            with open(image_path, "rb") as f:
-                encoded = base64.b64encode(f.read()).decode("utf-8")
+        # 同一ファイルへの同時エンコードを防ぐためのロック取得
+        lock = self._image_locks.setdefault(cache_key, asyncio.Lock())
+        async with lock:
+            if cache_key in self._image_cache:
+                return self._image_cache[cache_key]
+
+            async with aiofiles.open(image_path, "rb") as f:
+                content = await f.read()
+
+            def _encode(data: bytes) -> str:
+                encoded = base64.b64encode(data).decode("utf-8")
                 return f"data:image/png;base64,{encoded}"
 
-        result = await asyncio.to_thread(_read_and_encode)
-        self._image_cache[cache_key] = result
-        return result
+            result = await asyncio.to_thread(_encode, content)
+            self._image_cache[cache_key] = result
+            return result
 
     def _resolve_model(self, model: Optional[str] = None) -> str:
         """使用するモデル名を解決する。"""
@@ -214,11 +224,11 @@ class KamiExcelExtractor:
         media_path = self.output_dir / "media" / media_item["filename"]
         if not media_path.exists(): return None
 
-        async with (semaphore if semaphore else asyncio.Lock()):
-            summary = await self.aget_visual_summary(media_path, model=model)
-            media_item["visual_summary"] = summary
-            await self._aprocess_chart_data(media_item, model, semaphore)
-            return media_item
+        # aget_visual_summary と _aprocess_chart_data 内部でそれぞれセマフォを制御
+        summary = await self.aget_visual_summary(media_path, model=model, semaphore=semaphore)
+        media_item["visual_summary"] = summary
+        await self._aprocess_chart_data(media_item, model, semaphore)
+        return media_item
 
     async def _aextract_single_sheet(self, sheet_name: str, sheet_content: Dict, model: str, system_prompt: str, image_url: Optional[str], semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True, include_logic: bool = False) -> Tuple[str, Dict]:
         """単一シートの解析。シンプルテーブルの場合はLLMをバイパスする。"""
@@ -272,7 +282,15 @@ class KamiExcelExtractor:
         # 3. メディア（図表・グラフ）の個別解析
         all_media = []
         if opts.include_visual_summaries:
-            media_tasks = [self._aprocess_media_summary(m, model, semaphore) for s in sheets_data.values() for m in s.get("media", [])]
+            # 重複メディア（同一ファイル名）を排除して解析タスクを作成
+            unique_media = {}
+            for s in sheets_data.values():
+                for m in s.get("media", []):
+                    if filename := m.get("filename"):
+                        if filename not in unique_media:
+                            unique_media[filename] = m
+
+            media_tasks = [self._aprocess_media_summary(m, model, semaphore) for m in unique_media.values()]
             if media_tasks:
                 media_results = await asyncio.gather(*media_tasks)
                 all_media = [m for m in media_results if m]
@@ -286,12 +304,18 @@ class KamiExcelExtractor:
                                 lookup.setdefault((coord, filename), []).append(mapped_m)
 
                 for m in all_media:
-                    if "visual_data" in m:
-                        coord = m.get("coord")
-                        filename = m.get("filename")
-                        if coord and filename:
-                            for target in lookup.get((coord, filename), []):
-                                target["visual_data"] = m["visual_data"]
+                    filename = m.get("filename")
+                    if not filename: continue
+
+                    visual_data = m.get("visual_data")
+                    visual_summary = m.get("visual_summary")
+
+                    # lookup の全エントリを更新 (ファイル名のみをキーにする方が確実)
+                    for (coord, f_name), target_list in lookup.items():
+                        if f_name == filename:
+                            for target in target_list:
+                                if visual_data: target["visual_data"] = visual_data
+                                if visual_summary: target["visual_summary"] = visual_summary
 
         # 4. 図表データの注入
         for sheet_name, sheet_info in sheets_data.items():
@@ -326,22 +350,24 @@ class KamiExcelExtractor:
             if sheet_name in structured_sheets:
                 structured_sheets[sheet_name].setdefault("media", []).append(m)
 
-    async def aget_visual_summary(self, image_path: Path, model: Optional[str] = None) -> str:
+    async def aget_visual_summary(self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None) -> str:
         """画像の視覚的要約を生成する。"""
         model = model or self.default_model
-        image_url = await self._encode_image_to_base64_url(image_path)
-        cache_key = (model, image_url)
+        cache_key = (model, str(image_path))
         if cache_key in self._visual_summary_cache: return self._visual_summary_cache[cache_key]
+
+        image_url = await self._encode_image_to_base64_url(image_path)
             
         messages = [{"role": "user", "content": [{"type": "text", "text": "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"}, {"type": "image_url", "image_url": {"url": image_url}}]}]
-        try:
-            response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
-            content = response.choices[0].message.content or ""
-            if content: self._visual_summary_cache[cache_key] = content
-            return content
-        except Exception as e:
-            logger.error(f"Visual summary failed: {e}")
-            return "[画像概要] 解析失敗。"
+        async with (semaphore if semaphore else asyncio.Lock()):
+            try:
+                response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+                content = response.choices[0].message.content or ""
+                if content: self._visual_summary_cache[cache_key] = content
+                return content
+            except Exception as e:
+                logger.error(f"Visual summary failed: {e}")
+                return "[画像概要] 解析失敗。"
 
     def extract_structured_data(self, excel_path: Union[str, Path], options: Optional[ExtractionOptions] = None) -> Dict:
         return asyncio.run(self.aextract_structured_data(excel_path, options=options))
