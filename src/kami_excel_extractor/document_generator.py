@@ -15,7 +15,7 @@ class DocumentGenerator:
     RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
     RE_HEADER = re.compile(r'^#+')
     RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
-    RE_IMAGE = re.compile(r'!\[(.*?)\]\((.*?)\)')
+    RE_IMAGE = re.compile(r'!\[(.*?)\]\(((?:[^()]+|\([^()]*\))*)\)')
     RE_LIST_ITEM_START = re.compile(r'^[-*](\s+|$)')
     RE_LIST_ITEM_CONTENT = re.compile(r'^[-*]\s+(.*)$')
 
@@ -77,7 +77,7 @@ class DocumentGenerator:
         img_match = self.RE_IMAGE.search(stripped_line)
         alt_text = img_match.group(1) or "画像"
         img_path = img_match.group(2)
-        # 🔒 Security Fix: HTML escape image source attribute and alt text
+        # 🔒 Security Fix: HTML escape image source attribute and alt text to prevent injection.
         escaped_img_path = html.escape(img_path, quote=True)
         escaped_alt = html.escape(alt_text, quote=True)
         return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
