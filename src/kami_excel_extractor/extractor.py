@@ -242,9 +242,36 @@ class MetadataExtractor:
             if row_dict: data.append(row_dict)
         return data
 
-    def _generate_html_table(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None) -> str:
+    def _generate_cell_metadata(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> List[Dict[str, Any]]:
+        """詳細メタデータを生成する。"""
+        if merged_map is None:
+            merged_map = self._get_merged_cells_map(ws)
+        cell_metadata = []
+
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+            for cell in row:
+                r, c = cell.row, cell.column
+                span = merged_map.get((r, c))
+                if span == "skip": continue
+
+                formula = ws_formula.cell(row=r, column=c).value if ws_formula else None
+
+                # メタデータの構築
+                cell_info = {
+                    "coord": cell.coordinate, "row": r, "col": c,
+                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
+                    "formula": formula if str(formula).startswith('=') else None,
+                    "unit": self._get_unit_info(cell),
+                    "style": {"borders": self._get_border_info(cell), "bold": bool(cell.font.b if cell.font else False)}
+                }
+                if isinstance(span, dict): cell_info.update(span)
+                cell_metadata.append(cell_info)
+        return cell_metadata
+
+    def _generate_html_table(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> str:
         """シートからHTMLテーブルを生成する。"""
-        merged_map = self._get_merged_cells_map(ws)
+        if merged_map is None:
+            merged_map = self._get_merged_cells_map(ws)
         max_r, max_c = ws.max_row, ws.max_column
         html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
 
@@ -293,29 +320,10 @@ class MetadataExtractor:
 
             # 詳細メタデータの生成
             merged_map = self._get_merged_cells_map(ws)
-            cell_metadata = []
-
-            for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
-                for cell in row:
-                    r, c = cell.row, cell.column
-                    span = merged_map.get((r, c))
-                    if span == "skip": continue
-                    
-                    formula = ws_f.cell(row=r, column=c).value if ws_f else None
-                    
-                    # メタデータの構築
-                    cell_info = {
-                        "coord": cell.coordinate, "row": r, "col": c,
-                        "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
-                        "formula": formula if str(formula).startswith('=') else None,
-                        "unit": self._get_unit_info(cell),
-                        "style": {"borders": self._get_border_info(cell), "bold": bool(cell.font.b if cell.font else False)}
-                    }
-                    if isinstance(span, dict): cell_info.update(span)
-                    cell_metadata.append(cell_info)
+            cell_metadata = self._generate_cell_metadata(ws, ws_formula=ws_f, merged_map=merged_map)
 
             full_map["sheets"][sheet_name] = {
-                "html": self._generate_html_table(ws, ws_formula=ws_f),
+                "html": self._generate_html_table(ws, ws_formula=ws_f, merged_map=merged_map),
                 "cells": cell_metadata,
                 "media": media_info,
                 "media_map": media_map,
