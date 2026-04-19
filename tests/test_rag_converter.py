@@ -151,3 +151,28 @@ def test_json_to_markdown_list_nested():
     # - Inner2
     expected = "- Outer\n- - Inner1\n- Inner2"
     assert result == expected
+
+def test_convert_to_kv_direct():
+    """Directly test the _convert_to_kv private method."""
+    converter = JsonToMarkdownConverter()
+
+    # 1. Normal case
+    data = [{"ID": 1, "Name": "Alice"}, {"ID": 2, "Name": "Bob"}]
+    expected = "- ID: 1, Name: Alice\n- ID: 2, Name: Bob"
+    assert converter._convert_to_kv(data) == expected
+
+    # 2. Empty list
+    assert converter._convert_to_kv([]) == ""
+
+    # 3. List with empty dict
+    assert converter._convert_to_kv([{}]) == "- "
+
+    # 4. Mixed types in dict values
+    data = [{"ID": 1, "Data": None, "Tags": ["a", "b"]}]
+    expected = "- ID: 1, Data: None, Tags: ['a', 'b']"
+    assert converter._convert_to_kv(data) == expected
+
+    # 5. Multiple key-value pairs
+    data = [{"A": 1, "B": 2, "C": 3}]
+    expected = "- A: 1, B: 2, C: 3"
+    assert converter._convert_to_kv(data) == expected
