@@ -30,7 +30,9 @@ class ExcelConverter:
 
         try:
             with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir:
-                user_installation = f"file://{tmp_dir}"
+                # 🔒 Security Fix: Use absolute paths for user installation and arguments
+                resolved_tmp_dir = Path(tmp_dir).resolve()
+                user_installation = f"file://{resolved_tmp_dir}"
 
                 # Step 1: Excel -> PDF
                 logger.info(f"Converting {input_file.name} to PDF...")
@@ -44,9 +46,9 @@ class ExcelConverter:
 
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 res_pdf = subprocess.run([
-                    soffice_path, f"-env:UserInstallation={user_installation}",
+                    str(Path(soffice_path).resolve()), f"-env:UserInstallation={user_installation}",
                     "--headless", "--convert-to", "pdf",
-                    "--outdir", str(self.output_dir), str(input_file)
+                    "--outdir", str(self.output_dir.resolve()), str(input_file.resolve())
                 ], capture_output=True, text=True, timeout=600)
 
                 if res_pdf.returncode != 0:
@@ -75,7 +77,7 @@ class ExcelConverter:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 pdftocairo_path = str(Path(raw_pdftocairo_path).resolve())
                 res = subprocess.run([
-                    pdftocairo_path, "-png", "-singlefile",
+                    str(Path(pdftocairo_path).resolve()), "-png", "-singlefile",
                     str(pdf_path.resolve()), str(output_png.with_suffix("").resolve())
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
@@ -114,7 +116,7 @@ class ExcelConverter:
                 # For PDF to PNG with ImageMagick, [0] specifies the first page
                 cmd_path = str(Path(raw_cmd_path).resolve())
                 res = subprocess.run([
-                    cmd_path, "-density", str(self.dpi),
+                    str(Path(cmd_path).resolve()), "-density", str(self.dpi),
                     f"{pdf_path.resolve()}[0]", str(output_png.resolve())
                 ], capture_output=True, text=True, timeout=300)
                 if res.returncode == 0 and output_png.exists():
