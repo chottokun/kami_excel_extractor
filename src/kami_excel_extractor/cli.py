@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from .core import KamiExcelExtractor
 from .schema import ExtractionOptions, RagOptions
+from .utils import secure_filename
 
 def create_parser():
     """CLIパーサーを作成する"""
@@ -80,7 +81,8 @@ async def run_async(args):
             )
 
         # 結果の保存
-        output_path = Path(args.output_dir) / f"{Path(args.input).stem}_result.json"
+        safe_stem = secure_filename(Path(args.input).stem)
+        output_path = Path(args.output_dir) / f"{safe_stem}_result.json"
 
         def _save_json(path, data):
             with open(path, "w", encoding="utf-8") as f:
@@ -90,7 +92,7 @@ async def run_async(args):
         logger.info(f"結果を保存しました: {output_path}")
 
         if args.rag:
-            rag_path = Path(args.output_dir) / f"{Path(args.input).stem}_rag.json"
+            rag_path = Path(args.output_dir) / f"{safe_stem}_rag.json"
             serializable_chunks = {
                 k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]}
                 for k, v in chunks_map.items()
