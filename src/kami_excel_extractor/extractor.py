@@ -228,18 +228,39 @@ class MetadataExtractor:
         """シートが単純な表形式（結合なし、1行目見出し）かどうかを判定する。"""
         if ws.merged_cells.ranges: return False
         if ws.max_row < 2 or ws.max_column < 1: return False
+
+        # 1行目に少なくとも2つの非空セルがあるか確認（早めに終了）
         first_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
-        return len([v for v in first_row if v is not None]) >= 2
+        header_count = 0
+        for val in first_row:
+            if val is not None:
+                header_count += 1
+                if header_count >= 2:
+                    return True
+        return False
+
+    def _extract_row_dict(self, row: Tuple[Any, ...], headers: List[str]) -> Dict[str, Any]:
+        """1行のデータを辞書形式に変換する（日付処理・None除外を含む）。"""
+        row_dict = {}
+        for i, v in enumerate(row):
+            if v is not None:
+                row_dict[headers[i]] = v.isoformat() if isinstance(v, (date, datetime)) else v
+        return row_dict
 
     def extract_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> List[Dict[str, Any]]:
         """単純な表形式のシートからデータを高速に抽出する。"""
+        rows_gen = ws.iter_rows(values_only=True)
+        try:
+            header_row = next(rows_gen)
+        except StopIteration:
+            return []
+
+        headers = [str(v or f"Column{i+1}") for i, v in enumerate(header_row)]
         data = []
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows: return []
-        headers = [str(v or f"Column{i+1}") for i, v in enumerate(rows[0])]
-        for row in rows[1:]:
-            row_dict = {headers[i]: (v.isoformat() if isinstance(v, (date, datetime)) else v) for i, v in enumerate(row) if v is not None}
-            if row_dict: data.append(row_dict)
+        for row in rows_gen:
+            row_dict = self._extract_row_dict(row, headers)
+            if row_dict:
+                data.append(row_dict)
         return data
 
     def _generate_cell_metadata(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> List[Dict[str, Any]]:
