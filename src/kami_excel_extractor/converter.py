@@ -30,7 +30,8 @@ class ExcelConverter:
 
         try:
             with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir:
-                user_installation = f"file://{tmp_dir}"
+                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                user_installation_path = Path(tmp_dir).resolve()
 
                 # Step 1: Excel -> PDF
                 logger.info(f"Converting {input_file.name} to PDF...")
@@ -44,9 +45,9 @@ class ExcelConverter:
 
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 res_pdf = subprocess.run([
-                    soffice_path, f"-env:UserInstallation={user_installation}",
+                    soffice_path, f"-env:UserInstallation=file://{user_installation_path}",
                     "--headless", "--convert-to", "pdf",
-                    "--outdir", str(self.output_dir), str(input_file)
+                    "--outdir", str(self.output_dir.resolve()), str(input_file.resolve())
                 ], capture_output=True, text=True, timeout=600)
 
                 if res_pdf.returncode != 0:
