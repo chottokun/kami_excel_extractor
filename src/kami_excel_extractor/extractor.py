@@ -127,16 +127,6 @@ class MetadataExtractor:
     def _extract_media(self, ws: openpyxl.worksheet.worksheet.Worksheet, sheet_name: str) -> List[Dict[str, Any]]:
         """
         ワークシートから埋め込み画像（図、グラフ、写真）を抽出し保存する。
-        
-        画像自体の読み込みに失敗した場合でも、アンカー（配置座標）情報は保持し、
-        LLMに「ここに何らかの視覚情報がある」ことを伝える。
-        
-        Args:
-            ws: openpyxlのワークシートオブジェクト。
-            sheet_name: シート名（保存ファイル名に使用）。
-            
-        Returns:
-            List[Dict[str, Any]]: 抽出されたメディア情報のリスト。
         """
         media_info = []
         if not hasattr(ws, "_images"):
@@ -144,17 +134,22 @@ class MetadataExtractor:
 
         for idx, img in enumerate(ws._images):
             row, col = None, None
-            # 各種アンカー形式（OneCell, TwoCell, String）を統一的にパース
-            if hasattr(img.anchor, "_from"):
-                row = img.anchor._from.row + 1
-                col = img.anchor._from.col + 1
-            elif isinstance(img.anchor, str):
+            anchor = img.anchor
+            
+            # 各種アンカー形式をパース
+            if hasattr(anchor, "_from"): # TwoCellAnchor
+                row = anchor._from.row + 1
+                col = anchor._from.col + 1
+            elif hasattr(anchor, "row"): # OneCellAnchor
+                row = anchor.row + 1
+                col = anchor.col + 1
+            elif isinstance(anchor, str): # String anchor (e.g. "A1")
                 try:
-                    row, col = coordinate_to_tuple(img.anchor)
+                    row, col = coordinate_to_tuple(anchor)
                 except Exception:
                     pass
             
-            coord = f"{get_column_letter(col)}{row}" if (row and col) else "unknown"
+            coord = f"{get_column_letter(col)}{row}" if (row is not None and col is not None) else "unknown"
             safe_sheet_name = secure_filename(sheet_name)
             image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
             save_path = self.media_dir / image_filename
@@ -263,23 +258,59 @@ class MetadataExtractor:
                 data.append(row_dict)
         return data
 
+    def _get_bounding_box(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> Tuple[int, int, int, int]:
+        """
+        データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
+        """
+        min_r, max_r = 1, 0
+        min_c, max_c = 1, 0
+
+        # データがあるセルの範囲を取得
+        if ws.max_row > 0:
+            for r in range(ws.max_row, 0, -1):
+                if any(ws.cell(row=r, column=c).value is not None for c in range(1, ws.max_column + 1)):
+                    max_r = r
+                    break
+            for c in range(ws.max_column, 0, -1):
+                if any(ws.cell(row=r, column=c).value is not None for r in range(1, ws.max_row + 1)):
+                    max_c = c
+                    break
+        
+        # 結合セルや画像がある範囲も含める
+        for m_range in ws.merged_cells.ranges:
+            max_r = max(max_r, m_range.max_row)
+            max_c = max(max_c, m_range.max_col)
+        
+        if hasattr(ws, "_images"):
+            for img in ws._images:
+                if hasattr(img.anchor, "_from"):
+                    max_r = max(max_r, img.anchor._from.row + 1)
+                    max_c = max(max_c, img.anchor._from.col + 1)
+
+        return 1, max_r, 1, max_c
+
     def _generate_metadata_and_html(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> Tuple[str, List[Dict[str, Any]]]:
         """詳細メタデータとHTMLテーブルを同時に生成する。"""
         if merged_map is None:
             merged_map = self._get_merged_cells_map(ws)
 
-        max_r, max_c = ws.max_row, ws.max_column
+        min_r, max_r, min_c, max_c = self._get_bounding_box(ws)
         cell_metadata = []
         html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
 
-        for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
+        for r in range(min_r, max_r + 1):
             row_html = ["  <tr>"]
-            for cell in row:
-                r, c = cell.row, cell.column
+            row_has_data = False
+            
+            current_row_html = []
+            for c in range(min_c, max_c + 1):
+                cell = ws.cell(row=r, column=c)
                 span = merged_map.get((r, c))
                 if span == "skip": continue
 
                 formula = ws_formula.cell(row=r, column=c).value if ws_formula else None
+                if cell.value is not None or formula is not None:
+                    row_has_data = True
 
                 # メタデータの構築
                 cell_info = {
@@ -294,8 +325,11 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(cell, span, formula=formula)
-                row_html.append(td_html)
+                current_row_html.append(td_html)
             
+            # データがない空行は、先行するデータがある場合のみ出力するなどの調整も可能だが、
+            # ここでは bounding box 内の全行を出す（スタイルがある可能性があるため）。
+            row_html.extend(current_row_html)
             row_html.append("  </tr>")
             html_rows.append("".join(row_html))
         
