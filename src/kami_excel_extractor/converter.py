@@ -14,15 +14,13 @@ class ExcelConverter:
         self.dpi = dpi
 
     def convert(self, input_file: Path) -> Path:
+        import uuid
         input_file = input_file.resolve()
-        output_png = self.output_dir / f"{input_file.stem}.png"
-        original_pdf = self.output_dir / f"{input_file.stem}.pdf"
-
-        # Cleanup existing targets to avoid permission/stale issues
-        if output_png.exists():
-            output_png.unlink()
-        if original_pdf.exists():
-            original_pdf.unlink()
+        
+        # 🔒 Race Condition Fix: UUIDを使用して中間ファイル名の衝突を回避
+        run_id = str(uuid.uuid4())[:8]
+        output_png = self.output_dir / f"{input_file.stem}_{run_id}.png"
+        original_pdf = self.output_dir / f"{input_file.stem}_{run_id}.pdf"
 
         # 入力ファイルの存在確認
         if not input_file.exists():
@@ -31,10 +29,9 @@ class ExcelConverter:
         try:
             with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
                 tmp_dir = Path(tmp_dir_str).resolve()
-                user_installation = f"file://{tmp_dir}"
 
                 # Step 1: Excel -> PDF
-                logger.info(f"Converting {input_file.name} to PDF...")
+                logger.info(f"Converting {input_file.name} to PDF (ID: {run_id})...")
                 
                 # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
                 raw_soffice_path = shutil.which("soffice")
@@ -55,6 +52,11 @@ class ExcelConverter:
                 if res_pdf.returncode != 0:
                     logger.error(f"LibreOffice failed: {res_pdf.stderr}")
                     raise RuntimeError(f"LibreOffice conversion failed: {res_pdf.stderr}")
+
+                # LibreOfficeは元のファイル名でPDFを書き出すため、生成後にリネームする
+                default_pdf = self.output_dir / f"{input_file.stem}.pdf"
+                if default_pdf.exists():
+                    shutil.move(str(default_pdf), str(original_pdf))
 
                 if not original_pdf.exists():
                     raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
