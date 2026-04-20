@@ -10,6 +10,7 @@ class ExtractionOptions(BaseModel):
     include_logic: bool = False # 追加: 計算式や表示形式（単位）の抽出を有効にする
     dpi: int = 150
     max_file_size_mb: int = 50 # 追加: 巨大ファイルによるOOM防止のための制限 (MB)
+    use_cache: bool = True # 追加: キャッシュを利用するかどうか (デフォルトTrue)
 
 class RagOptions(ExtractionOptions):
     """RAGチャンク生成時のオプション"""

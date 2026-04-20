@@ -73,6 +73,13 @@ class CacheManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS llm_cache (
+                    key TEXT PRIMARY KEY,
+                    content TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
     def get_file_hash(self, file_path: Path) -> str:
         """ファイルの内容からSHA-256ハッシュを生成する"""
@@ -107,3 +114,27 @@ class CacheManager:
         """Base64データURLをキャッシュに保存"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("INSERT OR REPLACE INTO image_cache (hash, data_url) VALUES (?, ?)", (image_hash, data_url))
+
+    def get_llm_result(self, model: str, prompt: str, input_text: str) -> Optional[str]:
+        """LLMの解析結果をキャッシュから取得"""
+        input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
+        key = f"{model}:{hashlib.sha256(prompt.encode('utf-8')).hexdigest()}:{input_hash}"
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("SELECT content FROM llm_cache WHERE key = ?", (key,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def set_llm_result(self, model: str, prompt: str, input_text: str, content: str):
+        """LLMの解析結果をキャッシュに保存"""
+        input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
+        key = f"{model}:{hashlib.sha256(prompt.encode('utf-8')).hexdigest()}:{input_hash}"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT OR REPLACE INTO llm_cache (key, content) VALUES (?, ?)", (key, content))
+
+    def clear(self):
+        """すべてのキャッシュを削除する"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM vlm_cache")
+            conn.execute("DELETE FROM image_cache")
+            conn.execute("DELETE FROM llm_cache")
+            conn.commit()

@@ -39,19 +39,18 @@ def test_image_regex_special_characters_in_path(doc_gen):
     # HTMLエスケープにより & -> &amp; になる
     assert 'src="画像 (2024).png?query=1&amp;param=2"' in html
 
-def test_multiple_images_on_same_line_limitation(doc_gen):
-    """1行に複数の画像がある場合、現在の実装では最初の1つしか処理されないことを確認(ドキュメント化された制限)"""
+def test_multiple_images_on_same_line_support(doc_gen):
+    """1行に複数の画像がある場合、すべて処理されることを確認"""
     md = "![img1](path1.png) ![img2](path2.png)"
     html = doc_gen._simple_md_to_html(md)
     assert 'src="path1.png"' in html
-    assert 'src="path2.png"' not in html
-    # 1つの div の中に1つの img だけが入る
-    assert html.count('<img') == 1
+    assert 'src="path2.png"' in html
+    # 2つの img タグが入る
+    assert html.count('<img') == 2
 
 def test_image_at_end_of_line(doc_gen):
-    """行の途中に画像がある場合（!で始まらない場合）の挙動"""
+    """行の途中に画像がある場合でもパースされることを確認"""
     md = "ここに画像があります: ![img](path.png)"
     html = doc_gen._simple_md_to_html(md)
-    # _simple_md_to_html の実装を見ると `if stripped.startswith('!['):` となっているため
-    # 行頭にない画像は現在はパースされないはず
-    assert '<img' not in html
+    assert '<img src="path.png"' in html
+    assert 'ここに画像があります:' in html
