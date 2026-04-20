@@ -103,6 +103,27 @@ class KamiExcelExtractor:
         """使用するモデル名を解決する。"""
         return model or self.default_model
 
+    async def _awith_retry(self, func, *args, max_retries: int = 3, initial_delay: float = 2.0, **kwargs):
+        """
+        指数関数的バックオフを用いて非同期関数をリトライ実行する。
+        主にAPIのレートリミット(429)対策。
+        """
+        last_exception = None
+        for attempt in range(max_retries + 1):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                # レートリミット(429)またはサーバーエラー(5xx)の場合にリトライ
+                status_code = getattr(e, "status_code", None)
+                if attempt < max_retries and (status_code == 429 or status_code is None or 500 <= status_code < 600):
+                    delay = initial_delay * (2 ** attempt)
+                    logger.warning(f"API error ({status_code}). Retrying in {delay:.1f}s (Attempt {attempt + 1}/{max_retries})...")
+                    await asyncio.sleep(delay)
+                else:
+                    break
+        raise last_exception
+
     def _get_semaphore(self) -> asyncio.Semaphore:
         """RPM制限用のセマフォを取得する。制限なし(0)の場合は十分に大きな値を設定。"""
         limit = self.litellm_rpm_limit if self.litellm_rpm_limit > 0 else 1000
@@ -187,7 +208,11 @@ class KamiExcelExtractor:
             messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
             
             try:
-                response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+                response = await self._awith_retry(
+                    litellm.acompletion,
+                    model=model, messages=messages, api_key=self.api_key, 
+                    base_url=self.base_url, timeout=self.timeout
+                )
                 media_item["visual_data"] = response.choices[0].message.content or ""
                 return media_item
             except Exception as e:
@@ -248,7 +273,11 @@ class KamiExcelExtractor:
                     messages.append({"role": "assistant", "content": f"エラー内容: {last_error}\n修正して正しいJSONで再出力してください。"})
                 try:
                     fmt = {"type": "json_object"} if any(m in model for m in ["ollama", "gpt", "gemini"]) else None
-                    response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, response_format=fmt)
+                    response = await self._awith_retry(
+                        litellm.acompletion,
+                        model=model, messages=messages, api_key=self.api_key, 
+                        base_url=self.base_url, timeout=self.timeout, response_format=fmt
+                    )
                     result = self._parse_llm_response(response.choices[0].message.content, sheet_name)
                     if "error" not in result: return sheet_name, result
                     last_error = result["error"]
@@ -361,7 +390,11 @@ class KamiExcelExtractor:
         messages = [{"role": "user", "content": [{"type": "text", "text": "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"}, {"type": "image_url", "image_url": {"url": image_url}}]}]
         async with (semaphore if semaphore else asyncio.Lock()):
             try:
-                response = await litellm.acompletion(model=model, messages=messages, api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
+                response = await self._awith_retry(
+                    litellm.acompletion,
+                    model=model, messages=messages, api_key=self.api_key, 
+                    base_url=self.base_url, timeout=self.timeout
+                )
                 content = response.choices[0].message.content or ""
                 if content: self._visual_summary_cache[cache_key] = content
                 return content
