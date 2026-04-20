@@ -263,13 +263,17 @@ class MetadataExtractor:
                 data.append(row_dict)
         return data
 
-    def _generate_cell_metadata(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """詳細メタデータを生成する。"""
+    def _generate_metadata_and_html(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> Tuple[str, List[Dict[str, Any]]]:
+        """詳細メタデータとHTMLテーブルを同時に生成する。"""
         if merged_map is None:
             merged_map = self._get_merged_cells_map(ws)
-        cell_metadata = []
 
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        max_r, max_c = ws.max_row, ws.max_column
+        cell_metadata = []
+        html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
+
+        for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
+            row_html = ["  <tr>"]
             for cell in row:
                 r, c = cell.row, cell.column
                 span = merged_map.get((r, c))
@@ -287,23 +291,8 @@ class MetadataExtractor:
                 }
                 if isinstance(span, dict): cell_info.update(span)
                 cell_metadata.append(cell_info)
-        return cell_metadata
 
-    def _generate_html_table(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> str:
-        """シートからHTMLテーブルを生成する。"""
-        if merged_map is None:
-            merged_map = self._get_merged_cells_map(ws)
-        max_r, max_c = ws.max_row, ws.max_column
-        html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
-
-        for row in ws.iter_rows(min_row=1, max_row=max_r, min_col=1, max_col=max_c):
-            row_html = ["  <tr>"]
-            for cell in row:
-                r, c = cell.row, cell.column
-                span = merged_map.get((r, c))
-                if span == "skip": continue
-                
-                formula = ws_formula.cell(row=r, column=c).value if ws_formula else None
+                # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(cell, span, formula=formula)
                 row_html.append(td_html)
             
@@ -311,7 +300,17 @@ class MetadataExtractor:
             html_rows.append("".join(row_html))
         
         html_rows.append("</table>")
-        return "\n".join(html_rows)
+        return "\n".join(html_rows), cell_metadata
+
+    def _generate_cell_metadata(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> List[Dict[str, Any]]:
+        """詳細メタデータを生成する。"""
+        _, cell_metadata = self._generate_metadata_and_html(ws, ws_formula=ws_formula, merged_map=merged_map)
+        return cell_metadata
+
+    def _generate_html_table(self, ws: openpyxl.worksheet.worksheet.Worksheet, ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None, merged_map: Optional[Dict] = None) -> str:
+        """シートからHTMLテーブルを生成する。"""
+        html_table, _ = self._generate_metadata_and_html(ws, ws_formula=ws_formula, merged_map=merged_map)
+        return html_table
 
     def extract(self, excel_path: Path, include_logic: bool = False) -> Dict[str, Any]:
         """
@@ -341,10 +340,10 @@ class MetadataExtractor:
 
             # 詳細メタデータの生成
             merged_map = self._get_merged_cells_map(ws)
-            cell_metadata = self._generate_cell_metadata(ws, ws_formula=ws_f, merged_map=merged_map)
+            html_table, cell_metadata = self._generate_metadata_and_html(ws, ws_formula=ws_f, merged_map=merged_map)
 
             full_map["sheets"][sheet_name] = {
-                "html": self._generate_html_table(ws, ws_formula=ws_f, merged_map=merged_map),
+                "html": html_table,
                 "cells": cell_metadata,
                 "media": media_info,
                 "media_map": media_map,
