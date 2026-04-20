@@ -1,0 +1,38 @@
+{
+  "sheets": {
+    "ComplexLayout": {
+      "title": "現場調査報告書 (2026年度)",
+      "section": "調査基本情報",
+      "metadata": {
+        "調査日": "2026-04-18",
+        "担当者": "田中太郎"
+      },
+      "section_header": {
+        "カテゴリ": "点検項目",
+        "判定・備考": []
+      },
+      "inspection_results": [
+        {
+          "category": "構造体",
+          "point_name": "ひび割れ",
+          "standard": "0.3mm以下",
+          "result": "適合",
+          "details": {
+            "特記事項": "特記事項なし"
+          }
+        },
+        {
+          "category": "構造体",
+          "point_name": "鉄筋露出",
+          "standard": "なし",
+          "result": "適合",
+          "details": {
+            "特記事項": null
+          }
+        }
+      ],
+      "notes": "提供されたHTMLはExcelの視覚的な構造（結合セル、背景色、ボーダー）を利用してデータを表現しています。特に『判定・備考』のセクションは、複数の項目をまとめて一つのセルに記載する構造をしています。",
+      "_raw_data": "{\"title\": \"\\u73fe\\u5834\\u8abf\\u67fb\\u5831\\u544a\\u66f8 (2026\\u5e74\\u5ea6)\", \"section\": \"\\u8abf\\u67fb\\u57fa\\u672c\\u60c5\\u5831\", \"metadata\": {\"\\u8abf\\u67fb\\u65e5\": \"2026-04-18\", \"\\u62c5\\u5f53\\u8005\": \"\\u7530\\u4e2d\\u592a\\u90ce\"}, \"section_header\": {\"\\u30ab\\u30c6\\u30b4\\u30ea\": \"\\u70b9\\u691c\\u9805\\u76ee\", \"\\u5224\\u5b9a\\u30fb\\u5099\\u8003\": []}, \"inspection_results\": [{\"category\": \"\\u69cb\\u9020\\u4f53\", \"point_name\": \"\\u3072\\u3073\\u5272\\u308c\", \"standard\": \"0.3mm\\u4ee5\\u4e0b\", \"result\": \"\\u9069\\u5408\", \"details\": {\"\\u7279\\u8a18\\u4e8b\\u9805\": \"\\u7279\\u8a18\\u4e8b\\u9805\\u306a\\u3057\"}}, {\"category\": \"\\u69cb\\u9020\\u4f53\", \"point_name\": \"\\u9244\\u7b4b\\u9732\\u51fa\", \"standard\": \"\\u306a\\u3057\", \"result\": \"\\u9069\\u5408\", \"details\": {\"\\u7279\\u8a18\\u4e8b\\u9805\": null}}], \"notes\": \"\\u63d0\\u4f9b\\u3055\\u308c\\u305fHTML\\u306fExcel\\u306e\\u8996\\u899a\\u7684\\u306a\\u69cb\\u9020\\uff08\\u7d50\\u5408\\u30bb\\u30eb\\u3001\\u80cc\\u666f\\u8272\\u3001\\u30dc\\u30fc\\u30c0\\u30fc\\uff09\\u3092\\u5229\\u7528\\u3057\\u3066\\u30c7\\u30fc\\u30bf\\u3092\\u8868\\u73fe\\u3057\\u3066\\u3044\\u307e\\u3059\\u3002\\u7279\\u306b\\u300e\\u5224\\u5b9a\\u30fb\\u5099\\u8003\\u300f\\u306e\\u30bb\\u30af\\u30b7\\u30e7\\u30f3\\u306f\\u3001\\u8907\\u6570\\u306e\\u9805\\u76ee\\u3092\\u307e\\u3068\\u3081\\u3066\\u4e00\\u3064\\u306e\\u30bb\\u30eb\\u306b\\u8a18\\u8f09\\u3059\\u308b\\u69cb\\u9020\\u3092\\u3057\\u3066\\u3044\\u307e\\u3059\\u3002\"}"
+    }
+  }
+}

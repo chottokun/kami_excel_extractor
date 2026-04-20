@@ -54,12 +54,40 @@ class DocumentGenerator:
         return None
 
     def _render_inline(self, text: str) -> str:
-        """テキストをHTMLエスケープし、インラインスタイルを適用する"""
-        # 🔒 Security Fix: HTML escape before applying inline styles
-        return self._apply_inline_styles(html.escape(text, quote=True))
+        """テキストをHTMLエスケープし、インラインスタイル（画像、太字）を適用する"""
+        
+        # 1. 画像の抽出と置換 (エスケープ前に行う)
+        result_parts = []
+        last_end = 0
+        i = 0
+        while i < len(text):
+            if text[i:i+2] == "![":
+                parsed = self._parse_balanced_image(text[i:])
+                if parsed:
+                    # 画像の前のテキストをエスケープして追加
+                    before_text = text[last_end:i]
+                    result_parts.append(self._apply_inline_styles(html.escape(before_text, quote=True)))
+                    
+                    alt_text, path_content = parsed
+                    escaped_img_path = html.escape(path_content, quote=True)
+                    escaped_alt = html.escape(alt_text or "画像", quote=True)
+                    img_tag = f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
+                    result_parts.append(img_tag)
+                    
+                    consumed_len = len(f"![{alt_text}]({path_content})")
+                    i += consumed_len
+                    last_end = i
+                    continue
+            i += 1
+        
+        # 残りのテキストを追加
+        remaining_text = text[last_end:]
+        result_parts.append(self._apply_inline_styles(html.escape(remaining_text, quote=True)))
+        
+        return "".join(result_parts)
 
     def _apply_inline_styles(self, text: str) -> str:
-        """太字等のインラインスタイルを適用する"""
+        """太字等のインラインスタイルを適用する (textはエスケープ済み)"""
         text = self.RE_BOLD.sub(r'<b>\1</b>', text)
         if "[画像概要]" in text:
             text = f'<div class="visual-summary">{text}</div>'
@@ -226,9 +254,6 @@ class DocumentGenerator:
             elif self.RE_LIST_ITEM_START.match(stripped):
                 html_list, i = self._process_list_block(lines, i)
                 body_parts.append(html_list)
-            elif stripped.startswith('!['):
-                body_parts.append(self._render_image_element(stripped))
-                i += 1
             else:
                 body_parts.append(self._render_paragraph(stripped))
                 i += 1

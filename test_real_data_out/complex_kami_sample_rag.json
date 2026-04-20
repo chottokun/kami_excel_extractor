@@ -1,0 +1,6 @@
+{
+  "ComplexLayout": {
+    "chunks_count": 1,
+    "markdown": "# ComplexLayout\n\n- **title**: 現場調査報告書 (2026年度)\n- **section**: 調査基本情報\n## metadata\n- **調査日**: 2026-04-18\n- **担当者**: 田中太郎\n## section_header\n- **カテゴリ**: 点検項目\n- **判定・備考**: \n## inspection_results\n| category | point_name | standard | result | details |\n| --- | --- | --- | --- | --- |\n| 構造体 | ひび割れ | 0.3mm以下 | 適合 | {'特記事項': '特記事項なし'} |\n| 構造体 | 鉄筋露出 | なし | 適合 | {'特記事項': None} |\n- **notes**: 提供されたHTMLはExcelの視覚的な構造（結合セル、背景色、ボーダー）を利用してデータを表現しています。特に『判定・備考』のセクションは、複数の項目をまとめて一つのセルに記載する構造をしています。"
+  }
+}

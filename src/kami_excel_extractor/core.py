@@ -86,20 +86,23 @@ class KamiExcelExtractor:
         # ハッシュを計算して内容ベースで管理
         img_hash = self.cache.get_file_hash(image_path)
         
+        use_cache = getattr(self, "opts", None) is None or self.opts.use_cache
+
         # 1. メモリキャッシュ
-        if img_hash in self._image_cache:
+        if use_cache and img_hash in self._image_cache:
             return self._image_cache[img_hash]
             
         # 2. 永続キャッシュ(SQLite)
-        cached_url = self.cache.get_image_data_url(img_hash)
-        if cached_url:
-            self._image_cache[img_hash] = cached_url
-            return cached_url
+        if use_cache:
+            cached_url = self.cache.get_image_data_url(img_hash)
+            if cached_url:
+                self._image_cache[img_hash] = cached_url
+                return cached_url
 
         # 同一ハッシュへの同時エンコードを防ぐためのロック取得
         lock = self._image_locks.setdefault(img_hash, asyncio.Lock())
         async with lock:
-            if img_hash in self._image_cache:
+            if use_cache and img_hash in self._image_cache:
                 return self._image_cache[img_hash]
 
             async with aiofiles.open(image_path, "rb") as f:
@@ -112,8 +115,9 @@ class KamiExcelExtractor:
             result = await asyncio.to_thread(_encode, content)
             
             # キャッシュ保存
-            self.cache.set_image_data_url(img_hash, result)
-            self._image_cache[img_hash] = result
+            if use_cache:
+                self.cache.set_image_data_url(img_hash, result)
+                self._image_cache[img_hash] = result
             return result
 
     def _resolve_model(self, model: Optional[str] = None) -> str:
@@ -286,8 +290,17 @@ class KamiExcelExtractor:
 
         async with (semaphore if semaphore else asyncio.Lock()):
             logger.info(f"Processing via LLM: {sheet_name}")
-            messages = self._build_sheet_messages(system_prompt, sheet_name, sheet_content.get('html', ''), image_url if use_visual_context else None, include_logic=include_logic)
+            html_content = sheet_content.get('html', '')
+            messages = self._build_sheet_messages(system_prompt, sheet_name, html_content, image_url if use_visual_context else None, include_logic=include_logic)
             
+            use_cache = getattr(self, "opts", None) is None or self.opts.use_cache
+
+            # 1. 永続キャッシュのチェック
+            if use_cache:
+                cached_result_str = self.cache.get_llm_result(model, system_prompt, html_content)
+                if cached_result_str:
+                    return sheet_name, self._parse_llm_response(cached_result_str, sheet_name)
+
             max_retries = 1
             last_error = None
             for attempt in range(max_retries + 1):
@@ -300,36 +313,49 @@ class KamiExcelExtractor:
                         model=model, messages=messages, api_key=self.api_key, 
                         base_url=self.base_url, timeout=self.timeout, response_format=fmt
                     )
-                    result = self._parse_llm_response(response.choices[0].message.content, sheet_name)
-                    if "error" not in result: return sheet_name, result
+                    raw_response = response.choices[0].message.content
+                    result = self._parse_llm_response(raw_response, sheet_name)
+                    if "error" not in result: 
+                        # 成功時にキャッシュ保存
+                        if use_cache:
+                            self.cache.set_llm_result(model, system_prompt, html_content, raw_response)
+                        return sheet_name, result
                     last_error = result["error"]
                 except Exception as e:
                     last_error = str(e)
+                
+                await asyncio.sleep(2 ** attempt)
             return sheet_name, {"error": f"Failed after {max_retries} retries. Last error: {last_error}", "_raw_data": ""}
 
     async def aextract_structured_data(self, excel_path: Union[str, Path], options: Optional[ExtractionOptions] = None) -> Dict:
         """Excelを解析して構造化データを取得する (非同期エントリーポイント)。"""
-        opts = options or ExtractionOptions()
-        model = self._resolve_model(opts.model)
+        self.opts = options or ExtractionOptions()
+        model = self._resolve_model(self.opts.model)
         semaphore = self._get_semaphore()
         excel_path = Path(excel_path)
         
+        # キャッシュ無効化の反映
+        if not self.opts.use_cache:
+            logger.info("Cache disabled for this run. Clearing memory cache.")
+            self._image_cache = {}
+            self._visual_summary_cache = {}
+
         # 🔒 Security & Resource Fix: ファイルサイズ制限のチェック
         file_size_mb = excel_path.stat().st_size / (1024 * 1024)
-        if file_size_mb > opts.max_file_size_mb:
-            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({opts.max_file_size_mb}MB).")
+        if file_size_mb > self.opts.max_file_size_mb:
+            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb}MB).")
 
-        logger.info(f"Starting extraction for {excel_path.name} (Logic: {opts.include_logic})")
+        logger.info(f"Starting extraction for {excel_path.name} (Logic: {self.opts.include_logic})")
 
         # 1. Extractorによる基本解析
-        raw_data = await asyncio.to_thread(self.extractor.extract, excel_path, include_logic=opts.include_logic)
+        raw_data = await asyncio.to_thread(self.extractor.extract, excel_path, include_logic=self.opts.include_logic)
         sheets_data = raw_data.get("sheets", {})
 
         # 2. 全体画像の生成
         image_url = None
-        if opts.include_visual_summaries or opts.use_visual_context:
+        if self.opts.include_visual_summaries or self.opts.use_visual_context:
             try:
-                self.converter.dpi = opts.dpi
+                self.converter.dpi = self.opts.dpi
                 png_path = await asyncio.to_thread(self.converter.convert, excel_path)
                 image_url = await self._encode_image_to_base64_url(png_path)
             except Exception as e:
@@ -337,7 +363,7 @@ class KamiExcelExtractor:
 
         # 3. メディア（図表・グラフ）の個別解析
         all_media = []
-        if opts.include_visual_summaries:
+        if self.opts.include_visual_summaries:
             # 重複メディア（同一ファイル名）を排除して解析タスクを作成
             unique_media = {}
             for s in sheets_data.values():
@@ -379,10 +405,10 @@ class KamiExcelExtractor:
                 sheet_info["html"] = self._inject_visual_data_to_html(sheet_info["html"], sheet_info["media_map"])
                 if "VISUAL_INSIGHT" in sheet_info["html"]: logger.warning(f"Injected visual insights for: {sheet_name}")
 
-        sys_prompt = opts.system_prompt or "あなたはExcel構造化の専門家です。HTMLデータを統合し、意味論的なJSONを出力してください。"
+        sys_prompt = self.opts.system_prompt or "あなたはExcel構造化の専門家です。HTMLデータを統合し、意味論的なJSONを出力してください。"
 
         # 5. 各シートのLLM解析
-        tasks = [self._aextract_single_sheet(n, c, model, sys_prompt, image_url, semaphore, use_visual_context=opts.use_visual_context, include_logic=opts.include_logic) for n, c in sheets_data.items()]
+        tasks = [self._aextract_single_sheet(n, c, model, sys_prompt, image_url, semaphore, use_visual_context=self.opts.use_visual_context, include_logic=self.opts.include_logic) for n, c in sheets_data.items()]
         results = await asyncio.gather(*tasks)
         structured_sheets = {name: res for name, res in results}
         
@@ -412,16 +438,19 @@ class KamiExcelExtractor:
         img_hash = self.cache.get_file_hash(image_path)
         prompt = "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"
         
+        use_cache = getattr(self, "opts", None) is None or self.opts.use_cache
+
         # 1. メモリキャッシュ
         cache_key = (model, img_hash)
-        if cache_key in self._visual_summary_cache: 
+        if use_cache and cache_key in self._visual_summary_cache: 
             return self._visual_summary_cache[cache_key]
 
         # 2. 永続キャッシュ(SQLite)
-        cached_summary = self.cache.get_vlm_result(model, prompt, img_hash)
-        if cached_summary:
-            self._visual_summary_cache[cache_key] = cached_summary
-            return cached_summary
+        if use_cache:
+            cached_summary = self.cache.get_vlm_result(model, prompt, img_hash)
+            if cached_summary:
+                self._visual_summary_cache[cache_key] = cached_summary
+                return cached_summary
 
         image_url = await self._encode_image_to_base64_url(image_path)
             
@@ -436,8 +465,9 @@ class KamiExcelExtractor:
                 content = response.choices[0].message.content or ""
                 if content: 
                     # キャッシュ保存
-                    self.cache.set_vlm_result(model, prompt, img_hash, content)
-                    self._visual_summary_cache[cache_key] = content
+                    if use_cache:
+                        self.cache.set_vlm_result(model, prompt, img_hash, content)
+                        self._visual_summary_cache[cache_key] = content
                 return content
             except Exception as e:
                 logger.error(f"Visual summary failed: {e}")
@@ -453,7 +483,7 @@ class KamiExcelExtractor:
     async def aextract_rag_chunks(self, excel_path: Union[str, Path], options: Optional[RagOptions] = None) -> Tuple[Dict, Dict]:
         opts = options or RagOptions()
         excel_path = Path(excel_path)
-        extract_opts = ExtractionOptions(model=opts.model, system_prompt=opts.system_prompt, include_visual_summaries=True, use_visual_context=opts.use_visual_context, include_logic=opts.include_logic)
+        extract_opts = ExtractionOptions(model=self.opts.model, system_prompt=self.opts.system_prompt, include_visual_summaries=True, use_visual_context=self.opts.use_visual_context, include_logic=self.opts.include_logic)
         
         structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)
         
