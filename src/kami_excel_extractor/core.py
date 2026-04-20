@@ -292,6 +292,11 @@ class KamiExcelExtractor:
         semaphore = self._get_semaphore()
         excel_path = Path(excel_path)
         
+        # 🔒 Security & Resource Fix: ファイルサイズ制限のチェック
+        file_size_mb = excel_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > opts.max_file_size_mb:
+            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({opts.max_file_size_mb}MB).")
+
         logger.info(f"Starting extraction for {excel_path.name} (Logic: {opts.include_logic})")
 
         # 1. Extractorによる基本解析
