@@ -115,7 +115,7 @@ def test_html_injection_in_image_path(doc_gen):
 
     md2 = '![alt](" onerror="alert(1)")'
     html_out2 = doc_gen._simple_md_to_html(md2)
-    assert 'src="&quot; onerror=&quot;alert(1"' in html_out2
+    assert 'src="&quot; onerror=&quot;alert(1)&quot;"' in html_out2
 
 def test_inline_styles_with_html(doc_gen):
     md = "**bold <script>**"
