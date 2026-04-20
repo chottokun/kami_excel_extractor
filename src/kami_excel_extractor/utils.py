@@ -1,5 +1,9 @@
 import re
 import unicodedata
+import sqlite3
+import hashlib
+from pathlib import Path
+from typing import Optional, Union
 
 # Compiled regex patterns for performance
 _FILENAME_SANITIZE_RE = re.compile(r'[^\w\.\-]')
@@ -19,10 +23,6 @@ def clean_kami_text(text: any) -> any:
     text = text.replace('\u3000', ' ')
     
     # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
-    # 正規表現の解説:
-    # ([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff]) : 前方の文字 (和字)
-    # \s{1,3} : 1〜3個の空白
-    # (?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff]) : 後方の文字 (和字) を先読み
     res = re.sub(r'([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])', r'\1', text)
     
     return res.strip()
@@ -36,30 +36,74 @@ def secure_filename(filename: str) -> str:
     if not filename:
         return "unnamed"
 
-    # Normalize unicode characters to NFKD (separate base characters from marks)
     filename = unicodedata.normalize('NFKD', filename)
-
-    # Replace spaces with underscores
     filename = filename.replace(" ", "_")
-
-    # Remove anything that isn't alphanumeric, underscore, dash, or dot
-    # We allow Japanese/other characters if they are alphanumeric according to unicode
-    # But for maximum security, we might want to restrict to ASCII if we don't care about Japanese names.
-    # However, this tool works with Japanese Excel files, so we should support Japanese.
-
-    # Keep alphanumeric (including Japanese), underscores, dashes, and dots.
-    # [^\w\.\-] where \w includes Unicode word characters.
     filename = _FILENAME_SANITIZE_RE.sub('_', filename)
-
-    # Strip leading/trailing dots and underscores
     filename = filename.strip("._")
-
-    # Remove multiple consecutive underscores/dots
     filename = _FILENAME_MULTIPLE_UNDERSCORES_RE.sub('_', filename)
     filename = _FILENAME_MULTIPLE_DOTS_RE.sub('.', filename)
 
-    # If the filename becomes empty, use a default
     if not filename or filename in (".", ".."):
         return "unnamed"
 
     return filename
+
+class CacheManager:
+    """SQLiteを使用したキャッシュ永続化マネージャー"""
+    
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """データベースとテーブルの初期化"""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS vlm_cache (
+                    key TEXT PRIMARY KEY,
+                    content TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS image_cache (
+                    hash TEXT PRIMARY KEY,
+                    data_url TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+    def get_file_hash(self, file_path: Path) -> str:
+        """ファイルの内容からSHA-256ハッシュを生成する"""
+        sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(8192):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+
+    def get_vlm_result(self, model: str, prompt: str, image_hash: str) -> Optional[str]:
+        """VLMの解析結果をキャッシュから取得"""
+        key = f"{model}:{prompt}:{image_hash}"
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("SELECT content FROM vlm_cache WHERE key = ?", (key,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def set_vlm_result(self, model: str, prompt: str, image_hash: str, content: str):
+        """VLMの解析結果をキャッシュに保存"""
+        key = f"{model}:{prompt}:{image_hash}"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT OR REPLACE INTO vlm_cache (key, content) VALUES (?, ?)", (key, content))
+
+    def get_image_data_url(self, image_hash: str) -> Optional[str]:
+        """Base64データURLをキャッシュから取得"""
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("SELECT data_url FROM image_cache WHERE hash = ?", (image_hash,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def set_image_data_url(self, image_hash: str, data_url: str):
+        """Base64データURLをキャッシュに保存"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT OR REPLACE INTO image_cache (hash, data_url) VALUES (?, ?)", (image_hash, data_url))

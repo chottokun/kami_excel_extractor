@@ -23,6 +23,7 @@ from .document_generator import DocumentGenerator
 from .extractor import MetadataExtractor
 from .rag_converter import JsonToMarkdownConverter, RagChunker
 from .schema import ExtractionOptions, ExtractionResult, FullExtraction, RagOptions, SheetData
+from .utils import CacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,10 @@ class KamiExcelExtractor:
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
 
+        # キャッシュ管理の初期化
+        self._db_path = self.output_dir / ".cache.db"
+        self.cache = CacheManager(self._db_path)
+        
         self._image_cache = {}
         self._image_locks = {}
         self._visual_summary_cache = {}
@@ -77,16 +82,25 @@ class KamiExcelExtractor:
         return data
 
     async def _encode_image_to_base64_url(self, image_path: Path) -> str:
-        """画像をBase64エンコードし、データURL形式で返す。"""
-        cache_key = str(image_path)
-        if cache_key in self._image_cache:
-            return self._image_cache[cache_key]
+        """画像をBase64エンコードし、データURL形式で返す。永続キャッシュ対応。"""
+        # ハッシュを計算して内容ベースで管理
+        img_hash = self.cache.get_file_hash(image_path)
+        
+        # 1. メモリキャッシュ
+        if img_hash in self._image_cache:
+            return self._image_cache[img_hash]
             
-        # 同一ファイルへの同時エンコードを防ぐためのロック取得
-        lock = self._image_locks.setdefault(cache_key, asyncio.Lock())
+        # 2. 永続キャッシュ(SQLite)
+        cached_url = self.cache.get_image_data_url(img_hash)
+        if cached_url:
+            self._image_cache[img_hash] = cached_url
+            return cached_url
+
+        # 同一ハッシュへの同時エンコードを防ぐためのロック取得
+        lock = self._image_locks.setdefault(img_hash, asyncio.Lock())
         async with lock:
-            if cache_key in self._image_cache:
-                return self._image_cache[cache_key]
+            if img_hash in self._image_cache:
+                return self._image_cache[img_hash]
 
             async with aiofiles.open(image_path, "rb") as f:
                 content = await f.read()
@@ -96,7 +110,10 @@ class KamiExcelExtractor:
                 return f"data:image/png;base64,{encoded}"
 
             result = await asyncio.to_thread(_encode, content)
-            self._image_cache[cache_key] = result
+            
+            # キャッシュ保存
+            self.cache.set_image_data_url(img_hash, result)
+            self._image_cache[img_hash] = result
             return result
 
     def _resolve_model(self, model: Optional[str] = None) -> str:
@@ -184,11 +201,16 @@ class KamiExcelExtractor:
         try:
             if not isinstance(data, dict): data = {"data": data}
             if "sheets" in data and sheet_name in data["sheets"]: data = data["sheets"][sheet_name]
+            
+            # Pydanticによるスキーマ検証とクレンジング
+            # model_validate -> model_dump() により、extra='ignore' 設定に基づき
+            # 未知のフィールドが自動的に削除された辞書が得られる。
+            validated_obj = ExtractionResult(**data)
+            cleaned_data = validated_obj.model_dump(exclude_none=True)
+            
             # 生の応答テキストを保持 (テストおよびデバッグ用)
-            data["_raw_data"] = raw_str
-            # Pydanticによるスキーマ検証
-            ExtractionResult(**data)
-            return data
+            cleaned_data["_raw_data"] = raw_str
+            return cleaned_data
         except Exception as e:
             logger.error(f"Validation failed for {sheet_name}: {e}")
             return {"error": f"Validation failed: {str(e)}", "_raw_data": raw_str}
@@ -385,14 +407,25 @@ class KamiExcelExtractor:
                 structured_sheets[sheet_name].setdefault("media", []).append(m)
 
     async def aget_visual_summary(self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None) -> str:
-        """画像の視覚的要約を生成する。"""
+        """画像の視覚的要約を生成する。永続キャッシュ対応。"""
         model = model or self.default_model
-        cache_key = (model, str(image_path))
-        if cache_key in self._visual_summary_cache: return self._visual_summary_cache[cache_key]
+        img_hash = self.cache.get_file_hash(image_path)
+        prompt = "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"
+        
+        # 1. メモリキャッシュ
+        cache_key = (model, img_hash)
+        if cache_key in self._visual_summary_cache: 
+            return self._visual_summary_cache[cache_key]
+
+        # 2. 永続キャッシュ(SQLite)
+        cached_summary = self.cache.get_vlm_result(model, prompt, img_hash)
+        if cached_summary:
+            self._visual_summary_cache[cache_key] = cached_summary
+            return cached_summary
 
         image_url = await self._encode_image_to_base64_url(image_path)
             
-        messages = [{"role": "user", "content": [{"type": "text", "text": "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"}, {"type": "image_url", "image_url": {"url": image_url}}]}]
+        messages = [{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}]}]
         async with (semaphore if semaphore else asyncio.Lock()):
             try:
                 response = await self._awith_retry(
@@ -401,7 +434,10 @@ class KamiExcelExtractor:
                     base_url=self.base_url, timeout=self.timeout
                 )
                 content = response.choices[0].message.content or ""
-                if content: self._visual_summary_cache[cache_key] = content
+                if content: 
+                    # キャッシュ保存
+                    self.cache.set_vlm_result(model, prompt, img_hash, content)
+                    self._visual_summary_cache[cache_key] = content
                 return content
             except Exception as e:
                 logger.error(f"Visual summary failed: {e}")
