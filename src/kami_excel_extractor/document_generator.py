@@ -15,12 +15,43 @@ class DocumentGenerator:
     RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
     RE_HEADER = re.compile(r'^#+')
     RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
-    RE_IMAGE = re.compile(r'!\[(.*?)\]\(((?:[^()]+|\([^()]*\))*)\)')
     RE_LIST_ITEM_START = re.compile(r'^[-*](\s+|$)')
     RE_LIST_ITEM_CONTENT = re.compile(r'^[-*]\s+(.*)$')
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir).resolve()
+
+    def _parse_balanced_image(self, line: str) -> Optional[tuple[str, str]]:
+        """
+        ![alt](path) 形式のMarkdownからaltとpathを抽出する。
+        括弧のネストを正しく扱う。
+        """
+        stripped = line.strip()
+        if not (stripped.startswith("![") and "]" in stripped and "(" in stripped):
+            return None
+
+        # altテキストの抽出
+        alt_start = 2
+        alt_end = stripped.find("]")
+        if alt_end == -1: return None
+        alt_text = stripped[alt_start:alt_end]
+
+        # パスの抽出 (括弧のバランスを考慮)
+        remaining = stripped[alt_end+1:]
+        if not remaining.startswith("("):
+            return None
+        
+        path_start = 1
+        stack = 0
+        for i, char in enumerate(remaining):
+            if char == '(':
+                stack += 1
+            elif char == ')':
+                stack -= 1
+                if stack == 0:
+                    path_content = remaining[path_start:i]
+                    return alt_text, path_content
+        return None
 
     def _render_inline(self, text: str) -> str:
         """テキストをHTMLエスケープし、インラインスタイルを適用する"""
@@ -73,14 +104,51 @@ class DocumentGenerator:
         return f"<li>{self._render_inline(content)}</li>"
 
     def _render_image_element(self, stripped_line: str) -> str:
-        """画像要素をレンダリングする"""
-        img_match = self.RE_IMAGE.search(stripped_line)
-        alt_text = img_match.group(1) or "画像"
-        img_path = img_match.group(2)
-        # 🔒 Security Fix: HTML escape image source attribute and alt text to prevent injection.
-        escaped_img_path = html.escape(img_path, quote=True)
-        escaped_alt = html.escape(alt_text, quote=True)
-        return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
+        """
+        画像要素をレンダリングする。
+        括弧のネストを正しく扱うため、手動でバランスパースを行う。
+        """
+        # 形式: ![alt](path)
+        if not (stripped_line.startswith("![") and "]" in stripped_line and "(" in stripped_line):
+            return stripped_line
+
+        try:
+            # altテキストの抽出
+            alt_start = 2
+            alt_end = stripped_line.find("]")
+            if alt_end == -1: return stripped_line
+            alt_text = stripped_line[alt_start:alt_end]
+
+            # パスの抽出 (括弧のバランスを考慮)
+            # ] の直後が ( であることを確認
+            remaining = stripped_line[alt_end+1:]
+            if not remaining.startswith("("):
+                return stripped_line
+            
+            path_start = 1 # remaining における開始位置
+            stack = 0
+            path_content = None
+            
+            for i, char in enumerate(remaining):
+                if char == '(':
+                    stack += 1
+                elif char == ')':
+                    stack -= 1
+                    if stack == 0:
+                        path_content = remaining[path_start:i]
+                        break
+            
+            if path_content is None:
+                return stripped_line
+
+            # 🔒 Security Fix: HTML escape image source attribute and alt text
+            escaped_img_path = html.escape(path_content, quote=True)
+            escaped_alt = html.escape(alt_text or "画像", quote=True)
+            return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
+            
+        except Exception:
+            # 万が一のパース失敗時は元のテキストを返す
+            return stripped_line
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
@@ -168,21 +236,30 @@ class DocumentGenerator:
         return self._get_html_template("\n".join(body_parts))
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
+        """Markdown内の画像パスを絶対パス(file://)に変換し、ファイルを一時ディレクトリにコピーする"""
         search_dirs = [self.output_dir / "media", self.output_dir]
+        new_lines = []
 
-        def resolve_and_copy(match):
-            alt_text = match.group(1)
-            rel_path = match.group(2)
-            filename = Path(rel_path).name
-            for search_dir in search_dirs:
-                src = (search_dir / filename).resolve()
-                if src.exists():
-                    dst = (tmp_dir / filename).resolve()
-                    shutil.copy2(str(src), str(dst))
-                    return f'![{alt_text}](file://{dst})'
-            return match.group(0)
-        
-        return self.RE_IMAGE.sub(resolve_and_copy, md_content)
+        for line in md_content.splitlines():
+            parsed = self._parse_balanced_image(line)
+            if parsed:
+                alt_text, rel_path = parsed
+                filename = Path(rel_path).name
+                resolved = False
+                for search_dir in search_dirs:
+                    src = (search_dir / filename).resolve()
+                    if src.exists():
+                        dst = (tmp_dir / filename).resolve()
+                        shutil.copy2(str(src), str(dst))
+                        new_lines.append(f'![{alt_text}](file://{dst})')
+                        resolved = True
+                        break
+                if not resolved:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+
+        return "\n".join(new_lines)
 
     def _run_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す"""
