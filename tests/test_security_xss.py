@@ -89,3 +89,16 @@ def test_xss_with_quotes_in_inline_styles(doc_gen):
     assert f"<b>{expected_escaped}</b>" in html_out
     assert "<script>" not in html_out
     assert '"><b>' not in html_out
+
+def test_xss_bold_interaction(doc_gen):
+    # Test that bold tags don't get double-escaped or broken by partial payloads
+    # This specifically checks the interaction between escaping and RE_BOLD
+    payload = "normal **bold** <script>"
+    md = f"**{payload}**"
+    html_out = doc_gen._simple_md_to_html(md)
+
+    # The regex RE_BOLD (non-greedy) will match **normal ** and ** <script>**
+    # but the key is that <script> is escaped.
+    assert "<b>normal </b>" in html_out
+    assert "&lt;script&gt;" in html_out
+    assert "<script>" not in html_out

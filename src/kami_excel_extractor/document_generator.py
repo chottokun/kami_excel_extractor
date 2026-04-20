@@ -23,8 +23,11 @@ class DocumentGenerator:
         self.output_dir = Path(output_dir).resolve()
 
     def _render_inline(self, text: str) -> str:
-        """テキストをHTMLエスケープし、インラインスタイルを適用する"""
-        # 🔒 Security Fix: HTML escape before applying inline styles
+        """
+        テキストをHTMLエスケープし、インラインスタイルを適用する。
+        XSSを防ぐため、スタイル適用の前にエスケープを行う。
+        """
+        # 🔒 Security Fix: HTML escape must be performed before applying <b> tags via _apply_inline_styles
         return self._apply_inline_styles(html.escape(text, quote=True))
 
     def _apply_inline_styles(self, text: str) -> str:
