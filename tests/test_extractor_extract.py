@@ -38,13 +38,13 @@ def test_extract_orchestration(extractor):
     mock_wb.__getitem__.side_effect = lambda name: mock_ws1 if name == "Sheet1" else mock_ws2
 
     with patch("openpyxl.load_workbook", return_value=mock_wb) as mock_load_wb, \
-         patch.object(MetadataExtractor, "_generate_html_table") as mock_gen_html, \
+         patch.object(MetadataExtractor, "_generate_metadata_and_html") as mock_gen_both, \
          patch.object(MetadataExtractor, "_extract_media") as mock_ext_media, \
          patch.object(MetadataExtractor, "is_simple_table") as mock_is_simple, \
          patch.object(MetadataExtractor, "extract_simple_table") as mock_ext_simple:
 
         # Configure mocks
-        mock_gen_html.return_value = "<table></table>"
+        mock_gen_both.return_value = ("<table></table>", [])
         mock_ext_media.return_value = [{"coord": "A1", "filename": "img.png"}]
         mock_is_simple.side_effect = [True, False]
         mock_ext_simple.return_value = [{"ID": 1, "Name": "Alice"}]
@@ -56,7 +56,7 @@ def test_extract_orchestration(extractor):
         mock_load_wb.assert_called_once_with(dummy_path, data_only=True)
 
         # Verify calls
-        assert mock_gen_html.call_count == 2
+        assert mock_gen_both.call_count == 2
         assert mock_ext_media.call_count == 2
         assert mock_is_simple.call_count == 2
         mock_ext_simple.assert_called_once_with(mock_ws1)
