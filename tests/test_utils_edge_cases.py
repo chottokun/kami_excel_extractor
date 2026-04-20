@@ -1,5 +1,18 @@
 import pytest
-from kami_excel_extractor.utils import secure_filename
+from kami_excel_extractor.utils import secure_filename, clean_kami_text
+
+@pytest.mark.parametrize("input_val", [
+    None,
+    123,
+    45.67,
+    True,
+    False,
+    ["list"],
+    {"dict": "val"},
+])
+def test_clean_kami_text_non_string(input_val):
+    """文字列以外の入力に対する挙動 (そのまま返却されること)"""
+    assert clean_kami_text(input_val) == input_val
 
 def test_secure_filename_all_unsafe():
     """全てが安全でない文字で構成されている場合"""
