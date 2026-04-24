@@ -483,7 +483,7 @@ class KamiExcelExtractor:
     async def aextract_rag_chunks(self, excel_path: Union[str, Path], options: Optional[RagOptions] = None) -> Tuple[Dict, Dict]:
         opts = options or RagOptions()
         excel_path = Path(excel_path)
-        extract_opts = ExtractionOptions(model=self.opts.model, system_prompt=self.opts.system_prompt, include_visual_summaries=True, use_visual_context=self.opts.use_visual_context, include_logic=self.opts.include_logic)
+        extract_opts = ExtractionOptions(model=opts.model, system_prompt=opts.system_prompt, include_visual_summaries=True, use_visual_context=opts.use_visual_context, include_logic=opts.include_logic)
         
         structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)
         
