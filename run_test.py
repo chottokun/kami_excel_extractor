@@ -13,13 +13,14 @@ from kami_excel_extractor.schema import RagOptions
 load_dotenv(project_root / ".env")
 API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
 MODEL = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
-if not API_KEY and not os.getenv("LLM_BASE_URL") and not os.getenv("OLLAMA_BASE_URL"):
+BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL")
+if not API_KEY and not BASE_URL:
     print("Warning: API_KEY or custom BASE_URL not set. Extraction might fail depending on the model.")
 
 OUTPUT_DIR = project_root / "data" / "output"
 INPUT_FILE = project_root / "data" / "input" / "complex_report.xlsx"
 
-extractor = KamiExcelExtractor(api_key=API_KEY, output_dir=str(OUTPUT_DIR))
+extractor = KamiExcelExtractor(api_key=API_KEY, base_url=BASE_URL, output_dir=str(OUTPUT_DIR))
 print(f"Processing: {INPUT_FILE.name} with model {MODEL}")
 
 rag_options = RagOptions(model=MODEL)

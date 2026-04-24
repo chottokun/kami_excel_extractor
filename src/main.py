@@ -90,13 +90,19 @@ def main():
     api_key = LLM_API_KEY or os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
     model = LLM_MODEL or os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
     timeout = LLM_TIMEOUT or float(os.getenv("LLM_TIMEOUT") or 1800.0)
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL")
 
     if not api_key and "ollama" not in model:
         logger.error("LLM_API_KEY or GEMINI_API_KEY is not set.")
         return
 
     # ライブラリの初期化
-    extractor = KamiExcelExtractor(api_key=api_key, output_dir=str(OUTPUT_DIR), timeout=timeout)
+    extractor = KamiExcelExtractor(
+        api_key=api_key, 
+        base_url=base_url,
+        output_dir=str(OUTPUT_DIR), 
+        timeout=timeout
+    )
     
     logger.info(f"Library Mode Pipeline started. Monitoring {INPUT_DIR}...")
     processed = set()
