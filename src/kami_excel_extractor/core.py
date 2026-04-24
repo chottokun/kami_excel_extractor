@@ -43,7 +43,7 @@ class KamiExcelExtractor:
         output_dir: Union[str, Path] = "output", 
         base_url: Optional[str] = None, 
         api_key: Optional[str] = None,
-        timeout: int = 600,
+        timeout: Optional[int] = None,
         litellm_rpm_limit: int = 0
     ):
         """
@@ -51,9 +51,12 @@ class KamiExcelExtractor:
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.base_url = base_url
-        self.timeout = timeout
+        
+        # 環境変数からのフォールバックを強化 (ハードコード排除)
+        self.base_url = base_url or os.getenv("LLM_BASE_URL") or os.getenv("OLLAMA_BASE_URL")
+        self.timeout = timeout or float(os.getenv("LLM_TIMEOUT") or 600)
         self.litellm_rpm_limit = litellm_rpm_limit or int(os.getenv("LLM_RPM_LIMIT", 0))
+        self.api_key = api_key.strip("'\" ") if api_key else (os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY"))
         
         self.extractor = MetadataExtractor(self.output_dir)
         self.converter = ExcelConverter(self.output_dir)
@@ -69,7 +72,6 @@ class KamiExcelExtractor:
         self._visual_summary_cache = {}
         
         self.default_model = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
-        self.api_key = api_key.strip("'\" ") if api_key else (os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
     def _make_json_serializable(self, data: Any) -> Any:
         """オブジェクトをJSONシリアライズ可能な形式に再帰的に変換する。"""
