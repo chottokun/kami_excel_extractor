@@ -378,14 +378,14 @@ class KamiExcelExtractor:
             if media_tasks:
                 media_results = await asyncio.gather(*media_tasks)
                 all_media = [m for m in media_results if m]
-                # 抽出された結果をメタデータに同期 (O(1) lookup で高速化)
-                # (coord, filename) をキーにして、該当する全シートのメディアアイテムを保持
-                lookup = {}
+                # 抽出された結果をメタデータに同期
+                # ファイル名をキーにして、該当する全シートのメディアアイテムを保持
+                filename_to_targets = {}
                 for s_info in sheets_data.values():
-                    for coord, mapped_list in s_info.get("media_map", {}).items():
+                    for mapped_list in s_info.get("media_map", {}).values():
                         for mapped_m in mapped_list:
-                            if filename := mapped_m.get("filename"):
-                                lookup.setdefault((coord, filename), []).append(mapped_m)
+                            if fname := mapped_m.get("filename"):
+                                filename_to_targets.setdefault(fname, []).append(mapped_m)
 
                 for m in all_media:
                     filename = m.get("filename")
@@ -394,12 +394,10 @@ class KamiExcelExtractor:
                     visual_data = m.get("visual_data")
                     visual_summary = m.get("visual_summary")
 
-                    # lookup の全エントリを更新 (ファイル名のみをキーにする方が確実)
-                    for (coord, f_name), target_list in lookup.items():
-                        if f_name == filename:
-                            for target in target_list:
-                                if visual_data: target["visual_data"] = visual_data
-                                if visual_summary: target["visual_summary"] = visual_summary
+                    # ファイル名で直接ターゲットを取得して更新 (O(1) lookup)
+                    for target in filename_to_targets.get(filename, []):
+                        if visual_data: target["visual_data"] = visual_data
+                        if visual_summary: target["visual_summary"] = visual_summary
 
         # 4. 図表データの注入
         for sheet_name, sheet_info in sheets_data.items():
