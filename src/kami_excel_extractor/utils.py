@@ -3,7 +3,7 @@ import unicodedata
 import sqlite3
 import hashlib
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 # Compiled regex patterns for performance
 _FILENAME_SANITIZE_RE = re.compile(r'[^\w\.\-]')
