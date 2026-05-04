@@ -1,10 +1,12 @@
+import asyncio
+import concurrent.futures
 import re
 import subprocess
 import shutil
 import logging
 import html
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Callable, Awaitable, Union
 from .utils import secure_filename
 
 logger = logging.getLogger(__name__)
@@ -260,31 +262,79 @@ class DocumentGenerator:
 
         return self._get_html_template("\n".join(body_parts))
 
+    def _resolve_single_image(self, line: str, search_dirs: List[Path], tmp_dir: Path) -> str:
+        """単一の画像タグを解決し、ファイルをコピーする（同期版）"""
+        parsed = self._parse_balanced_image(line)
+        if not parsed:
+            return line
+
+        alt_text, rel_path = parsed
+        filename = Path(rel_path).name
+        for search_dir in search_dirs:
+            src = (search_dir / filename).resolve()
+            if src.exists():
+                dst = (tmp_dir / filename).resolve()
+                shutil.copy2(str(src), str(dst))
+                return f'![{alt_text}](file://{dst})'
+        return line
+
+    async def _aresolve_single_image(self, line: str, search_dirs: List[Path], tmp_dir: Path) -> str:
+        """単一の画像タグを解決し、ファイルをコピーする（非同期版）"""
+        parsed = self._parse_balanced_image(line)
+        if not parsed:
+            return line
+
+        alt_text, rel_path = parsed
+        filename = Path(rel_path).name
+        for search_dir in search_dirs:
+            src = (search_dir / filename).resolve()
+            # asyncio.to_thread を使用してブロッキングI/Oをスレッドで実行
+            exists = await asyncio.to_thread(src.exists)
+            if exists:
+                dst = (tmp_dir / filename).resolve()
+                await asyncio.to_thread(shutil.copy2, str(src), str(dst))
+                return f'![{alt_text}](file://{dst})'
+        return line
+
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
-        """Markdown内の画像パスを絶対パス(file://)に変換し、ファイルを一時ディレクトリにコピーする"""
+        """Markdown内の画像パスを絶対パス(file://)に変換し、ファイルを一時ディレクトリにコピーする (ThreadPoolExecutorで並列化)"""
         search_dirs = [self.output_dir / "media", self.output_dir]
-        new_lines = []
+        lines = md_content.splitlines()
 
-        for line in md_content.splitlines():
-            parsed = self._parse_balanced_image(line)
-            if parsed:
-                alt_text, rel_path = parsed
-                filename = Path(rel_path).name
-                resolved = False
-                for search_dir in search_dirs:
-                    src = (search_dir / filename).resolve()
-                    if src.exists():
-                        dst = (tmp_dir / filename).resolve()
-                        shutil.copy2(str(src), str(dst))
-                        new_lines.append(f'![{alt_text}](file://{dst})')
-                        resolved = True
-                        break
-                if not resolved:
-                    new_lines.append(line)
-            else:
-                new_lines.append(line)
+        # 画像タグを含む行のみを並列処理の対象とする
+        image_indices = [i for i, line in enumerate(lines) if "![" in line]
+        if not image_indices:
+            return md_content
 
-        return "\n".join(new_lines)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {executor.submit(self._resolve_single_image, lines[i], search_dirs, tmp_dir): i for i in image_indices}
+            for future in concurrent.futures.as_completed(futures):
+                i = futures[future]
+                lines[i] = future.result()
+
+        return "\n".join(lines)
+
+    async def _aresolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
+        """Markdown内の画像パスを絶対パス(file://)に変換し、ファイルを一時ディレクトリにコピーする (asyncio.gatherで並列化)"""
+        search_dirs = [self.output_dir / "media", self.output_dir]
+        lines = md_content.splitlines()
+
+        # 画像タグを含む行のみを並列処理の対象とする
+        tasks = []
+        task_indices = []
+        for i, line in enumerate(lines):
+            if "![" in line:
+                tasks.append(self._aresolve_single_image(line, search_dirs, tmp_dir))
+                task_indices.append(i)
+
+        if not tasks:
+            return md_content
+
+        results = await asyncio.gather(*tasks)
+        for idx, result in zip(task_indices, results):
+            lines[idx] = result
+
+        return "\n".join(lines)
 
     def _run_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す"""
@@ -322,31 +372,66 @@ class DocumentGenerator:
             logger.error(f"Subprocess error during soffice conversion: {e}")
             return None
 
-    def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
-        """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
+    def _generate_pdf_internal(
+        self,
+        md_content: str,
+        output_name: str,
+        resolve_func: Union[Callable[[str, Path], str], Callable[[str, Path], Awaitable[str]]],
+        is_async: bool = False
+    ) -> Union[Optional[Path], Awaitable[Optional[Path]]]:
+        """PDF生成の共通ロジック"""
         import tempfile
-        # 安全なファイル名を作成
         safe_output_name = secure_filename(output_name)
 
-        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
-            tmp_dir = Path(tmp_dir_str).resolve()
-            html_content = self._simple_md_to_html(self._resolve_images_to_tmpdir(md_content, tmp_dir))
+        async def _async_logic():
+            with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
+                tmp_dir = Path(tmp_dir_str).resolve()
+                resolved_md = await resolve_func(md_content, tmp_dir)
+                html_content = self._simple_md_to_html(resolved_md)
+                temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
 
-            # 一時ディレクトリ内ではフラットに管理
-            temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
-            with open(temp_html, "w", encoding="utf-8") as f:
-                f.write(html_content)
+                await asyncio.to_thread(lambda: temp_html.write_text(html_content, encoding="utf-8"))
 
-            # 最終的な出力パス
-            pdf_path = (self.output_dir / f"{safe_output_name}.pdf").resolve()
-            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+                pdf_path = (self.output_dir / f"{safe_output_name}.pdf").resolve()
+                await asyncio.to_thread(lambda: pdf_path.parent.mkdir(parents=True, exist_ok=True))
 
-            try:
-                generated_pdf = self._run_soffice_conversion(tmp_dir, temp_html)
-                if generated_pdf and generated_pdf.exists():
-                    shutil.move(str(generated_pdf.resolve()), str(pdf_path))
-                    return pdf_path
-            except Exception:
-                logger.exception("Unexpected error during PDF generation")
-                return None
-        return None
+                try:
+                    generated_pdf = await asyncio.to_thread(self._run_soffice_conversion, tmp_dir, temp_html)
+                    if generated_pdf and generated_pdf.exists():
+                        await asyncio.to_thread(shutil.move, str(generated_pdf.resolve()), str(pdf_path))
+                        return pdf_path
+                except Exception:
+                    logger.exception("Unexpected error during async PDF generation")
+                    return None
+            return None
+
+        def _sync_logic():
+            with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
+                tmp_dir = Path(tmp_dir_str).resolve()
+                resolved_md = resolve_func(md_content, tmp_dir)
+                html_content = self._simple_md_to_html(resolved_md)
+                temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
+                temp_html.write_text(html_content, encoding="utf-8")
+
+                pdf_path = (self.output_dir / f"{safe_output_name}.pdf").resolve()
+                pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+                try:
+                    generated_pdf = self._run_soffice_conversion(tmp_dir, temp_html)
+                    if generated_pdf and generated_pdf.exists():
+                        shutil.move(str(generated_pdf.resolve()), str(pdf_path))
+                        return pdf_path
+                except Exception:
+                    logger.exception("Unexpected error during PDF generation")
+                    return None
+            return None
+
+        return _async_logic() if is_async else _sync_logic()
+
+    def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
+        """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
+        return self._generate_pdf_internal(md_content, output_name, self._resolve_images_to_tmpdir, is_async=False)
+
+    async def agenerate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
+        """MarkdownからPDFを生成する（非同期版、LibreOffice sofficeを使用）"""
+        return await self._generate_pdf_internal(md_content, output_name, self._aresolve_images_to_tmpdir, is_async=True)
