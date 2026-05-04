@@ -157,10 +157,29 @@ class MetadataExtractor:
             item = {"coord": coord, "filename": str(image_filename), "type": "image"}
             
             try:
-                raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
-                if len(raw_data) > MAX_IMAGE_BYTES:
-                    logger.warning(f"Skipping large image at {coord} on {sheet_name}")
-                    continue
+                # 🔒 Security Fix: Read stream in chunks to prevent DoS via memory exhaustion
+                if hasattr(img.ref, "read"):
+                    raw_data_buf = io.BytesIO()
+                    total_read = 0
+                    chunk_size = 8192
+                    while True:
+                        chunk = img.ref.read(chunk_size)
+                        if not chunk:
+                            break
+                        total_read += len(chunk)
+                        if total_read > MAX_IMAGE_BYTES:
+                            logger.warning(f"Skipping large image at {coord} on {sheet_name} (stream exceeds limit)")
+                            break
+                        raw_data_buf.write(chunk)
+
+                    if total_read > MAX_IMAGE_BYTES:
+                        continue
+                    raw_data = raw_data_buf.getvalue()
+                else:
+                    raw_data = img.ref.getvalue()
+                    if len(raw_data) > MAX_IMAGE_BYTES:
+                        logger.warning(f"Skipping large image at {coord} on {sheet_name}")
+                        continue
 
                 with Image.open(io.BytesIO(raw_data)) as pillow_img:
                     if pillow_img.mode in ("RGBA", "P"):
