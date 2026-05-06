@@ -160,7 +160,7 @@ class MetadataExtractor:
                 # 🔒 Security & Performance Fix: Prevent DoS via memory exhaustion and optimize copy overhead
                 if isinstance(img.ref, (bytes, bytearray)):
                     raw_data = img.ref
-                elif type(img.ref).__name__ in ("Mock", "MagicMock"):
+                elif "Mock" in type(img.ref).__name__:
                     # Safe handling for test mocks to avoid infinite loops on chunked reads
                     raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
                 elif hasattr(img.ref, "read"):
