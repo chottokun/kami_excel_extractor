@@ -6,6 +6,7 @@ import logging
 import io
 import html
 import openpyxl
+import defusedxml  # 🔒 Security: openpyxl uses defusedxml if available to prevent XXE attacks
 from pathlib import Path
 from openpyxl.utils import get_column_letter, coordinate_to_tuple
 from typing import List, Dict, Any, Optional, Union, Tuple
