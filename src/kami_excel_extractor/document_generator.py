@@ -373,8 +373,53 @@ class DocumentGenerator:
             logger.error(f"Subprocess error during soffice conversion: {e}")
             return None
 
+    async def _arun_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
+        """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す (非同期版)"""
+        try:
+            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            raw_path = shutil.which("soffice")
+            if not raw_path:
+                logger.error("LibreOffice (soffice) not found in PATH")
+                return None
+            soffice_path = str(Path(raw_path).resolve())
+
+            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # ⚡ Performance: Use asyncio.create_subprocess_exec to free up the event loop
+            proc = await asyncio.create_subprocess_exec(
+                soffice_path, "--headless", "--convert-to", "pdf",
+                "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve()),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.error("soffice conversion timed out")
+                return None
+
+            if proc.returncode != 0:
+                logger.error(f"soffice conversion failed (returncode {proc.returncode}): {stderr.decode()}")
+                return None
+
+            expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
+            if await asyncio.to_thread(expected_pdf.exists):
+                return expected_pdf.resolve()
+
+            pdfs = await asyncio.to_thread(lambda: list(tmp_dir.rglob("*.pdf")))
+            if pdfs:
+                return pdfs[0].resolve()
+
+            logger.error(f"soffice succeeded but no PDF was found in {tmp_dir}")
+            return None
+        except OSError as e:
+            logger.error(f"Error during async soffice conversion: {e}")
+            return None
+
     def _prepare_and_convert_pdf(self, md_content: str, output_name: str, resolved_md: str) -> Optional[Path]:
-        """PDF生成の実処理（同期・非同期共通でスレッド実行されるブロッキング処理）"""
+        """PDF生成の実処理（同期用ブロッキング処理）"""
         import tempfile
         safe_output_name = secure_filename(output_name)
         
@@ -400,6 +445,39 @@ class DocumentGenerator:
                 return None
         return None
 
+    async def _aprepare_and_convert_pdf(self, md_content: str, output_name: str, resolved_md: str) -> Optional[Path]:
+        """PDF生成の実処理（非同期版）"""
+        import tempfile
+        import aiofiles
+        import shutil  # Explicitly import in the method as well to be safe, though it's at module level
+        safe_output_name = secure_filename(output_name)
+
+        # TemporaryDirectory is blocking, but typically fast.
+        # For maximum concurrency we could use asyncio.to_thread if needed.
+        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str).resolve()
+
+            # 画像解決されたMarkdownからHTMLを生成
+            html_content = self._simple_md_to_html(resolved_md)
+            temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
+
+            async with aiofiles.open(temp_html, mode='w', encoding="utf-8") as f:
+                await f.write(html_content)
+
+            # 最終出力先
+            pdf_path = (self.output_dir / f"{safe_output_name}.pdf").resolve()
+            await asyncio.to_thread(pdf_path.parent.mkdir, parents=True, exist_ok=True)
+
+            try:
+                generated_pdf = await self._arun_soffice_conversion(tmp_dir, temp_html)
+                if generated_pdf and await asyncio.to_thread(generated_pdf.exists):
+                    await asyncio.to_thread(shutil.move, str(generated_pdf.resolve()), str(pdf_path))
+                    return pdf_path
+            except Exception:
+                logger.exception("Unexpected error during async PDF generation")
+                return None
+        return None
+
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
         import tempfile
@@ -412,7 +490,8 @@ class DocumentGenerator:
         """MarkdownからPDFを生成する（非同期版、LibreOffice sofficeを使用）"""
         import tempfile
         # 非同期画像解決
+        # TemporaryDirectory is blocking, but typically fast.
         with tempfile.TemporaryDirectory(prefix="pdf_gen_img_") as img_tmp_dir:
             resolved_md = await self._aresolve_images_to_tmpdir(md_content, Path(img_tmp_dir))
-            # 重い PDF 変換処理全体をスレッドで非同期に実行
-            return await asyncio.to_thread(self._prepare_and_convert_pdf, md_content, output_name, resolved_md)
+            # ⚡ Performance: Use async version to avoid blocking worker threads for subprocess execution
+            return await self._aprepare_and_convert_pdf(md_content, output_name, resolved_md)
