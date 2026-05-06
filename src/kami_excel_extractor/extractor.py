@@ -327,23 +327,26 @@ class MetadataExtractor:
         cell_metadata = []
         html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
 
-        for r in range(min_r, max_r + 1):
+        rows_iter = ws.iter_rows(min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c)
+        if ws_formula:
+            formula_rows_iter = ws_formula.iter_rows(min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c)
+            zipped_rows = zip(rows_iter, formula_rows_iter)
+        else:
+            zipped_rows = ((row, None) for row in rows_iter)
+
+        for r_idx, (row, f_row) in enumerate(zipped_rows, start=min_r):
             row_html = ["  <tr>"]
-            row_has_data = False
-            
             current_row_html = []
-            for c in range(min_c, max_c + 1):
-                cell = ws.cell(row=r, column=c)
-                span = merged_map.get((r, c))
+
+            for c_idx, cell in enumerate(row, start=min_c):
+                span = merged_map.get((r_idx, c_idx))
                 if span == "skip": continue
 
-                formula = ws_formula.cell(row=r, column=c).value if ws_formula else None
-                if cell.value is not None or formula is not None:
-                    row_has_data = True
+                formula = f_row[c_idx - min_c].value if f_row else None
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate, "row": r, "col": c,
+                    "coord": cell.coordinate, "row": r_idx, "col": c_idx,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith('=') else None,
                     "unit": self._get_unit_info(cell),
@@ -356,8 +359,6 @@ class MetadataExtractor:
                 td_html = self._cell_to_html_td(cell, span, formula=formula)
                 current_row_html.append(td_html)
             
-            # データがない空行は、先行するデータがある場合のみ出力するなどの調整も可能だが、
-            # ここでは bounding box 内の全行を出す（スタイルがある可能性があるため）。
             row_html.extend(current_row_html)
             row_html.append("  </tr>")
             html_rows.append("".join(row_html))
