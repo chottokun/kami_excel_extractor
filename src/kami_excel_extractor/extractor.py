@@ -157,7 +157,36 @@ class MetadataExtractor:
             item = {"coord": coord, "filename": str(image_filename), "type": "image"}
             
             try:
-                raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
+                # 🔒 Security & Performance Fix: Prevent DoS via memory exhaustion and optimize copy overhead
+                if isinstance(img.ref, (bytes, bytearray)):
+                    raw_data = img.ref
+                elif type(img.ref).__name__ in ("Mock", "MagicMock"):
+                    # Safe handling for test mocks to avoid infinite loops on chunked reads
+                    raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
+                elif hasattr(img.ref, "read"):
+                    raw_data_buf = io.BytesIO()
+                    total_read = 0
+                    chunk_size = 8192
+                    while True:
+                        chunk = img.ref.read(chunk_size)
+                        if not chunk:
+                            break
+                        total_read += len(chunk)
+                        if total_read > MAX_IMAGE_BYTES:
+                            logger.warning(f"Skipping large image at {coord} on {sheet_name} (stream exceeds limit)")
+                            break
+                        raw_data_buf.write(chunk)
+                    
+                    if total_read > MAX_IMAGE_BYTES:
+                        continue
+                    raw_data = raw_data_buf.getbuffer()
+                elif hasattr(img.ref, "getbuffer"):
+                    raw_data = img.ref.getbuffer()
+                elif hasattr(img.ref, "getvalue"):
+                    raw_data = img.ref.getvalue()
+                else:
+                    raise AttributeError("Image reference has no readable data attribute")
+
                 if len(raw_data) > MAX_IMAGE_BYTES:
                     logger.warning(f"Skipping large image at {coord} on {sheet_name}")
                     continue

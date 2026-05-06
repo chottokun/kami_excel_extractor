@@ -3,14 +3,14 @@ import unicodedata
 import sqlite3
 import hashlib
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Any
 
 # Compiled regex patterns for performance
 _FILENAME_SANITIZE_RE = re.compile(r'[^\w\.\-]')
 _FILENAME_MULTIPLE_UNDERSCORES_RE = re.compile(r'__+')
 _FILENAME_MULTIPLE_DOTS_RE = re.compile(r'\.\.+')
 
-def clean_kami_text(text: any) -> any:
+def clean_kami_text(text: Any) -> Any:
     """
     Excel内のテキストをクリーニングする。
     - 全角スペースを半角スペースに正規化
