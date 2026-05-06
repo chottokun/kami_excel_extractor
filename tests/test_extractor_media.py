@@ -27,7 +27,7 @@ def test_extract_media_success(tmp_path):
 
     mock_ws._images = [mock_img1, mock_img2]
 
-    with patch("PIL.Image.open") as mock_open:
+    with patch("kami_excel_extractor.extractor.Image.open") as mock_open:
         # Mock Pillow Image objects
         mock_pillow_img1 = MagicMock(spec=Image.Image)
         mock_pillow_img1.mode = "RGB"
@@ -81,7 +81,7 @@ def test_extract_media_failure_skips_image(tmp_path):
 
     mock_ws._images = [mock_img_ok, mock_img_bad]
 
-    with patch("PIL.Image.open") as mock_open:
+    with patch("kami_excel_extractor.extractor.Image.open") as mock_open:
         # Mock Pillow Image objects
         mock_pillow_img_ok = MagicMock(spec=Image.Image)
         mock_pillow_img_ok.mode = "RGB"
@@ -113,7 +113,7 @@ def test_extract_media_value_error(tmp_path):
     mock_img.ref.read.return_value = b"some_data"
     mock_ws._images = [mock_img]
 
-    with patch("PIL.Image.open") as mock_open:
+    with patch("kami_excel_extractor.extractor.Image.open") as mock_open:
         mock_open.side_effect = ValueError("Invalid image parameters")
 
         media_info = extractor._extract_media(mock_ws, "Sheet1")
