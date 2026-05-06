@@ -291,20 +291,9 @@ class MetadataExtractor:
         """
         データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
         """
-        min_r, max_r = 1, 0
-        min_c, max_c = 1, 0
+        max_r = ws.max_row
+        max_c = ws.max_column
 
-        # データがあるセルの範囲を取得
-        if ws.max_row > 0:
-            for r in range(ws.max_row, 0, -1):
-                if any(ws.cell(row=r, column=c).value is not None for c in range(1, ws.max_column + 1)):
-                    max_r = r
-                    break
-            for c in range(ws.max_column, 0, -1):
-                if any(ws.cell(row=r, column=c).value is not None for r in range(1, ws.max_row + 1)):
-                    max_c = c
-                    break
-        
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
             max_r = max(max_r, m_range.max_row)
@@ -327,23 +316,24 @@ class MetadataExtractor:
         cell_metadata = []
         html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
 
-        for r in range(min_r, max_r + 1):
+        # iter_rowsを使用してセルへのアクセスを高速化
+        rows_gen = ws.iter_rows(min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c)
+        rows_f_gen = ws_formula.iter_rows(min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c) if ws_formula else None
+
+        for r_idx, row in enumerate(rows_gen, min_r):
+            row_f = next(rows_f_gen) if rows_f_gen else None
             row_html = ["  <tr>"]
-            row_has_data = False
             
             current_row_html = []
-            for c in range(min_c, max_c + 1):
-                cell = ws.cell(row=r, column=c)
-                span = merged_map.get((r, c))
+            for c_idx, (cell, cell_f) in enumerate(zip(row, row_f if row_f else row), min_c):
+                span = merged_map.get((r_idx, c_idx))
                 if span == "skip": continue
 
-                formula = ws_formula.cell(row=r, column=c).value if ws_formula else None
-                if cell.value is not None or formula is not None:
-                    row_has_data = True
+                formula = cell_f.value if row_f else None
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate, "row": r, "col": c,
+                    "coord": cell.coordinate, "row": r_idx, "col": c_idx,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith('=') else None,
                     "unit": self._get_unit_info(cell),
@@ -356,8 +346,7 @@ class MetadataExtractor:
                 td_html = self._cell_to_html_td(cell, span, formula=formula)
                 current_row_html.append(td_html)
             
-            # データがない空行は、先行するデータがある場合のみ出力するなどの調整も可能だが、
-            # ここでは bounding box 内の全行を出す（スタイルがある可能性があるため）。
+            # 結合セルなどの情報を考慮し、bounding box内の全行を出力
             row_html.extend(current_row_html)
             row_html.append("  </tr>")
             html_rows.append("".join(row_html))
