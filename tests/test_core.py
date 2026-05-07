@@ -20,10 +20,14 @@ async def test_extract_structured_data_basic(mock_litellm, mock_aio_open, mock_e
     mock_convert.return_value = Path("dummy.png")
     mock_extract.return_value = {"sheets": {"Sheet1": {"cells": []}}}
     
-    # aiofiles.open のモック
+    # aiofiles.open のモック (関数自体は同期、戻り値が非同期コンテキストマネージャ)
     mock_f = AsyncMock()
     mock_f.read.return_value = b"fake binary"
-    mock_aio_open.return_value.__aenter__.return_value = mock_f
+    # aiofiles.open(...) returns a context manager
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_f)
+    mock_ctx.__aexit__ = AsyncMock()
+    mock_aio_open.return_value = mock_ctx
     
     mock_choice = MagicMock()
     mock_choice.message.content = '```json\n{"key": "value"}\n```'
@@ -48,7 +52,10 @@ async def test_extract_structured_data_with_visual_summaries(mock_aio_open, mock
     # aiofiles.open のモック
     mock_f = AsyncMock()
     mock_f.read.return_value = b"fake binary"
-    mock_aio_open.return_value.__aenter__.return_value = mock_f
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_f)
+    mock_ctx.__aexit__ = AsyncMock()
+    mock_aio_open.return_value = mock_ctx
     
     media_filename = "Sheet1_img_A1_0.png"
     media_path = output_dir / "media" / media_filename
@@ -94,7 +101,10 @@ async def test_get_visual_summary(mock_aio_open, mock_litellm, extractor, tmp_pa
     # aiofiles.open のモック
     mock_f = AsyncMock()
     mock_f.read.return_value = b"fake binary"
-    mock_aio_open.return_value.__aenter__.return_value = mock_f
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_f)
+    mock_ctx.__aexit__ = AsyncMock()
+    mock_aio_open.return_value = mock_ctx
     
     mock_choice = MagicMock()
     mock_choice.message.content = "[画像概要] SUMMARY"

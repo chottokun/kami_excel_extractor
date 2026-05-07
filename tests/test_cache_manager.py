@@ -1,30 +1,6 @@
-import sys
-from unittest.mock import MagicMock
-
-# Mocking heavy dependencies before importing kami_excel_extractor modules
-mock_modules = [
-    "yaml", "openpyxl", "openpyxl.utils", "litellm", "aiofiles",
-    "defusedxml", "openpyxl.styles", "openpyxl.drawing.image", "PIL", "PIL.Image"
-]
-for module in mock_modules:
-    sys.modules[module] = MagicMock()
-
-try:
-    import pydantic
-except ImportError:
-    class BaseModel:
-        def __init__(self, **data): pass
-        @classmethod
-        def model_validate(cls, obj): return obj
-
-    pydantic_mock = MagicMock()
-    pydantic_mock.BaseModel = BaseModel
-    sys.modules["pydantic"] = pydantic_mock
-
 import pytest
 import sqlite3
 from pathlib import Path
-
 from kami_excel_extractor.utils import CacheManager
 
 @pytest.fixture
