@@ -3,7 +3,7 @@ import subprocess
 import shutil
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from kami_excel_extractor.document_generator import DocumentGenerator
 
 @pytest.fixture
@@ -34,19 +34,25 @@ def test_run_soffice_conversion_timeout(doc_gen, tmp_path):
 @pytest.mark.asyncio
 async def test_agenerate_pdf_basic(doc_gen, tmp_path):
     """非同期 PDF 生成の基本テスト"""
-    with patch("kami_excel_extractor.document_generator.subprocess.run") as mock_run:
-        def create_pdf_side_effect(cmd, **kwargs):
-            outdir = Path(cmd[5])
-            html_file = Path(cmd[6])
-            expected_pdf = outdir / f"{html_file.stem}.pdf"
-            expected_pdf.write_text("dummy pdf")
-            return MagicMock(returncode=0)
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"stdout", b"stderr"))
+    mock_proc.wait = AsyncMock()
+    mock_proc.returncode = 0
 
-        mock_run.side_effect = create_pdf_side_effect
-        with patch("shutil.which", return_value="/usr/bin/soffice"):
-            result = await doc_gen.agenerate_pdf("# Test", "test_report")
-            assert result == tmp_path / "test_report.pdf"
-            assert (tmp_path / "test_report.pdf").exists()
+    async def create_subprocess_side_effect(*args, **kwargs):
+        # cmd: [soffice_path, "--headless", "--convert-to", "pdf", "--outdir", tmp_dir, temp_html]
+        outdir = Path(args[5])
+        html_file = Path(args[6])
+        expected_pdf = outdir / f"{html_file.stem}.pdf"
+        expected_pdf.write_text("dummy pdf")
+        return mock_proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_side_effect) as mock_exec, \
+         patch("shutil.which", return_value="/usr/bin/soffice"):
+        
+        result = await doc_gen.agenerate_pdf("# Test", "test_report")
+        assert result == tmp_path / "test_report.pdf"
+        assert (tmp_path / "test_report.pdf").exists()
 
 @pytest.mark.asyncio
 async def test_agenerate_pdf_with_images(doc_gen, tmp_path):
@@ -58,28 +64,38 @@ async def test_agenerate_pdf_with_images(doc_gen, tmp_path):
 
     md_content = "# Title\n![img](media/test.png)"
 
-    with patch("kami_excel_extractor.document_generator.subprocess.run") as mock_run:
-        def create_pdf_side_effect(cmd, **kwargs):
-            outdir = Path(cmd[5])
-            html_file = Path(cmd[6])
-            expected_pdf = outdir / f"{html_file.stem}.pdf"
-            expected_pdf.write_text("dummy pdf")
-            return MagicMock(returncode=0)
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"stdout", b"stderr"))
+    mock_proc.wait = AsyncMock()
+    mock_proc.returncode = 0
 
-        mock_run.side_effect = create_pdf_side_effect
-        with patch("shutil.which", return_value="/usr/bin/soffice"):
-            result = await doc_gen.agenerate_pdf(md_content, "test_img_report")
-            assert result == tmp_path / "test_img_report.pdf"
-            assert (tmp_path / "test_img_report.pdf").exists()
+    async def create_subprocess_side_effect(*args, **kwargs):
+        outdir = Path(args[5])
+        html_file = Path(args[6])
+        expected_pdf = outdir / f"{html_file.stem}.pdf"
+        expected_pdf.write_text("dummy pdf")
+        return mock_proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_side_effect) as mock_exec, \
+         patch("shutil.which", return_value="/usr/bin/soffice"):
+        
+        result = await doc_gen.agenerate_pdf(md_content, "test_img_report")
+        assert result == tmp_path / "test_img_report.pdf"
+        assert (tmp_path / "test_img_report.pdf").exists()
 
 @pytest.mark.asyncio
 async def test_agenerate_pdf_failure(doc_gen, tmp_path):
     """非同期 PDF 生成失敗のテスト"""
-    with patch("kami_excel_extractor.document_generator.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=1)
-        with patch("shutil.which", return_value="/usr/bin/soffice"):
-            result = await doc_gen.agenerate_pdf("# Test", "test_fail")
-            assert result is None
+    mock_proc = MagicMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"stdout", b"error"))
+    mock_proc.wait = AsyncMock()
+    mock_proc.returncode = 1
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec, \
+         patch("shutil.which", return_value="/usr/bin/soffice"):
+        
+        result = await doc_gen.agenerate_pdf("# Test", "test_fail")
+        assert result is None
 
 def test_parse_balanced_image_edge_cases(doc_gen):
     """_parse_balanced_image のエッジケーステスト"""
