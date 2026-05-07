@@ -9,6 +9,14 @@ def mock_shutil_which():
         mock.side_effect = lambda x: f"/usr/bin/{x}"
         yield mock
 
+@pytest.fixture(autouse=True)
+def mock_uuid():
+    with patch("uuid.uuid4") as mock:
+        mock_val = MagicMock()
+        mock_val.__str__.return_value = "12345678-1234-1234-1234-123456789012"
+        mock.return_value = mock_val
+        yield mock
+
 def test_convert_success(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
@@ -17,8 +25,8 @@ def test_convert_success(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test.pdf"
-    png_file = output_dir / "test.png"
+    pdf_file = output_dir / "test_12345678.pdf"
+    png_file = output_dir / "test_12345678.png"
 
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
@@ -52,8 +60,8 @@ def test_convert_dpi_propagation(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test.pdf"
-    png_file = output_dir / "test.png"
+    pdf_file = output_dir / "test_12345678.pdf"
+    png_file = output_dir / "test_12345678.png"
 
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
@@ -126,8 +134,8 @@ def test_convert_fallback_to_fitz(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test.pdf"
-    png_file = output_dir / "test.png"
+    pdf_file = output_dir / "test_12345678.pdf"
+    png_file = output_dir / "test_12345678.png"
 
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
@@ -164,8 +172,8 @@ def test_convert_fallback_to_imagemagick(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test.pdf"
-    png_file = output_dir / "test.png"
+    pdf_file = output_dir / "test_12345678.pdf"
+    png_file = output_dir / "test_12345678.png"
 
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
@@ -195,7 +203,7 @@ def test_convert_all_fallbacks_fail(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test.pdf"
+    pdf_file = output_dir / "test_12345678.pdf"
 
     def mock_run(args, **kwargs):
         mock_res = MagicMock()
