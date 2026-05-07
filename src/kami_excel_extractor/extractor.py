@@ -291,9 +291,20 @@ class MetadataExtractor:
         """
         データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
         """
-        max_r = ws.max_row
-        max_c = ws.max_column
+        max_r, max_c = 0, 0
 
+        # データがあるセルの範囲を取得
+        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
+        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+            row_has_data = False
+            for c_idx, value in enumerate(row, 1):
+                if value is not None:
+                    row_has_data = True
+                    if c_idx > max_c:
+                        max_c = c_idx
+            if row_has_data:
+                max_r = r_idx
+        
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
             max_r = max(max_r, m_range.max_row)
