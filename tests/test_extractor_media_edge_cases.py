@@ -11,9 +11,12 @@ def test_extract_media_mock_read_exception(tmp_path, caplog):
     extractor = MetadataExtractor(output_dir=tmp_path)
     mock_ws = MagicMock()
 
+    # Create a custom mock class that has "Mock" in its name
+    class CustomMockImageRef(MagicMock):
+        pass
+
     mock_img = MagicMock()
-    # Mock class name needs to contain "Mock" for the specific branch in extractor.py
-    type(mock_img.ref).__name__ = "MockImageRef"
+    mock_img.ref = CustomMockImageRef()
     mock_img.ref.read.side_effect = IOError("Mock read failure")
     mock_img.anchor._from.row = 0
     mock_img.anchor._from.col = 0

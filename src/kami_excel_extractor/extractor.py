@@ -312,9 +312,23 @@ class MetadataExtractor:
         
         if hasattr(ws, "_images"):
             for img in ws._images:
-                if hasattr(img.anchor, "_from"):
-                    max_r = max(max_r, img.anchor._from.row + 1)
-                    max_c = max(max_c, img.anchor._from.col + 1)
+                row, col = None, None
+                anchor = img.anchor
+                if hasattr(anchor, "_from"): # TwoCellAnchor
+                    row = anchor._from.row + 1
+                    col = anchor._from.col + 1
+                elif hasattr(anchor, "row"): # OneCellAnchor
+                    row = anchor.row + 1
+                    col = anchor.col + 1
+                elif isinstance(anchor, str):
+                    try:
+                        row, col = coordinate_to_tuple(anchor)
+                    except Exception:
+                        pass
+                
+                # 🔒 Robustness: Ensure we are comparing actual integers, not mocks
+                if isinstance(row, int): max_r = max(max_r, row)
+                if isinstance(col, int): max_c = max(max_c, col)
 
         return 1, max_r, 1, max_c
 
