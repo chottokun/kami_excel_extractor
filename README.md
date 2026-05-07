@@ -5,6 +5,8 @@
 
 ## 🌟 主な特徴
 
+- **Pagination-Aware Extraction**: 長尺のシートや複数シートを正確に認識するため、シートごとに隔離してマルチページ画像を生成し、VLMに提供。
+- **High-Performance Caching**: OpenPyXLによるExcel解析結果や、VLM/LLMの応答をSQLiteにキャッシュし、同一ファイルの再処理を劇的に高速化。
 - **Style-Aware Extraction**: セルの罫線、背景色、フォントスタイルを CSS 形式で AI に伝達。表の境界や見出しを視覚的に理解。
 - **Logic-Aware Injection**: セルの「計算式」と「表示形式」を解析。合計値の特定や単位（円, %, 日付）の誤認を防止。
 - **Visual Intelligence**: シート内の図表やグラフを VLM で自動解析し、数値データとして HTML 内に動的に埋め込み。

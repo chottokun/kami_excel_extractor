@@ -3,6 +3,7 @@ import tempfile
 import logging
 import shutil
 from pathlib import Path
+from typing import Optional, List, Union
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +14,14 @@ class ExcelConverter:
         self.output_dir = Path(output_dir).resolve()
         self.dpi = dpi
 
-    def convert(self, input_file: Path) -> Path:
+    def convert(self, input_file: Path, sheet_name: Optional[str] = None) -> Union[Path, List[Path]]:
         import uuid
+        import openpyxl
         input_file = input_file.resolve()
         
         # 🔒 Race Condition Fix: UUIDを使用して中間ファイル名の衝突を回避
         run_id = str(uuid.uuid4())[:8]
-        output_png = self.output_dir / f"{input_file.stem}_{run_id}.png"
+        output_prefix = self.output_dir / f"{input_file.stem}_{run_id}"
         original_pdf = self.output_dir / f"{input_file.stem}_{run_id}.pdf"
 
         # 入力ファイルの存在確認
@@ -29,11 +31,21 @@ class ExcelConverter:
         try:
             with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
                 tmp_dir = Path(tmp_dir_str).resolve()
+                
+                # ターゲットファイルの準備 (シート隔離が必要な場合)
+                target_excel = input_file
+                if sheet_name:
+                    target_excel = tmp_dir / f"isolated_{run_id}.xlsx"
+                    logger.info(f"Isolating sheet '{sheet_name}' for conversion...")
+                    wb = openpyxl.load_workbook(input_file, data_only=True)
+                    for name in wb.sheetnames:
+                        if name != sheet_name:
+                            del wb[name]
+                    wb.save(target_excel)
 
                 # Step 1: Excel -> PDF
-                logger.info(f"Converting {input_file.name} to PDF (ID: {run_id})...")
+                logger.info(f"Converting {target_excel.name} to PDF (ID: {run_id})...")
                 
-                # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
                 raw_soffice_path = shutil.which("soffice")
                 if not raw_soffice_path:
                     logger.error("LibreOffice (soffice) not found in PATH")
@@ -46,7 +58,7 @@ class ExcelConverter:
                     f"-env:UserInstallation=file://{tmp_dir.resolve()}",
                     "--headless", "--convert-to", "pdf",
                     "--outdir", str(self.output_dir.resolve()),
-                    str(input_file.resolve())
+                    str(target_excel.resolve())
                 ], capture_output=True, text=True, timeout=600)
 
                 if res_pdf.returncode != 0:
@@ -54,21 +66,73 @@ class ExcelConverter:
                     raise RuntimeError(f"LibreOffice conversion failed: {res_pdf.stderr}")
 
                 # LibreOfficeは元のファイル名でPDFを書き出すため、生成後にリネームする
-                default_pdf = self.output_dir / f"{input_file.stem}.pdf"
+                default_pdf = self.output_dir / f"{target_excel.stem}.pdf"
                 if default_pdf.exists():
                     shutil.move(str(default_pdf), str(original_pdf))
 
                 if not original_pdf.exists():
                     raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
 
-                # Step 2: PDF -> PNG (with fallbacks)
-                logger.info("Converting PDF to PNG...")
-                self._convert_pdf_to_png(original_pdf, output_png)
-
-                return output_png
+                # Step 2: PDF -> PNG (multi-page support)
+                logger.info(f"Converting PDF to PNG (multi-page: {bool(sheet_name)})...")
+                
+                if sheet_name:
+                    # シートごとのマルチページ抽出
+                    return self._convert_pdf_to_multi_png(original_pdf, output_prefix)
+                else:
+                    # 全体概要用の単一ファイル抽出 (後方互換性)
+                    output_png = output_prefix.with_suffix(".png")
+                    self._convert_pdf_to_png(original_pdf, output_png)
+                    return output_png
         finally:
             if original_pdf.exists():
                 original_pdf.unlink()
+
+    def _convert_pdf_to_multi_png(self, pdf_path: Path, output_prefix: Path) -> List[Path]:
+        """PDFの全ページをPNGに変換する"""
+        raw_path = shutil.which("pdftocairo")
+        if not raw_path:
+            # pdftocairo がない場合は fitz を使用 (フォールバック)
+            return self._try_fitz_multi(pdf_path, output_prefix)
+
+        try:
+            # pdftocairo を使用して全ページを連番で出力
+            subprocess.run([
+                str(Path(raw_path).resolve()), "-png",
+                str(pdf_path.resolve()), str(output_prefix.resolve())
+            ], check=True, capture_output=True, timeout=300)
+            
+            # 生成されたファイルを収集 (prefix-1.png, prefix-2.png, ...)
+            pngs = sorted(list(self.output_dir.glob(f"{output_prefix.name}-*.png")), 
+                         key=lambda p: int(p.stem.split("-")[-1]))
+            if pngs:
+                logger.info(f"Generated {len(pngs)} PNGs using pdftocairo")
+                return pngs
+        except Exception as e:
+            logger.warning(f"pdftocairo multi-page failed: {e}")
+
+        return self._try_fitz_multi(pdf_path, output_prefix)
+
+    def _try_fitz_multi(self, pdf_path: Path, output_prefix: Path) -> List[Path]:
+        """PyMuPDFを使用して全ページをPNGに変換する"""
+        try:
+            import fitz
+            doc = fitz.open(str(pdf_path.resolve()))
+            pngs = []
+            for i in range(len(doc)):
+                page = doc.load_page(i)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                out_path = self.output_dir / f"{output_prefix.name}-{i+1}.png"
+                pix.save(str(out_path.resolve()))
+                pngs.append(out_path)
+            doc.close()
+            if pngs:
+                logger.info(f"Generated {len(pngs)} PNGs using fitz")
+                return pngs
+        except Exception as e:
+            logger.error(f"Multi-page conversion failed: {e}")
+        
+        raise RuntimeError("Multi-page PDF to PNG conversion failed")
 
     def _convert_pdf_to_png(self, pdf_path: Path, output_png: Path) -> None:
         """PDFをPNGに変換する (複数の方法を試行するフォールバックチェーン)"""

@@ -95,3 +95,18 @@ def test_get_file_hash(cache_manager, tmp_path):
     expected_hash = hashlib.sha256(content).hexdigest()
 
     assert cache_manager.get_file_hash(file_path) == expected_hash
+
+def test_raw_extraction_cache_roundtrip(cache_manager):
+    """set_raw_extractionで保存した内容がget_raw_extractionで取得できることを検証"""
+    file_hash = "fake-hash-123"
+    content = '{"sheets": {"Sheet1": {"html": "<table></table>"}}}'
+    
+    # logic=False の場合
+    cache_manager.set_raw_extraction(file_hash, False, content)
+    assert cache_manager.get_raw_extraction(file_hash, False) == content
+    assert cache_manager.get_raw_extraction(file_hash, True) is None
+    
+    # logic=True の場合 (別キーとして扱われる)
+    content_logic = '{"sheets": {"Sheet1": {"html": "<table></table>"}}, "logic": true}'
+    cache_manager.set_raw_extraction(file_hash, True, content_logic)
+    assert cache_manager.get_raw_extraction(file_hash, True) == content_logic

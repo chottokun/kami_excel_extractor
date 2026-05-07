@@ -80,6 +80,13 @@ class CacheManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS raw_extraction_cache (
+                    key TEXT PRIMARY KEY,
+                    content TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
     def get_file_hash(self, file_path: Path) -> str:
         """ファイルの内容からSHA-256ハッシュを生成する"""
@@ -88,6 +95,20 @@ class CacheManager:
             while chunk := f.read(8192):
                 sha256.update(chunk)
         return sha256.hexdigest()
+
+    def get_raw_extraction(self, file_hash: str, include_logic: bool) -> Optional[str]:
+        """Excelの生解析結果（HTML/セル情報）をキャッシュから取得"""
+        key = f"{file_hash}:logic={include_logic}"
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("SELECT content FROM raw_extraction_cache WHERE key = ?", (key,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def set_raw_extraction(self, file_hash: str, include_logic: bool, content: str):
+        """Excelの生解析結果（HTML/セル情報）をキャッシュに保存"""
+        key = f"{file_hash}:logic={include_logic}"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT OR REPLACE INTO raw_extraction_cache (key, content) VALUES (?, ?)", (key, content))
 
     def get_vlm_result(self, model: str, prompt: str, image_hash: str) -> Optional[str]:
         """VLMの解析結果をキャッシュから取得"""
