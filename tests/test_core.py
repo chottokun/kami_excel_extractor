@@ -14,12 +14,16 @@ def extractor(output_dir):
 @pytest.mark.asyncio
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
 @patch("kami_excel_extractor.core.MetadataExtractor.extract")
-@patch("builtins.open", new_callable=MagicMock)
-@patch("litellm.acompletion")
-async def test_extract_structured_data_basic(mock_litellm, mock_open, mock_extract, mock_convert, extractor, sample_excel_path):
+@patch("kami_excel_extractor.core.aiofiles.open")
+@patch("litellm.acompletion", new_callable=AsyncMock)
+async def test_extract_structured_data_basic(mock_litellm, mock_aio_open, mock_extract, mock_convert, extractor, sample_excel_path):
     mock_convert.return_value = Path("dummy.png")
     mock_extract.return_value = {"sheets": {"Sheet1": {"cells": []}}}
-    mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
+    
+    # aiofiles.open のモック
+    mock_f = AsyncMock()
+    mock_f.read.return_value = b"fake binary"
+    mock_aio_open.return_value.__aenter__.return_value = mock_f
     
     mock_choice = MagicMock()
     mock_choice.message.content = '```json\n{"key": "value"}\n```'
@@ -30,17 +34,21 @@ async def test_extract_structured_data_basic(mock_litellm, mock_open, mock_extra
     # 非同期版を直接呼び出す
     result = await extractor.aextract_structured_data(sample_excel_path)
     
-    assert result["sheets"]["Sheet1"]["key"] == "value"
+    assert result["sheets"]["Sheet1"]["data"]["key"] == "value"
     assert result["sheets"]["Sheet1"]["_raw_data"] == '{"key": "value"}'
 
 @pytest.mark.asyncio
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
 @patch("kami_excel_extractor.core.MetadataExtractor.extract")
-@patch("litellm.acompletion")
-@patch("builtins.open", new_callable=MagicMock)
-async def test_extract_structured_data_with_visual_summaries(mock_open, mock_litellm, mock_extract, mock_convert, extractor, sample_excel_path, output_dir):
+@patch("litellm.acompletion", new_callable=AsyncMock)
+@patch("kami_excel_extractor.core.aiofiles.open")
+async def test_extract_structured_data_with_visual_summaries(mock_aio_open, mock_litellm, mock_extract, mock_convert, extractor, sample_excel_path, output_dir):
     mock_convert.return_value = Path("dummy.png")
-    mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
+    
+    # aiofiles.open のモック
+    mock_f = AsyncMock()
+    mock_f.read.return_value = b"fake binary"
+    mock_aio_open.return_value.__aenter__.return_value = mock_f
     
     media_filename = "Sheet1_img_A1_0.png"
     media_path = output_dir / "media" / media_filename
@@ -77,12 +85,16 @@ async def test_extract_structured_data_with_visual_summaries(mock_open, mock_lit
     assert "media" in result["sheets"]["Sheet1"]
     assert result["sheets"]["Sheet1"]["media"][0]["visual_summary"] == "[画像概要] 要約テキスト"
 @pytest.mark.asyncio
-@patch("litellm.acompletion")
-@patch("builtins.open", new_callable=MagicMock)
-async def test_get_visual_summary(mock_open, mock_litellm, extractor, tmp_path):
+@patch("litellm.acompletion", new_callable=AsyncMock)
+@patch("kami_excel_extractor.core.aiofiles.open")
+async def test_get_visual_summary(mock_aio_open, mock_litellm, extractor, tmp_path):
     img_path = tmp_path / "test.png"
     img_path.write_text("binary data")
-    mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
+    
+    # aiofiles.open のモック
+    mock_f = AsyncMock()
+    mock_f.read.return_value = b"fake binary"
+    mock_aio_open.return_value.__aenter__.return_value = mock_f
     
     mock_choice = MagicMock()
     mock_choice.message.content = "[画像概要] SUMMARY"
@@ -104,15 +116,19 @@ def test_extract_rag_chunks(mock_extract_raw, mock_extract_struct, extractor, sa
     assert "Sheet1" in sheet_results
     assert "chunks" in sheet_results["Sheet1"]
 
-@patch("litellm.acompletion")
+@patch("litellm.acompletion", new_callable=AsyncMock)
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
 @patch("kami_excel_extractor.core.MetadataExtractor.extract")
-@patch("builtins.open", new_callable=MagicMock)
+@patch("kami_excel_extractor.core.aiofiles.open")
 @pytest.mark.asyncio
-async def test_extraction_yaml_parsing_failure(mock_open, mock_extract, mock_convert, mock_litellm, extractor, sample_excel_path):
+async def test_extraction_yaml_parsing_failure(mock_aio_open, mock_extract, mock_convert, mock_litellm, extractor, sample_excel_path):
     mock_convert.return_value = Path("dummy.png")
     mock_extract.return_value = {"sheets": {"Sheet1": {"html": "<table></table>"}}}
-    mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
+    
+    # aiofiles.open のモック
+    mock_f = AsyncMock()
+    mock_f.read.return_value = b"fake binary"
+    mock_aio_open.return_value.__aenter__.return_value = mock_f
     
     mock_choice = MagicMock()
     mock_choice.message.content = "```json\n{\"key\": [unclosed list\n```"
@@ -128,12 +144,16 @@ async def test_extraction_yaml_parsing_failure(mock_open, mock_extract, mock_con
     assert sheet_data["_raw_data"] == ""
 
 @pytest.mark.asyncio
-@patch("litellm.acompletion")
-@patch("builtins.open", new_callable=MagicMock)
+@patch("litellm.acompletion", new_callable=AsyncMock)
+@patch("kami_excel_extractor.core.aiofiles.open")
 async def test_aget_visual_summary_failure(mock_open, mock_litellm, extractor, tmp_path):
     img_path = tmp_path / "test_fail.png"
     img_path.write_text("binary data")
-    mock_open.return_value.__enter__.return_value.read.return_value = b"fake binary"
+    
+    # aiofiles.open のモック
+    mock_f = AsyncMock()
+    mock_f.read.return_value = b"fake binary"
+    mock_open.return_value.__aenter__.return_value = mock_f
 
     # Mock litellm to raise an exception
     mock_litellm.side_effect = Exception("LiteLLM API error")
