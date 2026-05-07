@@ -9,8 +9,8 @@
 
 | コンポーネント | ステータス | 詳細 |
 | :--- | :--- | :--- |
-| **ExcelConverter** | ✅ 完璧 | LibreOffice + pdftocairo + fitz + ImageMagick の3層フォールバック。 |
-| **MetadataExtractor** | ✅ 高精度 | 方眼紙、セル結合、複雑な論理構造の HTML 抽出、破損画像耐性。 |
+| **ExcelConverter** | ✅ 完璧 | LibreOffice + pdftocairo + fitz のフォールバック。シート隔離によるマルチページ画像生成（Pagination）対応。 |
+| **MetadataExtractor** | ✅ 高精度 | 方眼紙、セル結合、複雑な論理構造の HTML 抽出。Raw Extraction キャッシュによる高速化。 |
 | **VLM Orchestrator** | ✅ 堅牢 | 非同期並列処理、Semaphore による流量制限、自動リトライ。 |
 | **Security Layer** | ✅ 監査済 | パストラバーサル対策、CWE-426対策、XSSエスケープ、LiteLLM v1.83.4。 |
 | **CLI / API** | ✅ 刷新済 | Pydantic モデルによる構成管理、Docker 完全パッケージ化。 |

@@ -152,7 +152,7 @@ class KamiExcelExtractor:
         limit = self.litellm_rpm_limit if self.litellm_rpm_limit > 0 else 1000
         return asyncio.Semaphore(limit)
 
-    def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_url: Optional[str] = None, include_logic: bool = False) -> List[Dict]:
+    def _build_sheet_messages(self, system_prompt: str, sheet_name: str, html_content: str, image_urls: Optional[List[str]] = None, include_logic: bool = False) -> List[Dict]:
         """LLMへの入力メッセージ（プロンプト）を構築する。"""
         context_instruction = (
             "提供されたHTMLテーブルには、CSSスタイル属性(style)が含まれています。\n"
@@ -172,8 +172,9 @@ class KamiExcelExtractor:
         text_payload = f"対象シート: {sheet_name}\n\n{context_instruction}\n\nデータソース (HTML):\n{html_content}"
         content = [{"type": "text", "text": text_payload}]
         
-        if image_url:
-            content.append({"type": "image_url", "image_url": {"url": image_url}})
+        if image_urls:
+            for url in image_urls:
+                content.append({"type": "image_url", "image_url": {"url": url}})
             
         content.append({"type": "text", "text": "解析結果を構造化されたJSONオブジェクトとして出力してください。必ず ```json ブロックを含めてください。"})
         
@@ -289,7 +290,7 @@ class KamiExcelExtractor:
         await self._aprocess_chart_data(media_item, model, semaphore)
         return media_item
 
-    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: Dict, model: str, system_prompt: str, image_url: Optional[str], semaphore: Optional[asyncio.Semaphore], use_visual_context: bool = True, include_logic: bool = False) -> Tuple[str, Dict]:
+    async def _aextract_single_sheet(self, sheet_name: str, sheet_content: Dict, model: str, system_prompt: str, image_urls: Optional[List[str]], semaphore: Optional[asyncio.Semaphore], include_logic: bool = False) -> Tuple[str, Dict]:
         """単一シートの解析。シンプルテーブルの場合はLLMをバイパスする。"""
         if sheet_content.get("is_simple"):
             logger.info(f"Using simple table extraction for: {sheet_name}")
@@ -297,9 +298,9 @@ class KamiExcelExtractor:
             return sheet_name, {"data": result if isinstance(result, dict) else {"data": result}, "_raw_data": ""}
 
         async with (semaphore if semaphore else asyncio.Lock()):
-            logger.info(f"Processing via LLM: {sheet_name}")
+            logger.info(f"Processing via LLM: {sheet_name} (Images: {len(image_urls) if image_urls else 0})")
             html_content = sheet_content.get('html', '')
-            messages = self._build_sheet_messages(system_prompt, sheet_name, html_content, image_url if use_visual_context else None, include_logic=include_logic)
+            messages = self._build_sheet_messages(system_prompt, sheet_name, html_content, image_urls, include_logic=include_logic)
             
             use_cache = getattr(self, "opts", None) is None or self.opts.use_cache
 
@@ -355,19 +356,70 @@ class KamiExcelExtractor:
 
         logger.info(f"Starting extraction for {excel_path.name} (Logic: {self.opts.include_logic})")
 
-        # 1. Extractorによる基本解析
-        raw_data = await asyncio.to_thread(self.extractor.extract, excel_path, include_logic=self.opts.include_logic)
+        # 1. Extractorによる基本解析 (キャッシュ対応)
+        raw_data = None
+        file_hash = self.cache.get_file_hash(excel_path)
+        use_cache = self.opts.use_cache
+
+        if use_cache:
+            cached_raw = self.cache.get_raw_extraction(file_hash, self.opts.include_logic)
+            if cached_raw:
+                try:
+                    candidate_data = json.loads(cached_raw)
+                    # キャッシュ内のメディアファイルが実在するか検証
+                    media_missing = False
+                    for s_data in candidate_data.get("sheets", {}).values():
+                        for m_item in s_data.get("media", []):
+                            if fname := m_item.get("filename"):
+                                if not (self.output_dir / "media" / fname).exists():
+                                    media_missing = True
+                                    break
+                        if media_missing: break
+                    
+                    if not media_missing:
+                        logger.info("Using cached raw extraction results.")
+                        raw_data = candidate_data
+                    else:
+                        logger.warning("Cache hit for raw extraction but media files are missing. Re-extracting.")
+                except Exception as e:
+                    logger.warning(f"Failed to load cached raw extraction: {e}")
+
+        if raw_data is None:
+            raw_data = await asyncio.to_thread(self.extractor.extract, excel_path, include_logic=self.opts.include_logic)
+            if use_cache:
+                self.cache.set_raw_extraction(file_hash, self.opts.include_logic, json.dumps(raw_data))
+
         sheets_data = raw_data.get("sheets", {})
 
-        # 2. 全体画像の生成
-        image_url = None
-        if self.opts.include_visual_summaries or self.opts.use_visual_context:
+        # 2. シートごとの画像生成 (ページネーション対応)
+        sheet_images = {}
+        if self.opts.use_visual_context:
+            for sheet_name in sheets_data.keys():
+                try:
+                    self.converter.dpi = self.opts.dpi
+                    # シート個別に画像を生成
+                    png_paths = await asyncio.to_thread(self.converter.convert, excel_path, sheet_name=sheet_name)
+                    if isinstance(png_paths, Path): png_paths = [png_paths]
+                    
+                    image_urls = []
+                    for p in png_paths:
+                        url = await self._encode_image_to_base64_url(p)
+                        image_urls.append(url)
+                    sheet_images[sheet_name] = image_urls
+                except Exception as e:
+                    logger.warning(f"Visual context generation failed for sheet '{sheet_name}': {e}")
+                    sheet_images[sheet_name] = []
+
+        # 全体概要用の画像 (Summary用)
+        overall_image_url = None
+        if self.opts.include_visual_summaries:
             try:
-                self.converter.dpi = self.opts.dpi
+                # シート指定なしで全体概要PDFから1枚目を生成
                 png_path = await asyncio.to_thread(self.converter.convert, excel_path)
-                image_url = await self._encode_image_to_base64_url(png_path)
+                if isinstance(png_path, list): png_path = png_path[0]
+                overall_image_url = await self._encode_image_to_base64_url(png_path)
             except Exception as e:
-                logger.warning(f"Excel-to-image failed: {e}")
+                logger.warning(f"Overall summary image generation failed: {e}")
 
         # 3. メディア（図表・グラフ）の個別解析
         all_media = []
@@ -413,7 +465,7 @@ class KamiExcelExtractor:
         sys_prompt = self.opts.system_prompt or "あなたはExcel構造化の専門家です。HTMLデータを統合し、意味論的なJSONを出力してください。"
 
         # 5. 各シートのLLM解析
-        tasks = [self._aextract_single_sheet(n, c, model, sys_prompt, image_url, semaphore, use_visual_context=self.opts.use_visual_context, include_logic=self.opts.include_logic) for n, c in sheets_data.items()]
+        tasks = [self._aextract_single_sheet(n, c, model, sys_prompt, sheet_images.get(n), semaphore, include_logic=self.opts.include_logic) for n, c in sheets_data.items()]
         results = await asyncio.gather(*tasks)
         structured_sheets = {name: res for name, res in results}
         
