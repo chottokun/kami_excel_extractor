@@ -10,7 +10,7 @@ from pathlib import Path
 from openpyxl.utils import get_column_letter, coordinate_to_tuple
 from typing import List, Dict, Any, Optional, Union, Tuple
 from datetime import date, datetime
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from .utils import secure_filename, clean_kami_text
 
 logger = logging.getLogger(__name__)
