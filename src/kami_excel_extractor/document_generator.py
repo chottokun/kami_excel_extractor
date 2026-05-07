@@ -340,19 +340,30 @@ class DocumentGenerator:
 
         return "\n".join(lines)
 
+    def _get_soffice_path(self) -> Optional[str]:
+        """LibreOffice (soffice) のパスを取得してキャッシュする"""
+        if hasattr(self, "_cached_soffice_path"):
+            return self._cached_soffice_path
+        
+        raw_path = shutil.which("soffice")
+        if not raw_path:
+            return None
+        
+        self._cached_soffice_path = str(Path(raw_path).resolve())
+        return self._cached_soffice_path
+
     def _run_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す"""
         try:
             # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-            raw_path = shutil.which("soffice")
-            if not raw_path:
+            soffice_path = self._get_soffice_path()
+            if not soffice_path:
                 logger.error("LibreOffice (soffice) not found in PATH")
                 return None
-            soffice_path = str(Path(raw_path).resolve())
 
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             res = subprocess.run([
-                str(Path(soffice_path).resolve()), "--headless", "--convert-to", "pdf",
+                soffice_path, "--headless", "--convert-to", "pdf",
                 "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())
             ], capture_output=True, text=True, timeout=60)
             if res.returncode != 0:
@@ -377,11 +388,10 @@ class DocumentGenerator:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す (非同期版)"""
         try:
             # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
-            raw_path = shutil.which("soffice")
-            if not raw_path:
+            soffice_path = await asyncio.to_thread(self._get_soffice_path)
+            if not soffice_path:
                 logger.error("LibreOffice (soffice) not found in PATH")
                 return None
-            soffice_path = str(Path(raw_path).resolve())
 
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             # ⚡ Performance: Use asyncio.create_subprocess_exec to free up the event loop
@@ -401,7 +411,9 @@ class DocumentGenerator:
                 return None
 
             if proc.returncode != 0:
-                logger.error(f"soffice conversion failed (returncode {proc.returncode}): {stderr.decode()}")
+                # 🛠️ Fix: Use errors='replace' to avoid UnicodeDecodeError on invalid stderr output
+                err_msg = stderr.decode(errors='replace')
+                logger.error(f"soffice conversion failed (returncode {proc.returncode}): {err_msg}")
                 return None
 
             expected_pdf = tmp_dir / f"{temp_html.stem}.pdf"
