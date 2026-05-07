@@ -63,12 +63,15 @@ class JsonToMarkdownConverter:
         if not data:
             return ""
         
-        if isinstance(data[0], dict):
-            first_keys = data[0].keys()
-            if all(isinstance(item, dict) and item.keys() == first_keys for item in data):
-                if self.list_format == "kv":
+        if type(data[0]) is dict:
+            if self.list_format == "kv":
+                # KV format doesn't require uniform keys
+                if all(type(item) is dict for item in data):
                     return self._convert_to_kv(data)
-                else:
+            else:
+                # Table format requires uniform keys
+                first_keys = data[0].keys()
+                if all(type(item) is dict and item.keys() == first_keys for item in data):
                     return self._convert_to_table(data, first_keys)
         
         lines = []
