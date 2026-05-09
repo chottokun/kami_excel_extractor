@@ -2,6 +2,7 @@ import re
 import unicodedata
 import sqlite3
 import hashlib
+import asyncio
 from pathlib import Path
 from typing import Optional, Any
 
@@ -95,6 +96,10 @@ class CacheManager:
             while chunk := f.read(8192):
                 sha256.update(chunk)
         return sha256.hexdigest()
+
+    async def aget_file_hash(self, file_path: Path) -> str:
+        """ファイルの内容からSHA-256ハッシュを非同期で生成する"""
+        return await asyncio.to_thread(self.get_file_hash, file_path)
 
     def get_raw_extraction(self, file_hash: str, include_logic: bool) -> Optional[str]:
         """Excelの生解析結果（HTML/セル情報）をキャッシュから取得"""
