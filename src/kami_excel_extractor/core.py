@@ -86,7 +86,7 @@ class KamiExcelExtractor:
     async def _encode_image_to_base64_url(self, image_path: Path) -> str:
         """画像をBase64エンコードし、データURL形式で返す。永続キャッシュ対応。"""
         # ハッシュを計算して内容ベースで管理
-        img_hash = self.cache.get_file_hash(image_path)
+        img_hash = await self.cache.aget_file_hash(image_path)
         
         use_cache = getattr(self, "opts", None) is None or self.opts.use_cache
 
@@ -358,7 +358,7 @@ class KamiExcelExtractor:
 
         # 1. Extractorによる基本解析 (キャッシュ対応)
         raw_data = None
-        file_hash = self.cache.get_file_hash(excel_path)
+        file_hash = await self.cache.aget_file_hash(excel_path)
         use_cache = self.opts.use_cache
 
         if use_cache:
@@ -492,7 +492,7 @@ class KamiExcelExtractor:
     async def aget_visual_summary(self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None) -> str:
         """画像の視覚的要約を生成する。永続キャッシュ対応。"""
         model = model or self.default_model
-        img_hash = self.cache.get_file_hash(image_path)
+        img_hash = await self.cache.aget_file_hash(image_path)
         prompt = "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"
         
         use_cache = getattr(self, "opts", None) is None or self.opts.use_cache
