@@ -366,17 +366,7 @@ class KamiExcelExtractor:
             if cached_raw:
                 try:
                     candidate_data = json.loads(cached_raw)
-                    # キャッシュ内のメディアファイルが実在するか検証
-                    media_missing = False
-                    for s_data in candidate_data.get("sheets", {}).values():
-                        for m_item in s_data.get("media", []):
-                            if fname := m_item.get("filename"):
-                                if not (self.output_dir / "media" / fname).exists():
-                                    media_missing = True
-                                    break
-                        if media_missing: break
-                    
-                    if not media_missing:
+                    if not self._is_any_media_missing(candidate_data):
                         logger.info("Using cached raw extraction results.")
                         raw_data = candidate_data
                     else:
@@ -488,6 +478,15 @@ class KamiExcelExtractor:
             sheet_name = self._extract_sheet_name_from_filename(m.get("filename", ""))
             if sheet_name in structured_sheets:
                 structured_sheets[sheet_name].setdefault("media", []).append(m)
+
+    def _is_any_media_missing(self, candidate_data: Dict) -> bool:
+        """キャッシュされたデータ内のメディアファイルが実在するか確認する。"""
+        for s_data in candidate_data.get("sheets", {}).values():
+            for m_item in s_data.get("media", []):
+                if fname := m_item.get("filename"):
+                    if not (self.output_dir / "media" / fname).exists():
+                        return True
+        return False
 
     async def aget_visual_summary(self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None) -> str:
         """画像の視覚的要約を生成する。永続キャッシュ対応。"""
