@@ -175,3 +175,61 @@ def test_convert_pdf_to_png_all_fail(converter, pdf_path, png_path):
 
         with pytest.raises(RuntimeError, match="All PDF to PNG conversion methods failed"):
             converter._convert_pdf_to_png(pdf_path, png_path)
+
+def test_try_fitz_multi_success(converter, pdf_path, tmp_path):
+    output_prefix = tmp_path / "test_multi"
+    mock_fitz = MagicMock()
+    mock_doc = mock_fitz.open.return_value
+    mock_doc.__len__.return_value = 2
+    mock_page = mock_doc.load_page.return_value
+    mock_pix = mock_page.get_pixmap.return_value
+
+    def mock_save(path):
+        Path(path).touch()
+    mock_pix.save.side_effect = mock_save
+
+    with patch.dict("sys.modules", {"fitz": mock_fitz}):
+        results = converter._try_fitz_multi(pdf_path, output_prefix)
+        assert len(results) == 2
+        assert results[0].name == "test_multi-1.png"
+        assert results[1].name == "test_multi-2.png"
+        assert results[0].exists()
+        assert results[1].exists()
+        mock_fitz.open.assert_called_once_with(str(pdf_path.resolve()))
+
+def test_try_fitz_multi_exception(converter, pdf_path, tmp_path):
+    output_prefix = tmp_path / "test_multi"
+    mock_fitz = MagicMock()
+    mock_fitz.open.side_effect = Exception("Fitz open error")
+
+    with patch.dict("sys.modules", {"fitz": mock_fitz}):
+        with pytest.raises(RuntimeError, match="Multi-page PDF to PNG conversion failed"):
+            converter._try_fitz_multi(pdf_path, output_prefix)
+
+def test_convert_pdf_to_multi_png_pdftocairo_success(converter, pdf_path, tmp_path, mock_which, mock_run):
+    output_prefix = tmp_path / "test_multi"
+    mock_which.side_effect = lambda x: f"/usr/bin/{x}" if x == "pdftocairo" else None
+
+    def mock_run_impl(args, **kwargs):
+        (converter.output_dir / "test_multi-1.png").touch()
+        (converter.output_dir / "test_multi-2.png").touch()
+        return MagicMock(returncode=0)
+
+    mock_run.side_effect = mock_run_impl
+
+    results = converter._convert_pdf_to_multi_png(pdf_path, output_prefix)
+    assert len(results) == 2
+    assert results[0].name == "test_multi-1.png"
+    assert results[1].name == "test_multi-2.png"
+    assert results[0].exists()
+    assert results[1].exists()
+
+def test_convert_pdf_to_multi_png_fallback_to_fitz(converter, pdf_path, tmp_path, mock_which):
+    output_prefix = tmp_path / "test_multi"
+    mock_which.return_value = None # pdftocairo not found
+
+    with patch.object(converter, "_try_fitz_multi") as mock_fitz_multi:
+        mock_fitz_multi.return_value = [Path("fake.png")]
+        results = converter._convert_pdf_to_multi_png(pdf_path, output_prefix)
+        assert results == [Path("fake.png")]
+        mock_fitz_multi.assert_called_once_with(pdf_path, output_prefix)
