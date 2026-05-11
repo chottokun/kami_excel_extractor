@@ -32,7 +32,9 @@ def test_convert_success(tmp_path):
         mock_res = MagicMock()
         mock_res.returncode = 0
         if "/usr/bin/soffice" in args[0]:
-            pdf_file.touch()
+            outdir = args[args.index("--outdir") + 1]
+            input_stem = Path(args[-1]).stem
+            (Path(outdir) / f"{input_stem}.pdf").touch()
         if "/usr/bin/pdftocairo" in args[0]:
             png_file.touch()
         return mock_res
@@ -67,7 +69,9 @@ def test_convert_dpi_propagation(tmp_path):
         mock_res = MagicMock()
         mock_res.returncode = 0
         if "/usr/bin/soffice" in args[0]:
-            pdf_file.touch()
+            outdir = args[args.index("--outdir") + 1]
+            input_stem = Path(args[-1]).stem
+            (Path(outdir) / f"{input_stem}.pdf").touch()
         elif "/usr/bin/magick" in args[0]:
             png_file.touch()
         return mock_res
@@ -141,7 +145,9 @@ def test_convert_fallback_to_fitz(tmp_path):
         mock_res = MagicMock()
         if "/usr/bin/soffice" in args[0]:
             mock_res.returncode = 0
-            pdf_file.touch()
+            outdir = args[args.index("--outdir") + 1]
+            input_stem = Path(args[-1]).stem
+            (Path(outdir) / f"{input_stem}.pdf").touch()
         elif "/usr/bin/pdftocairo" in args[0]:
             mock_res.returncode = 1
             mock_res.stderr = "pdftocairo Error"
@@ -179,7 +185,9 @@ def test_convert_fallback_to_imagemagick(tmp_path):
         mock_res = MagicMock()
         if "/usr/bin/soffice" in args[0]:
             mock_res.returncode = 0
-            pdf_file.touch()
+            outdir = args[args.index("--outdir") + 1]
+            input_stem = Path(args[-1]).stem
+            (Path(outdir) / f"{input_stem}.pdf").touch()
         elif "/usr/bin/pdftocairo" in args[0]:
             mock_res.returncode = 1
         elif "/usr/bin/magick" in args[0]:
@@ -209,7 +217,9 @@ def test_convert_all_fallbacks_fail(tmp_path):
         mock_res = MagicMock()
         if "/usr/bin/soffice" in args[0]:
             mock_res.returncode = 0
-            pdf_file.touch()
+            outdir = args[args.index("--outdir") + 1]
+            input_stem = Path(args[-1]).stem
+            (Path(outdir) / f"{input_stem}.pdf").touch()
         else:
             mock_res.returncode = 1
             mock_res.stderr = "All fail"
