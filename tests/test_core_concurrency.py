@@ -5,10 +5,14 @@ from kami_excel_extractor.core import KamiExcelExtractor
 from kami_excel_extractor.schema import ExtractionOptions
 
 @pytest.mark.asyncio
-async def test_semaphore_limit_concurrency(monkeypatch):
+async def test_semaphore_limit_concurrency(monkeypatch, tmp_path):
     """Semaphore が並列実行数を正しく制限しているか検証"""
+    # Create dummy file to avoid FileNotFoundError
+    dummy_file = tmp_path / "dummy.xlsx"
+    dummy_file.write_bytes(b"dummy")
+
     # 明示的に RPM 制限を 2 に設定
-    extractor = KamiExcelExtractor(api_key="fake", litellm_rpm_limit=2)
+    extractor = KamiExcelExtractor(api_key="fake", litellm_rpm_limit=2, output_dir=tmp_path)
 
     current_concurrency = 0
     max_observed_concurrency = 0
@@ -22,8 +26,17 @@ async def test_semaphore_limit_concurrency(monkeypatch):
     }
 
     # クラスレベルで確実にパッチ
+    # Note: stat_result needs st_size attribute
+    mock_stat = MagicMock()
+    mock_stat.st_size = 1024
+
+    def to_thread_side_effect(func, *args, **kwargs):
+        if "stat" in str(func):
+            return mock_stat
+        return mock_raw_data
+
     with patch.object(KamiExcelExtractor, "_aextract_single_sheet", autospec=True) as mock_meth, \
-         patch("kami_excel_extractor.core.asyncio.to_thread", return_value=mock_raw_data), \
+         patch("kami_excel_extractor.core.asyncio.to_thread", side_effect=to_thread_side_effect), \
          patch("kami_excel_extractor.core.ExcelConverter.convert", return_value="dummy.png"):
         
         # モックの挙動を定義
@@ -40,7 +53,7 @@ async def test_semaphore_limit_concurrency(monkeypatch):
         
         mock_meth.side_effect = side_effect
         
-        await extractor.aextract_structured_data("dummy.xlsx")
+        await extractor.aextract_structured_data(dummy_file)
 
     # 最大並列数が RPM 制限の 2 以下であることを確認
     assert max_observed_concurrency <= 2
