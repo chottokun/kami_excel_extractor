@@ -461,12 +461,12 @@ class DocumentGenerator:
         """PDF生成の実処理（非同期版）"""
         import tempfile
         import aiofiles
+        import aiofiles.tempfile
         import shutil  # Explicitly import in the method as well to be safe, though it's at module level
         safe_output_name = secure_filename(output_name)
 
-        # TemporaryDirectory is blocking, but typically fast.
-        # For maximum concurrency we could use asyncio.to_thread if needed.
-        with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
+        # ⚡ Performance: Use async context manager for TemporaryDirectory to avoid blocking event loop during cleanup
+        async with aiofiles.tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str).resolve()
 
             # 画像解決されたMarkdownからHTMLを生成
@@ -501,9 +501,10 @@ class DocumentGenerator:
     async def agenerate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（非同期版、LibreOffice sofficeを使用）"""
         import tempfile
+        import aiofiles.tempfile
         # 非同期画像解決
-        # TemporaryDirectory is blocking, but typically fast.
-        with tempfile.TemporaryDirectory(prefix="pdf_gen_img_") as img_tmp_dir:
+        # ⚡ Performance: Use async context manager for TemporaryDirectory to avoid blocking event loop during cleanup
+        async with aiofiles.tempfile.TemporaryDirectory(prefix="pdf_gen_img_") as img_tmp_dir:
             resolved_md = await self._aresolve_images_to_tmpdir(md_content, Path(img_tmp_dir))
             # ⚡ Performance: Use async version to avoid blocking worker threads for subprocess execution
             return await self._aprepare_and_convert_pdf(md_content, output_name, resolved_md)
