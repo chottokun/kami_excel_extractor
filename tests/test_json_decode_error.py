@@ -28,7 +28,8 @@ key: yaml_value
     result = extractor._parse_llm_response(content, sheet_name)
 
     # Should fall back to YAML parsing
-    assert result["key"] == "yaml_value"
+    # Note: If the parsed data is a dict and doesn't have a 'data' key, it's wrapped in 'data'
+    assert result["data"]["key"] == "yaml_value"
     assert result["_raw_data"] == "key: yaml_value"
 
 @pytest.mark.asyncio
@@ -64,4 +65,4 @@ async def test_aextract_single_sheet_json_decode_error_mock(mock_acompletion, ex
 
     assert name == sheet_name
     # Since JSON failed, it should have tried YAML.
-    assert result["key"] == "yaml_value"
+    assert result["data"]["key"] == "yaml_value"
