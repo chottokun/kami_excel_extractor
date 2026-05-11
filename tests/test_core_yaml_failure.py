@@ -63,8 +63,10 @@ def test_parse_llm_response_empty_response(extractor):
     result = extractor._parse_llm_response(yaml_str, sheet_name)
 
     assert result["_raw_data"] == ""
-    # Pydantic model with defaults
-    assert "data" in result
+    # When yaml.safe_load("") returns None, data is wrapped as {"data": None}.
+    # Pydantic's model_dump(exclude_none=True) will then exclude 'data'.
+    # So we don't expect 'data' in the final cleaned dictionary.
+    assert "data" not in result
 
 @pytest.mark.asyncio
 @patch("litellm.acompletion")
