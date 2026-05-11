@@ -424,37 +424,12 @@ class KamiExcelExtractor:
         # 3. メディア（図表・グラフ）の個別解析
         all_media = []
         if self.opts.include_visual_summaries:
-            # 重複メディア（同一ファイル名）を排除して解析タスクを作成
-            unique_media = {}
-            for s in sheets_data.values():
-                for m in s.get("media", []):
-                    if filename := m.get("filename"):
-                        if filename not in unique_media:
-                            unique_media[filename] = m
-
+            unique_media = self._get_unique_media(sheets_data)
             media_tasks = [self._aprocess_media_summary(m, model, semaphore) for m in unique_media.values()]
             if media_tasks:
                 media_results = await asyncio.gather(*media_tasks)
                 all_media = [m for m in media_results if m]
-                # 抽出された結果をメタデータに同期 (O(1) lookup で高速化)
-                filename_to_targets = {}
-                for s_info in sheets_data.values():
-                    for mapped_list in s_info.get("media_map", {}).values():
-                        for mapped_m in mapped_list:
-                            if fname := mapped_m.get("filename"):
-                                filename_to_targets.setdefault(fname, []).append(mapped_m)
-
-                for m in all_media:
-                    filename = m.get("filename")
-                    if not filename: continue
-
-                    visual_data = m.get("visual_data")
-                    visual_summary = m.get("visual_summary")
-
-                    # ファイル名で直接ターゲットを取得して更新 (O(1) lookup)
-                    for target in filename_to_targets.get(filename, []):
-                        if visual_data: target["visual_data"] = visual_data
-                        if visual_summary: target["visual_summary"] = visual_summary
+                self._sync_media_results_to_metadata(all_media, sheets_data)
 
         # 4. 図表データの注入
         for sheet_name, sheet_info in sheets_data.items():
@@ -475,6 +450,38 @@ class KamiExcelExtractor:
             self._attach_media_to_sheets(all_media, structured_sheets)
                 
         return self._make_json_serializable(final_data)
+
+    def _get_unique_media(self, sheets_data: Dict[str, Any]) -> Dict[str, Dict]:
+        """重複メディア（同一ファイル名）を排除して収集する。"""
+        unique_media = {}
+        for s in sheets_data.values():
+            for m in s.get("media", []):
+                if filename := m.get("filename"):
+                    if filename not in unique_media:
+                        unique_media[filename] = m
+        return unique_media
+
+    def _sync_media_results_to_metadata(self, all_media: List[Dict], sheets_data: Dict[str, Any]) -> None:
+        """抽出されたメディアの結果をメタデータに同期する。"""
+        # 1. ファイル名からターゲットへのマップを作成 (O(1) lookup で高速化)
+        filename_to_targets = {}
+        for s_info in sheets_data.values():
+            for mapped_list in s_info.get("media_map", {}).values():
+                for mapped_m in mapped_list:
+                    if fname := mapped_m.get("filename"):
+                        filename_to_targets.setdefault(fname, []).append(mapped_m)
+
+        # 2. メディアの結果を全ターゲットに反映
+        for m in all_media:
+            filename = m.get("filename")
+            if not filename: continue
+
+            visual_data = m.get("visual_data")
+            visual_summary = m.get("visual_summary")
+
+            for target in filename_to_targets.get(filename, []):
+                if visual_data: target["visual_data"] = visual_data
+                if visual_summary: target["visual_summary"] = visual_summary
 
     def _extract_sheet_name_from_filename(self, filename: str) -> str:
         """メディアファイル名からシート名を推測する (例: Sheet1_img_A1_0.png -> Sheet1)。"""
