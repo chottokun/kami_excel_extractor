@@ -2,6 +2,7 @@ import re
 import unicodedata
 import sqlite3
 import hashlib
+import threading
 from pathlib import Path
 from typing import Optional, Any
 
@@ -53,12 +54,21 @@ class CacheManager:
     
     def __init__(self, db_path: Path):
         self.db_path = db_path
+        self._lock = threading.Lock()
+        self._conn = None
         self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        if self._conn is None:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+        return self._conn
 
     def _init_db(self):
         """データベースとテーブルの初期化"""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS vlm_cache (
                     key TEXT PRIMARY KEY,
@@ -87,6 +97,7 @@ class CacheManager:
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.commit()
 
     def get_file_hash(self, file_path: Path) -> str:
         """ファイルの内容からSHA-256ハッシュを生成する"""
@@ -99,49 +110,55 @@ class CacheManager:
     def get_raw_extraction(self, file_hash: str, include_logic: bool) -> Optional[str]:
         """Excelの生解析結果（HTML/セル情報）をキャッシュから取得"""
         key = f"{file_hash}:logic={include_logic}"
-        with sqlite3.connect(self.db_path) as conn:
-            cur = conn.execute("SELECT content FROM raw_extraction_cache WHERE key = ?", (key,))
+        with self._lock:
+            cur = self._get_conn().execute("SELECT content FROM raw_extraction_cache WHERE key = ?", (key,))
             row = cur.fetchone()
             return row[0] if row else None
 
     def set_raw_extraction(self, file_hash: str, include_logic: bool, content: str):
         """Excelの生解析結果（HTML/セル情報）をキャッシュに保存"""
         key = f"{file_hash}:logic={include_logic}"
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO raw_extraction_cache (key, content) VALUES (?, ?)", (key, content))
+            conn.commit()
 
     def get_vlm_result(self, model: str, prompt: str, image_hash: str) -> Optional[str]:
         """VLMの解析結果をキャッシュから取得"""
         key = f"{model}:{prompt}:{image_hash}"
-        with sqlite3.connect(self.db_path) as conn:
-            cur = conn.execute("SELECT content FROM vlm_cache WHERE key = ?", (key,))
+        with self._lock:
+            cur = self._get_conn().execute("SELECT content FROM vlm_cache WHERE key = ?", (key,))
             row = cur.fetchone()
             return row[0] if row else None
 
     def set_vlm_result(self, model: str, prompt: str, image_hash: str, content: str):
         """VLMの解析結果をキャッシュに保存"""
         key = f"{model}:{prompt}:{image_hash}"
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO vlm_cache (key, content) VALUES (?, ?)", (key, content))
+            conn.commit()
 
     def get_image_data_url(self, image_hash: str) -> Optional[str]:
         """Base64データURLをキャッシュから取得"""
-        with sqlite3.connect(self.db_path) as conn:
-            cur = conn.execute("SELECT data_url FROM image_cache WHERE hash = ?", (image_hash,))
+        with self._lock:
+            cur = self._get_conn().execute("SELECT data_url FROM image_cache WHERE hash = ?", (image_hash,))
             row = cur.fetchone()
             return row[0] if row else None
 
     def set_image_data_url(self, image_hash: str, data_url: str):
         """Base64データURLをキャッシュに保存"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO image_cache (hash, data_url) VALUES (?, ?)", (image_hash, data_url))
+            conn.commit()
 
     def get_llm_result(self, model: str, prompt: str, input_text: str) -> Optional[str]:
         """LLMの解析結果をキャッシュから取得"""
         input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
         key = f"{model}:{hashlib.sha256(prompt.encode('utf-8')).hexdigest()}:{input_hash}"
-        with sqlite3.connect(self.db_path) as conn:
-            cur = conn.execute("SELECT content FROM llm_cache WHERE key = ?", (key,))
+        with self._lock:
+            cur = self._get_conn().execute("SELECT content FROM llm_cache WHERE key = ?", (key,))
             row = cur.fetchone()
             return row[0] if row else None
 
@@ -149,13 +166,17 @@ class CacheManager:
         """LLMの解析結果をキャッシュに保存"""
         input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
         key = f"{model}:{hashlib.sha256(prompt.encode('utf-8')).hexdigest()}:{input_hash}"
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO llm_cache (key, content) VALUES (?, ?)", (key, content))
+            conn.commit()
 
     def clear(self):
         """すべてのキャッシュを削除する"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
+            conn = self._get_conn()
             conn.execute("DELETE FROM vlm_cache")
             conn.execute("DELETE FROM image_cache")
             conn.execute("DELETE FROM llm_cache")
+            conn.execute("DELETE FROM raw_extraction_cache")
             conn.commit()
