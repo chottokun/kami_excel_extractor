@@ -57,7 +57,7 @@ class ExcelConverter:
                     str(Path(soffice_path).resolve()),
                     f"-env:UserInstallation=file://{tmp_dir.resolve()}",
                     "--headless", "--convert-to", "pdf",
-                    "--outdir", str(self.output_dir.resolve()),
+                    "--outdir", str(tmp_dir.resolve()),
                     str(target_excel.resolve())
                 ], capture_output=True, text=True, timeout=600)
 
@@ -66,7 +66,7 @@ class ExcelConverter:
                     raise RuntimeError(f"LibreOffice conversion failed: {res_pdf.stderr}")
 
                 # LibreOfficeは元のファイル名でPDFを書き出すため、生成後にリネームする
-                default_pdf = self.output_dir / f"{target_excel.stem}.pdf"
+                default_pdf = tmp_dir / f"{target_excel.stem}.pdf"
                 if default_pdf.exists():
                     shutil.move(str(default_pdf), str(original_pdf))
 
