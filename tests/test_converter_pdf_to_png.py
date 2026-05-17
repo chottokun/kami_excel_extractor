@@ -196,11 +196,22 @@ def test_try_fitz_multi_success(converter, pdf_path, tmp_path):
         assert results[0].exists()
         assert results[1].exists()
         mock_fitz.open.assert_called_once_with(str(pdf_path.resolve()))
+        mock_doc.close.assert_called_once()
 
 def test_try_fitz_multi_exception(converter, pdf_path, tmp_path):
     output_prefix = tmp_path / "test_multi"
     mock_fitz = MagicMock()
     mock_fitz.open.side_effect = Exception("Fitz open error")
+
+    with patch.dict("sys.modules", {"fitz": mock_fitz}):
+        with pytest.raises(RuntimeError, match="Multi-page PDF to PNG conversion failed"):
+            converter._try_fitz_multi(pdf_path, output_prefix)
+
+def test_try_fitz_multi_no_pages(converter, pdf_path, tmp_path):
+    output_prefix = tmp_path / "test_multi"
+    mock_fitz = MagicMock()
+    mock_doc = mock_fitz.open.return_value
+    mock_doc.__len__.return_value = 0
 
     with patch.dict("sys.modules", {"fitz": mock_fitz}):
         with pytest.raises(RuntimeError, match="Multi-page PDF to PNG conversion failed"):
