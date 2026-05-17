@@ -1,5 +1,6 @@
 from kami_excel_extractor.utils import secure_filename
 
+
 def test_secure_filename():
     test_cases = [
         ("NormalName", "NormalName"),
@@ -22,9 +23,11 @@ def test_secure_filename():
         print(f"Input: '{input_str}' -> Output: '{output}' (Expected: '{expected_output}')")
         assert output == expected_output or (output == "unnamed" and expected_output == "unnamed")
 
+
 if __name__ == "__main__":
-    import sys
     import os
+    import sys
+
     # Add src to sys.path if needed
     sys.path.append(os.path.join(os.getcwd(), "src"))
     test_secure_filename()

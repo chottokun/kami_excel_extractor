@@ -1,16 +1,17 @@
-import re
-import unicodedata
-import sqlite3
-import hashlib
 import asyncio
+import hashlib
+import re
+import sqlite3
 import threading
+import unicodedata
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any, Optional
 
 # Compiled regex patterns for performance
-_FILENAME_SANITIZE_RE = re.compile(r'[^\w\.\-]')
-_FILENAME_MULTIPLE_UNDERSCORES_RE = re.compile(r'__+')
-_FILENAME_MULTIPLE_DOTS_RE = re.compile(r'\.\.+')
+_FILENAME_SANITIZE_RE = re.compile(r"[^\w\.\-]")
+_FILENAME_MULTIPLE_UNDERSCORES_RE = re.compile(r"__+")
+_FILENAME_MULTIPLE_DOTS_RE = re.compile(r"\.\.+")
+
 
 def clean_kami_text(text: Any) -> Any:
     """
@@ -22,12 +23,15 @@ def clean_kami_text(text: Any) -> Any:
         return text
 
     # 全角スペースを半角に
-    text = text.replace('\u3000', ' ')
-    
+    text = text.replace("\u3000", " ")
+
     # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
-    res = re.sub(r'([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])', r'\1', text)
-    
+    res = re.sub(
+        r"([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])", r"\1", text
+    )
+
     return res.strip()
+
 
 def secure_filename(filename: str) -> str:
     """
@@ -38,21 +42,22 @@ def secure_filename(filename: str) -> str:
     if not filename:
         return "unnamed"
 
-    filename = unicodedata.normalize('NFKD', filename)
+    filename = unicodedata.normalize("NFKD", filename)
     filename = filename.replace(" ", "_")
-    filename = _FILENAME_SANITIZE_RE.sub('_', filename)
+    filename = _FILENAME_SANITIZE_RE.sub("_", filename)
     filename = filename.strip("._")
-    filename = _FILENAME_MULTIPLE_UNDERSCORES_RE.sub('_', filename)
-    filename = _FILENAME_MULTIPLE_DOTS_RE.sub('.', filename)
+    filename = _FILENAME_MULTIPLE_UNDERSCORES_RE.sub("_", filename)
+    filename = _FILENAME_MULTIPLE_DOTS_RE.sub(".", filename)
 
     if not filename or filename in (".", ".."):
         return "unnamed"
 
     return filename
 
+
 class CacheManager:
     """SQLiteを使用したキャッシュ永続化マネージャー"""
-    
+
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._lock = threading.Lock()

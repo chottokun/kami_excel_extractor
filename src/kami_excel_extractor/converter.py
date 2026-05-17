@@ -1,24 +1,27 @@
-import subprocess
-import tempfile
 import logging
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
+
 class ExcelConverter:
     """Excelを画像に変換するクラス (PDF経由)"""
-    
+
     def __init__(self, output_dir: Path, dpi: int = 150):
         self.output_dir = Path(output_dir).resolve()
         self.dpi = dpi
 
     def convert(self, input_file: Path, sheet_name: Optional[str] = None) -> Union[Path, List[Path]]:
         import uuid
+
         import openpyxl
+
         input_file = input_file.resolve()
-        
+
         # 🔒 Race Condition Fix: UUIDを使用して中間ファイル名の衝突を回避
         run_id = str(uuid.uuid4())[:8]
         output_prefix = self.output_dir / f"{input_file.stem}_{run_id}"
@@ -31,7 +34,7 @@ class ExcelConverter:
         try:
             with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
                 tmp_dir = Path(tmp_dir_str).resolve()
-                
+
                 # ターゲットファイルの準備 (シート隔離が必要な場合)
                 target_excel = input_file
                 if sheet_name:
@@ -45,7 +48,7 @@ class ExcelConverter:
 
                 # Step 1: Excel -> PDF
                 logger.info(f"Converting {target_excel.name} to PDF (ID: {run_id})...")
-                
+
                 raw_soffice_path = shutil.which("soffice")
                 if not raw_soffice_path:
                     logger.error("LibreOffice (soffice) not found in PATH")
@@ -53,13 +56,21 @@ class ExcelConverter:
                 soffice_path = str(Path(raw_soffice_path).resolve())
 
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
-                res_pdf = subprocess.run([
-                    str(Path(soffice_path).resolve()),
-                    f"-env:UserInstallation=file://{tmp_dir.resolve()}",
-                    "--headless", "--convert-to", "pdf",
-                    "--outdir", str(tmp_dir.resolve()),
-                    str(target_excel.resolve())
-                ], capture_output=True, text=True, timeout=600)
+                res_pdf = subprocess.run(
+                    [
+                        str(Path(soffice_path).resolve()),
+                        f"-env:UserInstallation=file://{tmp_dir.resolve()}",
+                        "--headless",
+                        "--convert-to",
+                        "pdf",
+                        "--outdir",
+                        str(tmp_dir.resolve()),
+                        str(target_excel.resolve()),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
 
                 if res_pdf.returncode != 0:
                     logger.error(f"LibreOffice failed: {res_pdf.stderr}")
@@ -75,7 +86,7 @@ class ExcelConverter:
 
                 # Step 2: PDF -> PNG (multi-page support)
                 logger.info(f"Converting PDF to PNG (multi-page: {bool(sheet_name)})...")
-                
+
                 if sheet_name:
                     # シートごとのマルチページ抽出
                     return self._convert_pdf_to_multi_png(original_pdf, output_prefix)
@@ -97,14 +108,17 @@ class ExcelConverter:
 
         try:
             # pdftocairo を使用して全ページを連番で出力
-            subprocess.run([
-                str(Path(raw_path).resolve()), "-png",
-                str(pdf_path.resolve()), str(output_prefix.resolve())
-            ], check=True, capture_output=True, timeout=300)
-            
+            subprocess.run(
+                [str(Path(raw_path).resolve()), "-png", str(pdf_path.resolve()), str(output_prefix.resolve())],
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
+
             # 生成されたファイルを収集 (prefix-1.png, prefix-2.png, ...)
-            pngs = sorted(list(self.output_dir.glob(f"{output_prefix.name}-*.png")), 
-                         key=lambda p: int(p.stem.split("-")[-1]))
+            pngs = sorted(
+                list(self.output_dir.glob(f"{output_prefix.name}-*.png")), key=lambda p: int(p.stem.split("-")[-1])
+            )
             if pngs:
                 logger.info(f"Generated {len(pngs)} PNGs using pdftocairo")
                 return pngs
@@ -117,12 +131,13 @@ class ExcelConverter:
         """PyMuPDFを使用して全ページをPNGに変換する"""
         try:
             import fitz
+
             doc = fitz.open(str(pdf_path.resolve()))
             pngs = []
             for i in range(len(doc)):
                 page = doc.load_page(i)
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                out_path = self.output_dir / f"{output_prefix.name}-{i+1}.png"
+                out_path = self.output_dir / f"{output_prefix.name}-{i + 1}.png"
                 pix.save(str(out_path.resolve()))
                 pngs.append(out_path)
             doc.close()
@@ -131,7 +146,7 @@ class ExcelConverter:
                 return pngs
         except Exception as e:
             logger.error(f"Multi-page conversion failed: {e}")
-        
+
         raise RuntimeError("Multi-page PDF to PNG conversion failed")
 
     def _convert_pdf_to_png(self, pdf_path: Path, output_png: Path) -> None:
@@ -160,10 +175,18 @@ class ExcelConverter:
 
         try:
             # 🔒 Security Fix: Use absolute paths to prevent argument injection and CWE-426
-            res = subprocess.run([
-                str(Path(raw_path).resolve()), "-png", "-singlefile",
-                str(pdf_path.resolve()), str(output_png.with_suffix("").resolve())
-            ], capture_output=True, text=True, timeout=300)
+            res = subprocess.run(
+                [
+                    str(Path(raw_path).resolve()),
+                    "-png",
+                    "-singlefile",
+                    str(pdf_path.resolve()),
+                    str(output_png.with_suffix("").resolve()),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
 
             if res.returncode == 0 and output_png.exists():
                 logger.info("Converted PDF to PNG using pdftocairo")
@@ -177,6 +200,7 @@ class ExcelConverter:
         """PyMuPDF (fitz) を使用してPDFをPNGに変換する"""
         try:
             import fitz
+
             doc = fitz.open(str(pdf_path.resolve()))
             page = doc.load_page(0)
             # 2.0x zoom for better quality
@@ -202,10 +226,18 @@ class ExcelConverter:
                 # 🔒 Security Fix: Use absolute paths to prevent argument injection
                 # magick [input] [output] or convert [input] [output]
                 # For PDF to PNG with ImageMagick, [0] specifies the first page
-                res = subprocess.run([
-                    str(Path(raw_cmd_path).resolve()), "-density", str(self.dpi),
-                    f"{pdf_path.resolve()}[0]", str(output_png.resolve())
-                ], capture_output=True, text=True, timeout=300)
+                res = subprocess.run(
+                    [
+                        str(Path(raw_cmd_path).resolve()),
+                        "-density",
+                        str(self.dpi),
+                        f"{pdf_path.resolve()}[0]",
+                        str(output_png.resolve()),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
 
                 if res.returncode == 0 and output_png.exists():
                     logger.info(f"Converted PDF to PNG using ImageMagick ({cmd_name})")

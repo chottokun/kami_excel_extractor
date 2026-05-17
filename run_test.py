@@ -1,8 +1,9 @@
+import json
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
-import json
 
 project_root = Path(__file__).parent
 sys.path.append(str(project_root / "src"))

@@ -1,12 +1,16 @@
-import pytest
 import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from kami_excel_extractor.core import KamiExcelExtractor
 from kami_excel_extractor.schema import ExtractionOptions
+
 
 @pytest.fixture
 def extractor(output_dir):
     return KamiExcelExtractor(api_key="fake_key", output_dir=str(output_dir))
+
 
 @pytest.mark.asyncio
 @patch("kami_excel_extractor.core.ExcelConverter.convert")
@@ -37,7 +41,8 @@ async def test_aextract_structured_data_conversion_failure(
 
     # Verification
     # Check that warning was logged
-    assert "Excel-to-image failed: Conversion process failed" in caplog.text
+    assert "Visual context generation failed for sheet 'Sheet1': Conversion process failed" in caplog.text
+
     # Check that extraction still completed
     assert "Sheet1" in result["sheets"]
     assert result["sheets"]["Sheet1"]["data"] == [{"item": "success"}]

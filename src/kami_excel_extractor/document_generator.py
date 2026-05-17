@@ -1,24 +1,26 @@
-import re
-import subprocess
-import shutil
-import logging
-import html
-import concurrent.futures
 import asyncio
+import concurrent.futures
+import html
+import logging
+import re
+import shutil
+import subprocess
 from pathlib import Path
-from typing import List, Optional, Callable, Awaitable, Union
+from typing import List, Optional
+
 from .utils import secure_filename
 
 logger = logging.getLogger(__name__)
 
+
 class DocumentGenerator:
     """MarkdownからHTML/PDFを生成するクラス"""
-    
-    RE_TABLE_SEP = re.compile(r'^:?-{2,}:?$')
-    RE_HEADER = re.compile(r'^#+')
-    RE_BOLD = re.compile(r'\*\*(.*?)\*\*')
-    RE_LIST_ITEM_START = re.compile(r'^[-*](\s+|$)')
-    RE_LIST_ITEM_CONTENT = re.compile(r'^[-*]\s+(.*)$')
+
+    RE_TABLE_SEP = re.compile(r"^:?-{2,}:?$")
+    RE_HEADER = re.compile(r"^#+")
+    RE_BOLD = re.compile(r"\*\*(.*?)\*\*")
+    RE_LIST_ITEM_START = re.compile(r"^[-*](\s+|$)")
+    RE_LIST_ITEM_CONTENT = re.compile(r"^[-*]\s+(.*)$")
 
     def __init__(self, output_dir: Path):
         self.output_dir = Path(output_dir).resolve()
@@ -43,20 +45,21 @@ class DocumentGenerator:
         # altテキストの抽出
         alt_start = 2
         alt_end = stripped.find("]")
-        if alt_end == -1: return None
+        if alt_end == -1:
+            return None
         alt_text = stripped[alt_start:alt_end]
 
         # パスの抽出 (括弧のバランスを考慮)
-        remaining = stripped[alt_end+1:]
+        remaining = stripped[alt_end + 1 :]
         if not remaining.startswith("("):
             return None
-        
+
         path_start = 1
         stack = 0
         for i, char in enumerate(remaining):
-            if char == '(':
+            if char == "(":
                 stack += 1
-            elif char == ')':
+            elif char == ")":
                 stack -= 1
                 if stack == 0:
                     path_content = remaining[path_start:i]
@@ -65,40 +68,40 @@ class DocumentGenerator:
 
     def _render_inline(self, text: str) -> str:
         """テキストをHTMLエスケープし、インラインスタイル（画像、太字）を適用する"""
-        
+
         # 1. 画像の抽出と置換 (エスケープ前に行う)
         result_parts = []
         last_end = 0
         i = 0
         while i < len(text):
-            if text[i:i+2] == "![":
+            if text[i : i + 2] == "![":
                 parsed = self._parse_balanced_image(text[i:])
                 if parsed:
                     # 画像の前のテキストをエスケープして追加
                     before_text = text[last_end:i]
                     result_parts.append(self._apply_inline_styles(html.escape(before_text, quote=True)))
-                    
+
                     alt_text, path_content = parsed
                     escaped_img_path = html.escape(path_content, quote=True)
                     escaped_alt = html.escape(alt_text or "画像", quote=True)
                     img_tag = f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
                     result_parts.append(img_tag)
-                    
+
                     consumed_len = len(f"![{alt_text}]({path_content})")
                     i += consumed_len
                     last_end = i
                     continue
             i += 1
-        
+
         # 残りのテキストを追加
         remaining_text = text[last_end:]
         result_parts.append(self._apply_inline_styles(html.escape(remaining_text, quote=True)))
-        
+
         return "".join(result_parts)
 
     def _apply_inline_styles(self, text: str) -> str:
         """太字等のインラインスタイルを適用する (textはエスケープ済み)"""
-        text = self.RE_BOLD.sub(r'<b>\1</b>', text)
+        text = self.RE_BOLD.sub(r"<b>\1</b>", text)
         if "[画像概要]" in text:
             text = f'<div class="visual-summary">{text}</div>'
         return text
@@ -110,11 +113,11 @@ class DocumentGenerator:
         html_out = ["<table>"]
         for i, line in enumerate(lines):
             # セパレータ行をスキップ
-            if i == 1 and self.RE_TABLE_SEP.match(line.strip().split('|')[1] if '|' in line else ""):
+            if i == 1 and self.RE_TABLE_SEP.match(line.strip().split("|")[1] if "|" in line else ""):
                 continue
-            
+
             # セルを分割。先頭と末尾の空要素を考慮
-            cells = [c.strip() for c in line.split('|') if c.strip()]
+            cells = [c.strip() for c in line.split("|") if c.strip()]
             tag = "th" if i == 0 else "td"
             html_out.append("  <tr>")
             for cell in cells:
@@ -154,28 +157,29 @@ class DocumentGenerator:
             # altテキストの抽出
             alt_start = 2
             alt_end = stripped_line.find("]")
-            if alt_end == -1: return stripped_line
+            if alt_end == -1:
+                return stripped_line
             alt_text = stripped_line[alt_start:alt_end]
 
             # パスの抽出 (括弧のバランスを考慮)
             # ] の直後が ( であることを確認
-            remaining = stripped_line[alt_end+1:]
+            remaining = stripped_line[alt_end + 1 :]
             if not remaining.startswith("("):
                 return stripped_line
-            
-            path_start = 1 # remaining における開始位置
+
+            path_start = 1  # remaining における開始位置
             stack = 0
             path_content = None
-            
+
             for i, char in enumerate(remaining):
-                if char == '(':
+                if char == "(":
                     stack += 1
-                elif char == ')':
+                elif char == ")":
                     stack -= 1
                     if stack == 0:
                         path_content = remaining[path_start:i]
                         break
-            
+
             if path_content is None:
                 return stripped_line
 
@@ -183,7 +187,7 @@ class DocumentGenerator:
             escaped_img_path = html.escape(path_content, quote=True)
             escaped_alt = html.escape(alt_text or "画像", quote=True)
             return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
-            
+
         except Exception:
             # 万が一のパース失敗時は元のテキストを返す
             return stripped_line
@@ -195,7 +199,7 @@ class DocumentGenerator:
     def _process_table_block(self, lines: List[str], index: int) -> tuple[str, int]:
         """テーブルブロックを抽出してHTMLに変換する"""
         table_lines = []
-        while index < len(lines) and lines[index].strip().startswith('|'):
+        while index < len(lines) and lines[index].strip().startswith("|"):
             table_lines.append(lines[index])
             index += 1
         return self._render_table(table_lines), index
@@ -246,7 +250,7 @@ class DocumentGenerator:
 
     def _simple_md_to_html(self, md_content: str) -> str:
         """簡易的なMarkdownをHTMLに変換する"""
-        lines = md_content.split('\n')
+        lines = md_content.split("\n")
         body_parts = []
 
         i = 0
@@ -255,7 +259,7 @@ class DocumentGenerator:
             stripped = line.strip()
             if not stripped:
                 i += 1
-            elif stripped.startswith('|'):
+            elif stripped.startswith("|"):
                 html_table, i = self._process_table_block(lines, i)
                 body_parts.append(html_table)
             elif self.RE_HEADER.match(stripped):
@@ -280,7 +284,7 @@ class DocumentGenerator:
                 if src.exists():
                     dst = (tmp_dir / filename).resolve()
                     shutil.copy2(str(src), str(dst))
-                    return f'![{alt_text}](file://{dst})'
+                    return f"![{alt_text}](file://{dst})"
         return line
 
     async def _aresolve_single_image(self, line: str, search_dirs: List[Path], tmp_dir: Path) -> str:
@@ -299,7 +303,7 @@ class DocumentGenerator:
             if exists:
                 dst = (tmp_dir / filename).resolve()
                 await asyncio.to_thread(shutil.copy2, str(src), str(dst))
-                return f'![{alt_text}](file://{dst})'
+                return f"![{alt_text}](file://{dst})"
         return line
 
     def _resolve_images_to_tmpdir(self, md_content: str, tmp_dir: Path) -> str:
@@ -312,7 +316,9 @@ class DocumentGenerator:
         if not image_indices:
             return md_content
 
-        futures = {self._executor.submit(self._resolve_single_image, lines[i], search_dirs, tmp_dir): i for i in image_indices}
+        futures = {
+            self._executor.submit(self._resolve_single_image, lines[i], search_dirs, tmp_dir): i for i in image_indices
+        }
         for future in concurrent.futures.as_completed(futures):
             i = futures[future]
             lines[i] = future.result()
@@ -344,11 +350,11 @@ class DocumentGenerator:
         """LibreOffice (soffice) のパスを取得してキャッシュする"""
         if hasattr(self, "_cached_soffice_path"):
             return self._cached_soffice_path
-        
+
         raw_path = shutil.which("soffice")
         if not raw_path:
             return None
-        
+
         self._cached_soffice_path = str(Path(raw_path).resolve())
         return self._cached_soffice_path
 
@@ -362,10 +368,20 @@ class DocumentGenerator:
                 return None
 
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
-            res = subprocess.run([
-                soffice_path, "--headless", "--convert-to", "pdf",
-                "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve())
-            ], capture_output=True, text=True, timeout=60)
+            res = subprocess.run(
+                [
+                    soffice_path,
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    str(tmp_dir.resolve()),
+                    str(temp_html.resolve()),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
             if res.returncode != 0:
                 logger.error(f"soffice conversion failed (returncode {res.returncode}): {res.stderr}")
                 return None
@@ -396,10 +412,15 @@ class DocumentGenerator:
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             # ⚡ Performance: Use asyncio.create_subprocess_exec to free up the event loop
             proc = await asyncio.create_subprocess_exec(
-                soffice_path, "--headless", "--convert-to", "pdf",
-                "--outdir", str(tmp_dir.resolve()), str(temp_html.resolve()),
+                soffice_path,
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(tmp_dir.resolve()),
+                str(temp_html.resolve()),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             try:
@@ -412,7 +433,7 @@ class DocumentGenerator:
 
             if proc.returncode != 0:
                 # 🛠️ Fix: Use errors='replace' to avoid UnicodeDecodeError on invalid stderr output
-                err_msg = stderr.decode(errors='replace')
+                err_msg = stderr.decode(errors="replace")
                 logger.error(f"soffice conversion failed (returncode {proc.returncode}): {err_msg}")
                 return None
 
@@ -433,11 +454,12 @@ class DocumentGenerator:
     def _prepare_and_convert_pdf(self, md_content: str, output_name: str, resolved_md: str) -> Optional[Path]:
         """PDF生成の実処理（同期用ブロッキング処理）"""
         import tempfile
+
         safe_output_name = secure_filename(output_name)
-        
+
         with tempfile.TemporaryDirectory(prefix="pdf_gen_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str).resolve()
-            
+
             # 画像解決されたMarkdownからHTMLを生成
             html_content = self._simple_md_to_html(resolved_md)
             temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
@@ -459,10 +481,11 @@ class DocumentGenerator:
 
     async def _aprepare_and_convert_pdf(self, md_content: str, output_name: str, resolved_md: str) -> Optional[Path]:
         """PDF生成の実処理（非同期版）"""
-        import tempfile
+        import shutil  # Explicitly import in the method as well to be safe, though it's at module level
+
         import aiofiles
         import aiofiles.tempfile
-        import shutil  # Explicitly import in the method as well to be safe, though it's at module level
+
         safe_output_name = secure_filename(output_name)
 
         # ⚡ Performance: Use async context manager for TemporaryDirectory to avoid blocking event loop during cleanup
@@ -473,7 +496,7 @@ class DocumentGenerator:
             html_content = self._simple_md_to_html(resolved_md)
             temp_html = (tmp_dir / f"{safe_output_name}.html").resolve()
 
-            async with aiofiles.open(temp_html, mode='w', encoding="utf-8") as f:
+            async with aiofiles.open(temp_html, mode="w", encoding="utf-8") as f:
                 await f.write(html_content)
 
             # 最終出力先
@@ -493,6 +516,7 @@ class DocumentGenerator:
     def generate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（LibreOffice sofficeを使用）"""
         import tempfile
+
         # 同期画像解決
         with tempfile.TemporaryDirectory(prefix="pdf_gen_img_") as img_tmp_dir:
             resolved_md = self._resolve_images_to_tmpdir(md_content, Path(img_tmp_dir))
@@ -500,8 +524,8 @@ class DocumentGenerator:
 
     async def agenerate_pdf(self, md_content: str, output_name: str) -> Optional[Path]:
         """MarkdownからPDFを生成する（非同期版、LibreOffice sofficeを使用）"""
-        import tempfile
         import aiofiles.tempfile
+
         # 非同期画像解決
         # ⚡ Performance: Use async context manager for TemporaryDirectory to avoid blocking event loop during cleanup
         async with aiofiles.tempfile.TemporaryDirectory(prefix="pdf_gen_img_") as img_tmp_dir:

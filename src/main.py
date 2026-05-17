@@ -1,15 +1,17 @@
+import json
+import logging
 import os
 import time
-import logging
-import json
 from pathlib import Path
+
 from dotenv import load_dotenv
+
 from kami_excel_extractor import KamiExcelExtractor
 from kami_excel_extractor.schema import RagOptions
 from kami_excel_extractor.utils import secure_filename
 
 # ロギング設定
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # 設定の読み込み
@@ -21,6 +23,7 @@ OUTPUT_DIR = Path("data/output")
 LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GEMINI_MODEL") or "gemini/gemini-1.5-flash"
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT") or 1800.0)
+
 
 def _save_sheet_results(sheet_name: str, res: dict, target_dir: Path, extractor: KamiExcelExtractor) -> None:
     """1つのシートの抽出結果を各種フォーマットで保存する。"""
@@ -45,6 +48,7 @@ def _save_sheet_results(sheet_name: str, res: dict, target_dir: Path, extractor:
 
     logger.info(f"Generating PDF report for sheet {sheet_name}...")
     extractor.doc_generator.generate_pdf(res["markdown"], f"{target_dir.name}/{safe_sheet_name}_report")
+
 
 def process_file(f: Path, extractor: KamiExcelExtractor, model: str) -> bool:
     """
@@ -76,6 +80,7 @@ def process_file(f: Path, extractor: KamiExcelExtractor, model: str) -> bool:
         logger.error(f"Failed to process {f.name}: {e}")
         return False
 
+
 def _process_pending_files(extractor: KamiExcelExtractor, model: str, processed: set[Path]) -> None:
     """入力ディレクトリを監視し、未処理のファイルを処理する。"""
     files = list(INPUT_DIR.glob("*.xlsx"))
@@ -83,6 +88,7 @@ def _process_pending_files(extractor: KamiExcelExtractor, model: str, processed:
         if f not in processed:
             if process_file(f, extractor, model):
                 processed.add(f)
+
 
 def main():
     # 実行時に最新の値を取得 (テストパッチ対応)
@@ -97,19 +103,15 @@ def main():
         return
 
     # ライブラリの初期化
-    extractor = KamiExcelExtractor(
-        api_key=api_key, 
-        base_url=base_url,
-        output_dir=str(OUTPUT_DIR), 
-        timeout=timeout
-    )
-    
+    extractor = KamiExcelExtractor(api_key=api_key, base_url=base_url, output_dir=str(OUTPUT_DIR), timeout=timeout)
+
     logger.info(f"Library Mode Pipeline started. Monitoring {INPUT_DIR}...")
     processed = set()
-    
+
     while True:
         _process_pending_files(extractor, model, processed)
         time.sleep(10)
+
 
 if __name__ == "__main__":
     main()

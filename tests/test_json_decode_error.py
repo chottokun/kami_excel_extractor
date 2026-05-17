@@ -1,11 +1,15 @@
 import json
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from kami_excel_extractor.core import KamiExcelExtractor
+
 
 @pytest.fixture
 def extractor(output_dir):
     return KamiExcelExtractor(api_key="fake_key", output_dir=str(output_dir))
+
 
 def test_parse_llm_response_json_decode_error_fallback(extractor):
     """
@@ -31,12 +35,14 @@ key: yaml_value
     assert result["data"]["key"] == "yaml_value"
     assert result["_raw_data"] == "key: yaml_value"
 
+
 def test_parse_llm_response_only_yaml_block(extractor):
     """YAML block only."""
     content = "```yaml\nfoo: bar\n```"
     result = extractor._parse_llm_response(content, "Sheet1")
     assert result["data"]["foo"] == "bar"
     assert result["_raw_data"] == "foo: bar"
+
 
 def test_parse_llm_response_no_markdown_blocks(extractor):
     """No markdown blocks, should parse whole content as YAML."""
@@ -45,6 +51,7 @@ def test_parse_llm_response_no_markdown_blocks(extractor):
     assert result["data"]["just"] == "yaml"
     assert result["data"]["content"] == "here"
     assert result["_raw_data"] == content
+
 
 def test_parse_llm_response_both_malformed(extractor):
     """Both blocks are malformed, should return error."""
@@ -60,6 +67,7 @@ def test_parse_llm_response_both_malformed(extractor):
     result = extractor._parse_llm_response(content, "Sheet1")
     assert "error" in result
     assert result["_raw_data"] == content
+
 
 def test_parse_llm_response_sheets_structure(extractor):
     """Test handling of the 'sheets' structure in the response."""
@@ -83,11 +91,13 @@ def test_parse_llm_response_sheets_structure(extractor):
     result2 = extractor._parse_llm_response(content, "Sheet2")
     assert result2["data"] == [{"b": 2}]
 
+
 def test_parse_llm_response_already_has_data_key(extractor):
     """If it already has 'data' key, it shouldn't wrap again."""
     content = '```json\n{"data": {"nested": "value"}}\n```'
     result = extractor._parse_llm_response(content, "Sheet1")
     assert result["data"] == {"nested": "value"}
+
 
 @pytest.mark.asyncio
 @patch("litellm.acompletion")
@@ -98,7 +108,7 @@ async def test_aextract_single_sheet_json_decode_error_mock(mock_acompletion, ex
 
     class MockResponse:
         def __init__(self, content):
-            self.choices = [type('Choice', (), {'message': type('Message', (), {'content': content})()})]
+            self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})]
 
     content_with_both = '```json\n{"key": "value"}\n```\n```yaml\nkey: yaml_value\n```'
     mock_acompletion.return_value = MockResponse(content_with_both)
@@ -108,15 +118,14 @@ async def test_aextract_single_sheet_json_decode_error_mock(mock_acompletion, ex
 
     # Mock json.loads to fail on the specific JSON string
     original_json_loads = json.loads
+
     def side_effect(s, **kwargs):
         if s == '{"key": "value"}':
             raise json.JSONDecodeError("mock error", s, 0)
         return original_json_loads(s, **kwargs)
 
     with patch("json.loads", side_effect=side_effect):
-        name, result = await extractor._aextract_single_sheet(
-            sheet_name, sheet_content, "model", "prompt", None, None
-        )
+        name, result = await extractor._aextract_single_sheet(sheet_name, sheet_content, "model", "prompt", None, None)
 
     assert name == sheet_name
     # Since JSON failed, it should have tried YAML.

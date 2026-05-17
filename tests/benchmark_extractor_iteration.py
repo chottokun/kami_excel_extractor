@@ -1,8 +1,10 @@
-
 import time
-import openpyxl
 from pathlib import Path
+
+import openpyxl
+
 from kami_excel_extractor.extractor import MetadataExtractor
+
 
 def create_large_excel(path, rows=1000, cols=20):
     wb = openpyxl.Workbook()
@@ -15,6 +17,7 @@ def create_large_excel(path, rows=1000, cols=20):
     ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=2)
 
     wb.save(path)
+
 
 def main():
     test_file = Path("benchmark_large.xlsx")
@@ -36,6 +39,7 @@ def main():
 
     if test_file.exists():
         test_file.unlink()
+
 
 if __name__ == "__main__":
     main()

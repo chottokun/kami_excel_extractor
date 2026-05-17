@@ -1,12 +1,16 @@
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import openpyxl
+import pytest
+
 from kami_excel_extractor.extractor import MetadataExtractor
+
 
 @pytest.fixture
 def extractor(tmp_path):
     return MetadataExtractor(output_dir=tmp_path)
+
 
 @pytest.fixture
 def sample_excel_file(tmp_path):
@@ -28,6 +32,7 @@ def sample_excel_file(tmp_path):
     wb.save(excel_path)
     return excel_path
 
+
 def test_extract_orchestration(extractor):
     """Test the orchestration logic of extract() by mocking internal methods."""
     mock_wb = MagicMock()
@@ -37,12 +42,13 @@ def test_extract_orchestration(extractor):
     mock_ws2 = MagicMock()
     mock_wb.__getitem__.side_effect = lambda name: mock_ws1 if name == "Sheet1" else mock_ws2
 
-    with patch("openpyxl.load_workbook", return_value=mock_wb) as mock_load_wb, \
-         patch.object(MetadataExtractor, "_generate_metadata_and_html") as mock_gen_both, \
-         patch.object(MetadataExtractor, "_extract_media") as mock_ext_media, \
-         patch.object(MetadataExtractor, "is_simple_table") as mock_is_simple, \
-         patch.object(MetadataExtractor, "extract_simple_table") as mock_ext_simple:
-
+    with (
+        patch("openpyxl.load_workbook", return_value=mock_wb) as mock_load_wb,
+        patch.object(MetadataExtractor, "_generate_metadata_and_html") as mock_gen_both,
+        patch.object(MetadataExtractor, "_extract_media") as mock_ext_media,
+        patch.object(MetadataExtractor, "is_simple_table") as mock_is_simple,
+        patch.object(MetadataExtractor, "extract_simple_table") as mock_ext_simple,
+    ):
         # Configure mocks
         mock_gen_both.return_value = ("<table></table>", [])
         mock_ext_media.return_value = [{"coord": "A1", "filename": "img.png"}]
@@ -78,6 +84,7 @@ def test_extract_orchestration(extractor):
         assert s2["is_simple"] is False
         assert "structured_data" not in s2
         assert s2["html"] == "<table></table>"
+
 
 def test_extract_integration_minimal(extractor, sample_excel_file):
     """Test extract() with a real file to ensure all components work together."""

@@ -1,9 +1,12 @@
-import pytest
+import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import io
+
+import pytest
 from PIL import Image, UnidentifiedImageError
+
 from kami_excel_extractor.extractor import MetadataExtractor
+
 
 def test_extract_media_success(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
@@ -62,6 +65,7 @@ def test_extract_media_success(tmp_path):
         expected_path2 = tmp_path / "media" / "Sheet1_img_B2_1.png"
         mock_pillow_img2_converted.save.assert_called_with(expected_path2, "PNG")
 
+
 def test_extract_media_failure_skips_image(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
 
@@ -103,6 +107,7 @@ def test_extract_media_failure_skips_image(tmp_path):
         expected_path_ok = tmp_path / "media" / "Sheet1_img_A1_0.png"
         mock_pillow_img_ok.save.assert_called_with(expected_path_ok, "PNG")
 
+
 def test_extract_media_value_error(tmp_path):
     """ValueError during Image.open should be caught and skipped."""
     extractor = MetadataExtractor(output_dir=tmp_path)
@@ -121,6 +126,8 @@ def test_extract_media_value_error(tmp_path):
         assert len(media_info) == 1
         assert media_info[0]["coord"] == "A1"
         assert media_info[0]["error"] == "unidentified_format"
+
+
 def test_extract_media_no_images(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
     mock_ws = MagicMock()

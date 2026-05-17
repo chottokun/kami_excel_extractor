@@ -1,8 +1,11 @@
-import pytest
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from kami_excel_extractor.cli import run_async
+
 
 @pytest.mark.asyncio
 async def test_cli_output_path_traversal_remediation(tmp_path):
@@ -55,8 +58,10 @@ async def test_cli_output_path_traversal_remediation(tmp_path):
                 # Filename should be sanitized (e.g., "unnamed_result.json")
                 assert "unnamed" in Path(path).name
 
+
 def test_secure_filename_behavior():
     from kami_excel_extractor.utils import secure_filename
+
     assert secure_filename("..") == "unnamed"
     assert secure_filename(".") == "unnamed"
     assert secure_filename("/") == "unnamed"

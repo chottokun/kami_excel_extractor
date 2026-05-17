@@ -5,14 +5,16 @@ import logging
 import os
 import sys
 from pathlib import Path
+
 from .core import KamiExcelExtractor
 from .schema import ExtractionOptions, RagOptions
 from .utils import secure_filename
 
+
 def create_parser():
     """CLIパーサーを作成する"""
     parser = argparse.ArgumentParser(description="Kami Excel Extractor CLI - Excelを構造化データ(JSON/YAML)に変換")
-    
+
     parser.add_argument("input", help="対象のExcelファイルパス")
     parser.add_argument("--model", help="使用するモデル名 (例: ollama/qwen3.5:4b, gemini/gemini-1.5-flash)")
     parser.add_argument("--api-key", help="LLMのAPIキー (環境変数 LLM_API_KEY を上書き)")
@@ -29,6 +31,7 @@ def create_parser():
     parser.add_argument("--verbose", action="store_true", help="詳細なログを出力する")
     return parser
 
+
 async def run_async(args):
     """非同期実行のメインロジック"""
     logger = logging.getLogger("kami-excel-cli")
@@ -38,14 +41,11 @@ async def run_async(args):
         os.environ["LLM_RPM_LIMIT"] = str(args.rpm)
 
     extractor = KamiExcelExtractor(
-        api_key=args.api_key,
-        base_url=args.base_url,
-        output_dir=args.output_dir,
-        timeout=args.timeout
+        api_key=args.api_key, base_url=args.base_url, output_dir=args.output_dir, timeout=args.timeout
     )
 
     logger.info(f"解析開始: {args.input}")
-    
+
     # vision設定の解決
     use_visual_context = not args.no_vision
     # コマンドライン引数が優先されるが、デフォルトでは vision 有効時にサマリーも取る
@@ -59,12 +59,9 @@ async def run_async(args):
                 use_visual_context=use_visual_context,
                 include_visual_summaries=include_visual_summaries,
                 include_logic=args.include_logic,
-                dpi=args.dpi if args.dpi is not None else 150
+                dpi=args.dpi if args.dpi is not None else 150,
             )
-            chunks_map, structured_data = await extractor.aextract_rag_chunks(
-                args.input,
-                options=rag_options
-            )
+            chunks_map, structured_data = await extractor.aextract_rag_chunks(args.input, options=rag_options)
             result_data = structured_data
         else:
             options = ExtractionOptions(
@@ -73,12 +70,9 @@ async def run_async(args):
                 use_visual_context=use_visual_context,
                 include_visual_summaries=include_visual_summaries,
                 include_logic=args.include_logic,
-                dpi=args.dpi if args.dpi is not None else 150
+                dpi=args.dpi if args.dpi is not None else 150,
             )
-            result_data = await extractor.aextract_structured_data(
-                args.input,
-                options=options
-            )
+            result_data = await extractor.aextract_structured_data(args.input, options=options)
 
         # 結果の保存
         safe_stem = secure_filename(Path(args.input).stem)
@@ -94,8 +88,7 @@ async def run_async(args):
         if args.rag:
             rag_path = Path(args.output_dir) / f"{safe_stem}_rag.json"
             serializable_chunks = {
-                k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]}
-                for k, v in chunks_map.items()
+                k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()
             }
             await asyncio.to_thread(_save_json, rag_path, serializable_chunks)
             logger.info(f"RAG用データを保存しました: {rag_path}")
@@ -104,8 +97,10 @@ async def run_async(args):
         logger.error(f"実行中にエラーが発生しました: {e}")
         if args.verbose:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
+
 
 def main():
     """CLIエントリーポイント"""
@@ -122,6 +117,7 @@ def main():
         sys.exit(1)
 
     asyncio.run(run_async(args))
+
 
 if __name__ == "__main__":
     main()

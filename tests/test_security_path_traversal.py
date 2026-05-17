@@ -1,11 +1,15 @@
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from kami_excel_extractor.document_generator import DocumentGenerator
+
 
 @pytest.fixture
 def doc_gen(tmp_path):
     return DocumentGenerator(output_dir=tmp_path)
+
 
 @patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 @patch("kami_excel_extractor.document_generator.subprocess.run")
@@ -32,15 +36,18 @@ def test_generate_pdf_path_traversal_remediation(mock_move, mock_run, mock_which
     # Ensure it's inside the output directory
     assert result.resolve().is_relative_to(tmp_path.resolve())
 
+
 @patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}")
 def test_generate_pdf_with_spaces_and_dots(mock_which, doc_gen, tmp_path):
     """Test that filenames with spaces and dots are handled correctly."""
     output_name = "my report v1.0"
     md_content = "# Title"
 
-    with patch("kami_excel_extractor.document_generator.subprocess.run") as mock_run, \
-         patch("shutil.move"), \
-         patch("pathlib.Path.exists", return_value=True):
+    with (
+        patch("kami_excel_extractor.document_generator.subprocess.run") as mock_run,
+        patch("shutil.move"),
+        patch("pathlib.Path.exists", return_value=True),
+    ):
         mock_run.return_value = MagicMock(returncode=0)
         result = doc_gen.generate_pdf(md_content, output_name)
 

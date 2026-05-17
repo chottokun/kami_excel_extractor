@@ -1,27 +1,28 @@
-import pytest
+import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
-import json
+
+import pytest
+
 
 @pytest.fixture
 def mock_litellm(monkeypatch):
     """LiteLLMのcompletionをモック化するフィクスチャ"""
     mock = MagicMock()
-    
+
     # デフォルトのレスポンス
     mock_response = MagicMock()
-    mock_response.choices = [
-        MagicMock(message=MagicMock(content=json.dumps({"test": "data"})))
-    ]
+    mock_response.choices = [MagicMock(message=MagicMock(content=json.dumps({"test": "data"})))]
     mock.return_value = mock_response
-    
+
     async def async_mock(*args, **kwargs):
         return mock(*args, **kwargs)
 
     monkeypatch.setattr("litellm.completion", mock)
     monkeypatch.setattr("litellm.acompletion", async_mock)
     return mock
+
 
 @pytest.fixture
 def sample_excel_path(tmp_path):
@@ -30,12 +31,14 @@ def sample_excel_path(tmp_path):
     # 実際の内容は必要ない場合が多いが、extractorがopenpyxlを使うので
     # 最低限のファイルを作成するか、extractor自体をモック化する
     from openpyxl import Workbook
+
     wb = Workbook()
     ws = wb.active
     ws["A1"] = "テストデータ"
     ws["B1"] = "報告者"
     wb.save(excel_path)
     return excel_path
+
 
 @pytest.fixture
 def output_dir(tmp_path):

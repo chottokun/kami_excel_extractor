@@ -1,10 +1,14 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from kami_excel_extractor.core import KamiExcelExtractor
+
 
 @pytest.fixture
 def extractor(output_dir):
     return KamiExcelExtractor(api_key="fake_key", output_dir=str(output_dir))
+
 
 def test_parse_llm_response_invalid_yaml(extractor):
     """Test exception handling when YAML parsing fails"""
@@ -19,6 +23,7 @@ def test_parse_llm_response_invalid_yaml(extractor):
     # Verify that it caught a YAMLError or similar
     assert "scanner" in result["error"].lower() or "expected" in result["error"].lower()
 
+
 def test_parse_llm_response_non_dict(extractor):
     """Test handling of non-dictionary YAML output"""
     yaml_str = "- item1\n- item2"
@@ -28,6 +33,7 @@ def test_parse_llm_response_non_dict(extractor):
 
     assert result["data"] == ["item1", "item2"]
     assert result["_raw_data"] == yaml_str
+
 
 def test_parse_llm_response_with_sheets_key(extractor):
     """Test extraction when response contains a 'sheets' key"""
@@ -44,9 +50,10 @@ sheets:
     assert result["data"]["key1"] == "value1"
     assert result["_raw_data"] == yaml_str
 
+
 def test_parse_llm_response_with_markdown_blocks(extractor):
     """Test extraction when response is wrapped in markdown code blocks"""
-    content = "Here is the data:\n```json\n{\"data\": {\"key\": \"value\"}}\n```\nHope it helps!"
+    content = 'Here is the data:\n```json\n{"data": {"key": "value"}}\n```\nHope it helps!'
     sheet_name = "Sheet1"
 
     result = extractor._parse_llm_response(content, sheet_name)
@@ -54,6 +61,7 @@ def test_parse_llm_response_with_markdown_blocks(extractor):
     # Note: SheetData with extra='allow' will keep 'data' field
     assert result["data"]["key"] == "value"
     assert result["_raw_data"] == '{"data": {"key": "value"}}'
+
 
 def test_parse_llm_response_empty_response(extractor):
     """Test handling of empty YAML response"""
@@ -67,6 +75,7 @@ def test_parse_llm_response_empty_response(extractor):
     # Pydantic's model_dump(exclude_none=True) will then exclude 'data'.
     # So we don't expect 'data' in the final cleaned dictionary.
     assert "data" not in result
+
 
 @pytest.mark.asyncio
 @patch("litellm.acompletion")
@@ -89,6 +98,7 @@ async def test_aextract_single_sheet_api_failure(mock_litellm, extractor):
     assert "API connection error" in result["error"]
     assert result["_raw_data"] == ""
 
+
 @pytest.mark.asyncio
 async def test_aprocess_media_summary_missing_file(extractor):
     """Test handling of missing media file in _aprocess_media_summary"""
@@ -98,39 +108,32 @@ async def test_aprocess_media_summary_missing_file(extractor):
 
     assert result is None
 
+
 @pytest.mark.asyncio
 async def test_aextract_single_sheet_is_simple_list(extractor):
     """Test is_simple path where structured_data is a list"""
     sheet_name = "SimpleSheet"
-    sheet_content = {
-        "is_simple": True,
-        "structured_data": [{"col1": "val1"}]
-    }
+    sheet_content = {"is_simple": True, "structured_data": [{"col1": "val1"}]}
 
-    name, result = await extractor._aextract_single_sheet(
-        sheet_name, sheet_content, "model", "prompt", "url", None
-    )
+    name, result = await extractor._aextract_single_sheet(sheet_name, sheet_content, "model", "prompt", "url", None)
 
     assert name == sheet_name
     assert result["data"]["data"] == [{"col1": "val1"}]
     assert result["_raw_data"] == ""
 
+
 @pytest.mark.asyncio
 async def test_aextract_single_sheet_is_simple_dict(extractor):
     """Test is_simple path where structured_data is already a dict"""
     sheet_name = "SimpleSheetDict"
-    sheet_content = {
-        "is_simple": True,
-        "structured_data": {"custom": "data"}
-    }
+    sheet_content = {"is_simple": True, "structured_data": {"custom": "data"}}
 
-    name, result = await extractor._aextract_single_sheet(
-        sheet_name, sheet_content, "model", "prompt", "url", None
-    )
+    name, result = await extractor._aextract_single_sheet(sheet_name, sheet_content, "model", "prompt", "url", None)
 
     assert name == sheet_name
     assert result["data"]["custom"] == "data"
     assert result["_raw_data"] == ""
+
 
 def test_parse_llm_response_invalid_json_and_invalid_yaml(extractor):
     """Test fallback from invalid JSON block to invalid YAML content"""

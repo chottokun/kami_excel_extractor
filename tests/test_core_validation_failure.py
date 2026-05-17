@@ -1,10 +1,14 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from kami_excel_extractor.core import KamiExcelExtractor
+
 
 @pytest.fixture
 def extractor(output_dir):
     return KamiExcelExtractor(api_key="fake_key", output_dir=str(output_dir))
+
 
 def test_parse_llm_response_validation_exception(extractor):
     """
@@ -22,6 +26,7 @@ def test_parse_llm_response_validation_exception(extractor):
     assert "Validation failed" in result["error"]
     assert "Validation failed: Mocked validation error" in result["error"]
     assert result["_raw_data"] == '{"data": {"some": "data"}}'
+
 
 def test_parse_llm_response_validation_error_pydantic(extractor):
     """

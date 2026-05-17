@@ -1,10 +1,14 @@
-import pytest
 from pathlib import Path
+
+import pytest
+
 from kami_excel_extractor.document_generator import DocumentGenerator
+
 
 @pytest.fixture
 def doc_gen(tmp_path):
     return DocumentGenerator(output_dir=tmp_path)
+
 
 def test_xss_injection(doc_gen):
     # Test Bold XSS
@@ -52,6 +56,7 @@ def test_xss_injection(doc_gen):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_out
     assert '<div class="visual-summary">[画像概要] &lt;script&gt;alert(1)&lt;/script&gt;</div>' in html_out
 
+
 def test_image_path_with_parentheses(doc_gen):
     # Test that image paths with parentheses are correctly handled and escaped
     md = "![alt](image(1).png)"
@@ -65,6 +70,7 @@ def test_image_path_with_parentheses(doc_gen):
     assert 'src="image(2).png?x=y&amp;z=w"' in html_out
     assert 'alt="alt&quot; onerror=&quot;alert(1)"' in html_out
     assert 'onerror="alert(1)"' not in html_out
+
 
 def test_multiple_images_on_same_line(doc_gen):
     # Test that the regex is not too greedy and handles multiple images on the same line
@@ -83,5 +89,6 @@ def test_multiple_images_on_same_line(doc_gen):
     md = "![img](path.png) (additional info)"
     html_out = doc_gen._simple_md_to_html(md)
     assert 'src="path.png"' in html_out
-    assert '(additional info)' not in html_out # Wait, _render_image_element only returns the <div><img></div>
+    # 新しい実装では画像後のテキストも保持される
+    assert "(additional info)" in html_out
     # The rest of the line is ignored in the current stripped.startswith('![') block.

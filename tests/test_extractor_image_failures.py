@@ -1,9 +1,12 @@
-import pytest
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 from PIL import Image, UnidentifiedImageError
+
 from kami_excel_extractor.extractor import MetadataExtractor
+
 
 def test_extract_media_os_error(tmp_path, caplog):
     """OSError during Image.open should be caught, logged, and skipped."""
@@ -27,6 +30,7 @@ def test_extract_media_os_error(tmp_path, caplog):
         assert media_info[0]["error"] == "unidentified_format"
 
         assert "Failed to extract image at A1 on sheet Sheet1: Internal library error" in caplog.text
+
 
 def test_extract_media_attribute_error(tmp_path, caplog):
     """AttributeError during Image processing should be caught, logged, and skipped."""
@@ -54,6 +58,7 @@ def test_extract_media_attribute_error(tmp_path, caplog):
         assert media_info[0]["error"] == "unidentified_format"
 
         assert "Failed to extract image at B2 on sheet Sheet2: Mock attribute error" in caplog.text
+
 
 def test_extract_media_mixed_success_and_failure(tmp_path, caplog):
     """Extraction should continue for other images when one fails with a caught exception."""
@@ -89,11 +94,7 @@ def test_extract_media_mixed_success_and_failure(tmp_path, caplog):
         mock_pillow_ok3.mode = "RGB"
         mock_pillow_ok3.__enter__.return_value = mock_pillow_ok3
 
-        mock_open.side_effect = [
-            mock_pillow_ok1,
-            UnidentifiedImageError("Unknown format"),
-            mock_pillow_ok3
-        ]
+        mock_open.side_effect = [mock_pillow_ok1, UnidentifiedImageError("Unknown format"), mock_pillow_ok3]
 
         with caplog.at_level(logging.WARNING):
             media_info = extractor._extract_media(mock_ws, "Sheet1")
