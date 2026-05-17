@@ -29,5 +29,7 @@ asyncio_mode = "strict"
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
     "ruff>=0.15.13",
+    "safety>=3.7.0",
 ]
