@@ -46,3 +46,22 @@ def test_secure_filename_reserved_names():
     """ドット単体などの予約語的入力"""
     assert secure_filename(".") == "unnamed"
     assert secure_filename("..") == "unnamed"
+
+def test_secure_filename_extreme_length():
+    """非常に長いファイル名の処理 (10,000文字)"""
+    long_name = "a" * 10000
+    assert secure_filename(long_name) == long_name
+
+def test_secure_filename_long_unsafe_collapsing():
+    """長い不安全な文字列のサニタイズと集約 (10,000文字)"""
+    # 記号の連続が適切に処理され、空になった場合は "unnamed" になること
+    long_unsafe = "!" * 10000
+    assert secure_filename(long_unsafe) == "unnamed"
+
+    # 有効な文字に挟まれた長い記号列が1つのアンダースコアに集約されること
+    long_mixed = "a" + "!" * 10000 + "b"
+    assert secure_filename(long_mixed) == "a_b"
+
+    # ドットの連続が集約されること
+    long_dots = "a" + "." * 10000 + "b"
+    assert secure_filename(long_dots) == "a.b"
