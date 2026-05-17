@@ -80,11 +80,15 @@ class JsonToMarkdownConverter:
         return "\n".join(lines)
 
     def _convert_to_table(self, data: List[Dict[str, Any]], keys: Any) -> str:
-        header_line = "| " + " | ".join(map(str, keys)) + " |"
+        def _escape(v: Any) -> str:
+            s = str(v)
+            return s.replace("|", "\\|").replace("\n", "<br>")
+
+        header_line = "| " + " | ".join(_escape(k) for k in keys) + " |"
         separator_line = "| " + " | ".join(["---"] * len(keys)) + " |"
         rows = []
         for item in data:
-            row = "| " + " | ".join(str(item.get(k, "")) for k in keys) + " |"
+            row = "| " + " | ".join(_escape(item.get(k, "")) for k in keys) + " |"
             rows.append(row)
         return "\n".join([header_line, separator_line] + rows)
 
