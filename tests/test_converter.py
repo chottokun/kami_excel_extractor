@@ -1,13 +1,17 @@
-import pytest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from kami_excel_extractor.converter import ExcelConverter
+
 
 @pytest.fixture(autouse=True)
 def mock_shutil_which():
     with patch("shutil.which") as mock:
         mock.side_effect = lambda x: f"/usr/bin/{x}"
         yield mock
+
 
 @pytest.fixture(autouse=True)
 def mock_uuid():
@@ -16,6 +20,7 @@ def mock_uuid():
         mock_val.__str__.return_value = "12345678-1234-1234-1234-123456789012"
         mock.return_value = mock_val
         yield mock
+
 
 def test_convert_success(tmp_path):
     output_dir = tmp_path / "output"
@@ -54,6 +59,7 @@ def test_convert_success(tmp_path):
         assert Path(pdftocairo_args[3]).is_absolute()
         assert Path(pdftocairo_args[4]).is_absolute()
 
+
 def test_convert_dpi_propagation(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
@@ -86,9 +92,10 @@ def test_convert_dpi_propagation(tmp_path):
                 # Find the magick call
                 magick_call = next(c for c in mock_subprocess.call_args_list if "/usr/bin/magick" in c[0][0])
                 args = magick_call[0][0]
-                assert args[2] == "300" # DPI
+                assert args[2] == "300"  # DPI
                 assert Path(args[3].replace("[0]", "")).is_absolute()
                 assert Path(args[4]).is_absolute()
+
 
 def test_convert_input_missing(tmp_path):
     output_dir = tmp_path / "output"
@@ -99,6 +106,7 @@ def test_convert_input_missing(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="Input file not found"):
         converter.convert(input_file)
+
 
 def test_convert_soffice_failure(tmp_path):
     output_dir = tmp_path / "output"
@@ -115,6 +123,7 @@ def test_convert_soffice_failure(tmp_path):
         with pytest.raises(RuntimeError, match="LibreOffice conversion failed: LibreOffice Error"):
             converter.convert(input_file)
 
+
 def test_convert_pdf_missing(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
@@ -129,6 +138,7 @@ def test_convert_pdf_missing(tmp_path):
 
         with pytest.raises(FileNotFoundError, match="PDF not found after conversion"):
             converter.convert(input_file)
+
 
 def test_convert_fallback_to_fitz(tmp_path):
     output_dir = tmp_path / "output"
@@ -170,6 +180,7 @@ def test_convert_fallback_to_fitz(tmp_path):
             assert not pdf_file.exists()
             mock_fitz.open.assert_called_once()
 
+
 def test_convert_fallback_to_imagemagick(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
@@ -202,6 +213,7 @@ def test_convert_fallback_to_imagemagick(tmp_path):
             assert result == png_file
             assert png_file.exists()
             assert not pdf_file.exists()
+
 
 def test_convert_all_fallbacks_fail(tmp_path):
     output_dir = tmp_path / "output"

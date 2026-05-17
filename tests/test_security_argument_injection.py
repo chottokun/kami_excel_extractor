@@ -1,8 +1,11 @@
-import pytest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from kami_excel_extractor.converter import ExcelConverter
 from kami_excel_extractor.document_generator import DocumentGenerator
+
 
 def test_excel_converter_uses_absolute_paths(tmp_path):
     output_dir = tmp_path / "output"
@@ -15,17 +18,24 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
     input_file.touch()
 
     try:
+
         def mock_run_side_effect(args, **kwargs):
             mock_res = MagicMock()
             mock_res.returncode = 0
             if "/usr/bin/soffice" in args[0]:
-                (output_dir / "test.pdf").touch()
+                outdir = args[args.index("--outdir") + 1]
+                input_stem = Path(args[-1]).stem
+                (Path(outdir) / f"{input_stem}.pdf").touch()
             if "/usr/bin/pdftocairo" in args[0]:
-                (output_dir / "test.png").touch()
+                # pdftocairo -png ... prefix
+                prefix = args[-1]
+                Path(f"{prefix}.png").touch()
             return mock_res
 
-        with patch("subprocess.run", side_effect=mock_run_side_effect) as mock_run, \
-             patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
+        with (
+            patch("subprocess.run", side_effect=mock_run_side_effect) as mock_run,
+            patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"),
+        ):
             converter.convert(input_file)
 
             # First call: soffice
@@ -49,13 +59,13 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
         if input_file.exists():
             input_file.unlink()
 
+
 def test_document_generator_uses_absolute_paths(tmp_path):
     output_dir = tmp_path / "output"
     output_dir.mkdir()
     generator = DocumentGenerator(output_dir)
 
-    with patch("subprocess.run") as mock_run, \
-         patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
+    with patch("subprocess.run") as mock_run, patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
         mock_run.return_value.returncode = 0
 
         # We need to mock rglob because generate_pdf uses it to find the pdf
@@ -72,9 +82,11 @@ def test_document_generator_uses_absolute_paths(tmp_path):
         assert Path(outdir).is_absolute(), f"Expected absolute path for outdir, got {outdir}"
         assert Path(html_path).is_absolute(), f"Expected absolute path for html_path, got {html_path}"
 
+
 def test_document_generator_absolute_paths_for_commands():
     # Use a relative path to ensure the fix actually makes it absolute
     import shutil
+
     output_dir = Path("./test_out_rel")
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -85,8 +97,7 @@ def test_document_generator_absolute_paths_for_commands():
         # Verify it was resolved to absolute path
         assert generator.output_dir.is_absolute()
 
-        with patch("subprocess.run") as mock_run, \
-             patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
+        with patch("subprocess.run") as mock_run, patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
             mock_run.return_value.returncode = 0
 
             # We need to mock rglob because generate_pdf uses it to find the pdf

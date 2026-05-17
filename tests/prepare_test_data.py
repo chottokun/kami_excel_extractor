@@ -1,6 +1,8 @@
-import openpyxl
-from openpyxl.styles import PatternFill, Border, Side, Font, Alignment
 from pathlib import Path
+
+import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
 
 def create_complex_kami_excel(path: Path):
     wb = openpyxl.Workbook()
@@ -8,10 +10,10 @@ def create_complex_kami_excel(path: Path):
     ws.title = "ComplexLayout"
 
     # スタイル定義
-    thick = Side(style='thick', color='000000')
-    thin = Side(style='thin', color='000000')
-    header_fill = PatternFill(start_color="CCE5FF", fill_type="solid") # 水色
-    section_fill = PatternFill(start_color="E0E0E0", fill_type="solid") # グレー
+    thick = Side(style="thick", color="000000")
+    thin = Side(style="thin", color="000000")
+    header_fill = PatternFill(start_color="CCE5FF", fill_type="solid")  # 水色
+    section_fill = PatternFill(start_color="E0E0E0", fill_type="solid")  # グレー
 
     # 1. ヘッダーエリア (結合セル)
     ws.merge_cells("A1:F2")
@@ -28,7 +30,7 @@ def create_complex_kami_excel(path: Path):
     ws["B4"] = "2026-04-18"
     ws["D4"] = "担当者:"
     ws["E4"] = "田中 太郎"
-    
+
     # 罫線で囲む
     for coord in ["A4", "B4", "D4", "E4"]:
         ws[coord].border = Border(bottom=thin)
@@ -43,7 +45,7 @@ def create_complex_kami_excel(path: Path):
     ws["C7"] = "基準"
     ws.merge_cells("D6:F6")
     ws["D6"] = "判定・備考"
-    
+
     for coord in ["A6", "B6", "B7", "C7", "D6"]:
         ws[coord].fill = section_fill
         ws[coord].border = Border(top=thin, left=thin, right=thin, bottom=thin)
@@ -56,7 +58,7 @@ def create_complex_kami_excel(path: Path):
     ws["D9"] = "適合"
     ws.merge_cells("E9:F10")
     ws["E9"] = "特記事項なし"
-    
+
     # データ行2
     ws["B10"] = "鉄筋露出"
     ws["C10"] = "なし"
@@ -68,6 +70,7 @@ def create_complex_kami_excel(path: Path):
             cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
     wb.save(path)
+
 
 if __name__ == "__main__":
     create_complex_kami_excel(Path("tests/assets/complex_kami_sample.xlsx"))

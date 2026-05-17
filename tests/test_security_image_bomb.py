@@ -1,9 +1,12 @@
-import pytest
+import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import io
+
+import pytest
 from PIL import Image, UnidentifiedImageError
-from kami_excel_extractor.extractor import MetadataExtractor, MAX_IMAGE_BYTES
+
+from kami_excel_extractor.extractor import MAX_IMAGE_BYTES, MetadataExtractor
+
 
 def test_extract_media_skips_large_bytes(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
@@ -25,6 +28,7 @@ def test_extract_media_skips_large_bytes(tmp_path):
         # Should be skipped due to byte size check
         assert len(media_info) == 0
         mock_open.assert_not_called()
+
 
 def test_extract_media_skips_decompression_bomb(tmp_path):
     extractor = MetadataExtractor(output_dir=tmp_path)
@@ -49,7 +53,10 @@ def test_extract_media_skips_decompression_bomb(tmp_path):
 
         mock_open.assert_called_once()
 
+
 def test_extract_media_respects_module_level_limit():
     from PIL import Image
+
     from kami_excel_extractor.extractor import MAX_IMAGE_PIXELS
+
     assert Image.MAX_IMAGE_PIXELS == MAX_IMAGE_PIXELS

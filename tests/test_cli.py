@@ -3,15 +3,19 @@ import logging
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock, mock_open, ANY
+from unittest.mock import ANY, AsyncMock, MagicMock, mock_open, patch
+
 import pytest
+
 from kami_excel_extractor.cli import main
 from kami_excel_extractor.schema import ExtractionOptions, RagOptions
+
 
 @pytest.fixture
 def mock_extractor():
     with patch("kami_excel_extractor.cli.KamiExcelExtractor") as mock:
         yield mock
+
 
 def test_main_success(mock_extractor, caplog):
     """正常なファイル処理フローを確認 (デフォルトモード)"""
@@ -22,11 +26,12 @@ def test_main_success(mock_extractor, caplog):
     # Mock open and json.dump
     m_open = mock_open()
 
-    with patch("sys.argv", ["kami-excel", "test.xlsx"]), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("builtins.open", m_open), \
-         patch("json.dump") as mock_json_dump:
-
+    with (
+        patch("sys.argv", ["kami-excel", "test.xlsx"]),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("builtins.open", m_open),
+        patch("json.dump") as mock_json_dump,
+    ):
         with caplog.at_level(logging.INFO):
             main()
 
@@ -41,8 +46,8 @@ def test_main_success(mock_extractor, caplog):
                 system_prompt=None,
                 include_visual_summaries=True,
                 include_logic=False,
-                use_visual_context=True
-            )
+                use_visual_context=True,
+            ),
         )
 
         # 結果が保存されたか
@@ -52,6 +57,7 @@ def test_main_success(mock_extractor, caplog):
         mock_json_dump.assert_called()
 
         assert "結果を保存しました" in caplog.text
+
 
 def test_main_rag_success(mock_extractor, caplog):
     """RAGモードでの正常処理を確認"""
@@ -65,23 +71,19 @@ def test_main_rag_success(mock_extractor, caplog):
 
     m_open = mock_open()
 
-    with patch("sys.argv", ["kami-excel", "test.xlsx", "--rag"]), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("builtins.open", m_open), \
-         patch("json.dump") as mock_json_dump:
-
+    with (
+        patch("sys.argv", ["kami-excel", "test.xlsx", "--rag"]),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("builtins.open", m_open),
+        patch("json.dump") as mock_json_dump,
+    ):
         with caplog.at_level(logging.INFO):
             main()
 
         # aextract_rag_chunks が呼ばれたか
         mock_inst.aextract_rag_chunks.assert_called_once_with(
             "test.xlsx",
-            options=RagOptions(
-                model=None,
-                include_logic=False,
-                include_visual_summaries=True,
-                use_visual_context=True
-            )
+            options=RagOptions(model=None, include_logic=False, include_visual_summaries=True, use_visual_context=True),
         )
 
         # 結果とRAG用データが保存されたか
@@ -93,18 +95,21 @@ def test_main_rag_success(mock_extractor, caplog):
 
         assert "RAG用データを保存しました" in caplog.text
 
+
 def test_main_file_not_found(caplog):
     """入力ファイルが見つからない場合のエラー終了を確認"""
-    with patch("sys.argv", ["kami-excel", "non_existent.xlsx"]), \
-         patch("pathlib.Path.exists", return_value=False), \
-         patch("asyncio.run"), \
-         patch("sys.exit") as mock_exit:
-
+    with (
+        patch("sys.argv", ["kami-excel", "non_existent.xlsx"]),
+        patch("pathlib.Path.exists", return_value=False),
+        patch("asyncio.run"),
+        patch("sys.exit") as mock_exit,
+    ):
         with caplog.at_level(logging.ERROR):
             main()
 
         mock_exit.assert_called_once_with(1)
         assert "入力ファイルが見つかりません" in caplog.text
+
 
 def test_main_extraction_error(mock_extractor, caplog):
     """抽出中に例外が発生した場合のエラー終了を確認"""
@@ -112,15 +117,17 @@ def test_main_extraction_error(mock_extractor, caplog):
     mock_inst.aextract_structured_data = AsyncMock()
     mock_inst.aextract_structured_data.side_effect = Exception("Extraction failed")
 
-    with patch("sys.argv", ["kami-excel", "test.xlsx"]), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("sys.exit") as mock_exit:
-
+    with (
+        patch("sys.argv", ["kami-excel", "test.xlsx"]),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("sys.exit") as mock_exit,
+    ):
         with caplog.at_level(logging.ERROR):
             main()
 
         mock_exit.assert_called_once_with(1)
         assert "実行中にエラーが発生しました: Extraction failed" in caplog.text
+
 
 def test_main_args_passing(mock_extractor):
     """引数が正しく渡されることを確認"""
@@ -129,32 +136,37 @@ def test_main_args_passing(mock_extractor):
     mock_inst.aextract_structured_data.return_value = {}
 
     test_args = [
-        "kami-excel", "test.xlsx",
-        "--model", "gpt-4",
-        "--timeout", "120",
-        "--rpm", "10",
+        "kami-excel",
+        "test.xlsx",
+        "--model",
+        "gpt-4",
+        "--timeout",
+        "120",
+        "--rpm",
+        "10",
         "--no-vision",
-        "--api-key", "secret-key",
-        "--base-url", "https://api.openai.com",
-        "--output-dir", "custom_out"
+        "--api-key",
+        "secret-key",
+        "--base-url",
+        "https://api.openai.com",
+        "--output-dir",
+        "custom_out",
     ]
 
     m_open = mock_open()
 
-    with patch("sys.argv", test_args), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("builtins.open", m_open), \
-         patch("json.dump"), \
-         patch.dict(os.environ, {}, clear=False):
-
+    with (
+        patch("sys.argv", test_args),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("builtins.open", m_open),
+        patch("json.dump"),
+        patch.dict(os.environ, {}, clear=False),
+    ):
         main()
 
         # extractor の初期化引数を確認
         mock_extractor.assert_called_once_with(
-            api_key="secret-key",
-            base_url="https://api.openai.com",
-            output_dir="custom_out",
-            timeout=120.0
+            api_key="secret-key", base_url="https://api.openai.com", output_dir="custom_out", timeout=120.0
         )
 
         # RPMが環境変数にセットされたか
@@ -164,12 +176,10 @@ def test_main_args_passing(mock_extractor):
         mock_inst.aextract_structured_data.assert_called_once_with(
             "test.xlsx",
             options=ExtractionOptions(
-                model="gpt-4",
-                system_prompt=None,
-                include_visual_summaries=False,
-                use_visual_context=False
-            )
+                model="gpt-4", system_prompt=None, include_visual_summaries=False, use_visual_context=False
+            ),
         )
+
 
 def test_main_extraction_error_verbose(mock_extractor, caplog):
     """verboseモードでの例外発生時にtracebackが出力されることを確認"""
@@ -177,11 +187,12 @@ def test_main_extraction_error_verbose(mock_extractor, caplog):
     mock_inst.aextract_structured_data = AsyncMock()
     mock_inst.aextract_structured_data.side_effect = Exception("Extraction failed verbose")
 
-    with patch("sys.argv", ["kami-excel", "test.xlsx", "--verbose"]), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("traceback.print_exc") as mock_print_exc, \
-         patch("sys.exit") as mock_exit:
-
+    with (
+        patch("sys.argv", ["kami-excel", "test.xlsx", "--verbose"]),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("traceback.print_exc") as mock_print_exc,
+        patch("sys.exit") as mock_exit,
+    ):
         with caplog.at_level(logging.ERROR):
             main()
 
@@ -189,16 +200,18 @@ def test_main_extraction_error_verbose(mock_extractor, caplog):
         assert "実行中にエラーが発生しました: Extraction failed verbose" in caplog.text
         mock_print_exc.assert_called_once()
 
+
 def test_main_rag_extraction_error(mock_extractor, caplog):
     """RAGモードでの抽出失敗を確認"""
     mock_inst = mock_extractor.return_value
     mock_inst.aextract_rag_chunks = AsyncMock()
     mock_inst.aextract_rag_chunks.side_effect = Exception("RAG Extraction failed")
 
-    with patch("sys.argv", ["kami-excel", "test.xlsx", "--rag"]), \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("sys.exit") as mock_exit:
-
+    with (
+        patch("sys.argv", ["kami-excel", "test.xlsx", "--rag"]),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("sys.exit") as mock_exit,
+    ):
         with caplog.at_level(logging.ERROR):
             main()
 

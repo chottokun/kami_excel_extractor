@@ -1,12 +1,16 @@
-import pytest
 import sqlite3
 from pathlib import Path
+
+import pytest
+
 from kami_excel_extractor.utils import CacheManager
+
 
 @pytest.fixture
 def cache_manager(tmp_path):
     db_path = tmp_path / "test_cache.db"
     return CacheManager(db_path)
+
 
 def test_llm_result_roundtrip(cache_manager):
     """set_llm_resultで保存した内容がget_llm_resultで取得できることを検証"""
@@ -20,10 +24,12 @@ def test_llm_result_roundtrip(cache_manager):
 
     assert result == content
 
+
 def test_llm_result_not_found(cache_manager):
     """キャッシュに存在しない場合にNoneが返ることを検証"""
     result = cache_manager.get_llm_result("model", "prompt", "input")
     assert result is None
+
 
 def test_llm_result_overwrite(cache_manager):
     """同じキーで保存した場合に上書きされることを検証"""
@@ -36,6 +42,7 @@ def test_llm_result_overwrite(cache_manager):
 
     result = cache_manager.get_llm_result(model, prompt, input_text)
     assert result == "Second"
+
 
 def test_llm_result_unique_keys(cache_manager):
     """model, prompt, input_textのいずれかが異なれば別々のキャッシュとして扱われることを検証"""
@@ -53,6 +60,7 @@ def test_llm_result_unique_keys(cache_manager):
     # input_textが違う
     assert cache_manager.get_llm_result(model, prompt, "other") is None
 
+
 def test_vlm_result_roundtrip(cache_manager):
     """set_vlm_resultとget_vlm_resultの挙動を検証"""
     model = "gpt-4o"
@@ -64,6 +72,7 @@ def test_vlm_result_roundtrip(cache_manager):
     assert cache_manager.get_vlm_result(model, prompt, img_hash) == content
     assert cache_manager.get_vlm_result(model, prompt, "other") is None
 
+
 def test_image_data_url_roundtrip(cache_manager):
     """set_image_data_urlとget_image_data_urlの挙動を検証"""
     img_hash = "hash456"
@@ -72,6 +81,7 @@ def test_image_data_url_roundtrip(cache_manager):
     cache_manager.set_image_data_url(img_hash, data_url)
     assert cache_manager.get_image_data_url(img_hash) == data_url
     assert cache_manager.get_image_data_url("other") is None
+
 
 def test_clear_cache(cache_manager):
     """clear()がすべてのテーブルをクリアすることを検証"""
@@ -85,6 +95,7 @@ def test_clear_cache(cache_manager):
     assert cache_manager.get_vlm_result("m", "p", "h") is None
     assert cache_manager.get_image_data_url("h") is None
 
+
 def test_get_file_hash(cache_manager, tmp_path):
     """get_file_hashが正しいSHA-256ハッシュを返すことを検証"""
     file_path = tmp_path / "test.txt"
@@ -92,20 +103,22 @@ def test_get_file_hash(cache_manager, tmp_path):
     file_path.write_bytes(content)
 
     import hashlib
+
     expected_hash = hashlib.sha256(content).hexdigest()
 
     assert cache_manager.get_file_hash(file_path) == expected_hash
+
 
 def test_raw_extraction_cache_roundtrip(cache_manager):
     """set_raw_extractionで保存した内容がget_raw_extractionで取得できることを検証"""
     file_hash = "fake-hash-123"
     content = '{"sheets": {"Sheet1": {"html": "<table></table>"}}}'
-    
+
     # logic=False の場合
     cache_manager.set_raw_extraction(file_hash, False, content)
     assert cache_manager.get_raw_extraction(file_hash, False) == content
     assert cache_manager.get_raw_extraction(file_hash, True) is None
-    
+
     # logic=True の場合 (別キーとして扱われる)
     content_logic = '{"sheets": {"Sheet1": {"html": "<table></table>"}}, "logic": true}'
     cache_manager.set_raw_extraction(file_hash, True, content_logic)

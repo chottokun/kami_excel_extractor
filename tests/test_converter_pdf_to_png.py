@@ -1,8 +1,11 @@
-import pytest
 import subprocess
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from kami_excel_extractor.converter import ExcelConverter
+
 
 @pytest.fixture
 def converter(tmp_path):
@@ -10,25 +13,30 @@ def converter(tmp_path):
     output_dir.mkdir()
     return ExcelConverter(output_dir)
 
+
 @pytest.fixture
 def pdf_path(tmp_path):
     path = tmp_path / "test.pdf"
     path.touch()
     return path
 
+
 @pytest.fixture
 def png_path(tmp_path):
     return tmp_path / "test.png"
+
 
 @pytest.fixture
 def mock_run():
     with patch("subprocess.run") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_which():
     with patch("shutil.which") as mock:
         yield mock
+
 
 def test_try_pdftocairo_success(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.side_effect = lambda x: f"/usr/bin/{x}" if x == "pdftocairo" else None
@@ -50,19 +58,23 @@ def test_try_pdftocairo_success(converter, pdf_path, png_path, mock_which, mock_
     assert args[3] == str(pdf_path.resolve())
     assert args[4] == str(png_path.with_suffix("").resolve())
 
+
 def test_try_pdftocairo_not_found(converter, pdf_path, png_path, mock_which):
     mock_which.return_value = None
     assert converter._try_pdftocairo(pdf_path, png_path) is False
+
 
 def test_try_pdftocairo_failure(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.return_value = "/usr/bin/pdftocairo"
     mock_run.return_value = MagicMock(returncode=1, stderr="error")
     assert converter._try_pdftocairo(pdf_path, png_path) is False
 
+
 def test_try_pdftocairo_exception(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.return_value = "/usr/bin/pdftocairo"
     mock_run.side_effect = OSError("failed to execute")
     assert converter._try_pdftocairo(pdf_path, png_path) is False
+
 
 def test_try_fitz_success(converter, pdf_path, png_path):
     mock_fitz = MagicMock()
@@ -72,6 +84,7 @@ def test_try_fitz_success(converter, pdf_path, png_path):
 
     def mock_save(path):
         png_path.touch()
+
     mock_pix.save.side_effect = mock_save
 
     with patch.dict("sys.modules", {"fitz": mock_fitz}):
@@ -80,15 +93,18 @@ def test_try_fitz_success(converter, pdf_path, png_path):
         mock_fitz.open.assert_called_once_with(str(pdf_path.resolve()))
         mock_pix.save.assert_called_once_with(str(png_path.resolve()))
 
+
 def test_try_fitz_import_error(converter, pdf_path, png_path):
     with patch.dict("sys.modules", {"fitz": None}):
         assert converter._try_fitz(pdf_path, png_path) is False
+
 
 def test_try_fitz_exception(converter, pdf_path, png_path):
     mock_fitz = MagicMock()
     mock_fitz.open.side_effect = Exception("Fitz error")
     with patch.dict("sys.modules", {"fitz": mock_fitz}):
         assert converter._try_fitz(pdf_path, png_path) is False
+
 
 def test_try_imagemagick_magick_success(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.side_effect = lambda x: f"/usr/bin/{x}" if x == "magick" else None
@@ -109,6 +125,7 @@ def test_try_imagemagick_magick_success(converter, pdf_path, png_path, mock_whic
     assert args[3] == f"{pdf_path.resolve()}[0]"
     assert args[4] == str(png_path.resolve())
 
+
 def test_try_imagemagick_convert_success(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.side_effect = lambda x: f"/usr/bin/{x}" if x == "convert" else None
 
@@ -124,57 +141,69 @@ def test_try_imagemagick_convert_success(converter, pdf_path, png_path, mock_whi
     args = mock_run.call_args[0][0]
     assert args[0] == "/usr/bin/convert"
 
+
 def test_try_imagemagick_not_found(converter, pdf_path, png_path, mock_which):
     mock_which.return_value = None
     assert converter._try_imagemagick(pdf_path, png_path) is False
+
 
 def test_try_imagemagick_failure(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.return_value = "/usr/bin/magick"
     mock_run.return_value = MagicMock(returncode=1)
     assert converter._try_imagemagick(pdf_path, png_path) is False
 
+
 def test_try_imagemagick_exception(converter, pdf_path, png_path, mock_which, mock_run):
     mock_which.return_value = "/usr/bin/magick"
     mock_run.side_effect = subprocess.SubprocessError("timeout")
     assert converter._try_imagemagick(pdf_path, png_path) is False
 
-def test_convert_pdf_to_png_pdftocairo_primary(converter, pdf_path, png_path):
-    with patch.object(converter, "_try_pdftocairo", return_value=True) as m1, \
-         patch.object(converter, "_try_fitz") as m2, \
-         patch.object(converter, "_try_imagemagick") as m3:
 
+def test_convert_pdf_to_png_pdftocairo_primary(converter, pdf_path, png_path):
+    with (
+        patch.object(converter, "_try_pdftocairo", return_value=True) as m1,
+        patch.object(converter, "_try_fitz") as m2,
+        patch.object(converter, "_try_imagemagick") as m3,
+    ):
         converter._convert_pdf_to_png(pdf_path, png_path)
         m1.assert_called_once()
         m2.assert_not_called()
         m3.assert_not_called()
 
-def test_convert_pdf_to_png_fallback_to_fitz(converter, pdf_path, png_path):
-    with patch.object(converter, "_try_pdftocairo", return_value=False) as m1, \
-         patch.object(converter, "_try_fitz", return_value=True) as m2, \
-         patch.object(converter, "_try_imagemagick") as m3:
 
+def test_convert_pdf_to_png_fallback_to_fitz(converter, pdf_path, png_path):
+    with (
+        patch.object(converter, "_try_pdftocairo", return_value=False) as m1,
+        patch.object(converter, "_try_fitz", return_value=True) as m2,
+        patch.object(converter, "_try_imagemagick") as m3,
+    ):
         converter._convert_pdf_to_png(pdf_path, png_path)
         m1.assert_called_once()
         m2.assert_called_once()
         m3.assert_not_called()
 
-def test_convert_pdf_to_png_fallback_to_imagemagick(converter, pdf_path, png_path):
-    with patch.object(converter, "_try_pdftocairo", return_value=False) as m1, \
-         patch.object(converter, "_try_fitz", return_value=False) as m2, \
-         patch.object(converter, "_try_imagemagick", return_value=True) as m3:
 
+def test_convert_pdf_to_png_fallback_to_imagemagick(converter, pdf_path, png_path):
+    with (
+        patch.object(converter, "_try_pdftocairo", return_value=False) as m1,
+        patch.object(converter, "_try_fitz", return_value=False) as m2,
+        patch.object(converter, "_try_imagemagick", return_value=True) as m3,
+    ):
         converter._convert_pdf_to_png(pdf_path, png_path)
         m1.assert_called_once()
         m2.assert_called_once()
         m3.assert_called_once()
 
-def test_convert_pdf_to_png_all_fail(converter, pdf_path, png_path):
-    with patch.object(converter, "_try_pdftocairo", return_value=False), \
-         patch.object(converter, "_try_fitz", return_value=False), \
-         patch.object(converter, "_try_imagemagick", return_value=False):
 
+def test_convert_pdf_to_png_all_fail(converter, pdf_path, png_path):
+    with (
+        patch.object(converter, "_try_pdftocairo", return_value=False),
+        patch.object(converter, "_try_fitz", return_value=False),
+        patch.object(converter, "_try_imagemagick", return_value=False),
+    ):
         with pytest.raises(RuntimeError, match="All PDF to PNG conversion methods failed"):
             converter._convert_pdf_to_png(pdf_path, png_path)
+
 
 def test_try_fitz_multi_success(converter, pdf_path, tmp_path):
     output_prefix = tmp_path / "test_multi"
@@ -186,6 +215,7 @@ def test_try_fitz_multi_success(converter, pdf_path, tmp_path):
 
     def mock_save(path):
         Path(path).touch()
+
     mock_pix.save.side_effect = mock_save
 
     with patch.dict("sys.modules", {"fitz": mock_fitz}):
@@ -198,6 +228,7 @@ def test_try_fitz_multi_success(converter, pdf_path, tmp_path):
         mock_fitz.open.assert_called_once_with(str(pdf_path.resolve()))
         mock_doc.close.assert_called_once()
 
+
 def test_try_fitz_multi_exception(converter, pdf_path, tmp_path):
     output_prefix = tmp_path / "test_multi"
     mock_fitz = MagicMock()
@@ -206,6 +237,7 @@ def test_try_fitz_multi_exception(converter, pdf_path, tmp_path):
     with patch.dict("sys.modules", {"fitz": mock_fitz}):
         with pytest.raises(RuntimeError, match="Multi-page PDF to PNG conversion failed"):
             converter._try_fitz_multi(pdf_path, output_prefix)
+
 
 def test_try_fitz_multi_no_pages(converter, pdf_path, tmp_path):
     output_prefix = tmp_path / "test_multi"
@@ -216,6 +248,7 @@ def test_try_fitz_multi_no_pages(converter, pdf_path, tmp_path):
     with patch.dict("sys.modules", {"fitz": mock_fitz}):
         with pytest.raises(RuntimeError, match="Multi-page PDF to PNG conversion failed"):
             converter._try_fitz_multi(pdf_path, output_prefix)
+
 
 def test_convert_pdf_to_multi_png_pdftocairo_success(converter, pdf_path, tmp_path, mock_which, mock_run):
     output_prefix = tmp_path / "test_multi"
@@ -235,9 +268,10 @@ def test_convert_pdf_to_multi_png_pdftocairo_success(converter, pdf_path, tmp_pa
     assert results[0].exists()
     assert results[1].exists()
 
+
 def test_convert_pdf_to_multi_png_fallback_to_fitz(converter, pdf_path, tmp_path, mock_which):
     output_prefix = tmp_path / "test_multi"
-    mock_which.return_value = None # pdftocairo not found
+    mock_which.return_value = None  # pdftocairo not found
 
     with patch.object(converter, "_try_fitz_multi") as mock_fitz_multi:
         mock_fitz_multi.return_value = [Path("fake.png")]
