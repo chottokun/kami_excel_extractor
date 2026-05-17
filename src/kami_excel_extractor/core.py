@@ -350,7 +350,9 @@ class KamiExcelExtractor:
             self._visual_summary_cache = {}
 
         # 🔒 Security & Resource Fix: ファイルサイズ制限のチェック
-        file_size_mb = excel_path.stat().st_size / (1024 * 1024)
+        # ⚡ Performance: asyncio.to_thread を使用してイベントループのブロッキングを防ぐ
+        stat_result = await asyncio.to_thread(excel_path.stat)
+        file_size_mb = stat_result.st_size / (1024 * 1024)
         if file_size_mb > self.opts.max_file_size_mb:
             raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb}MB).")
 
