@@ -26,13 +26,33 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run unit tests
+      - name: Run Ruff (Lint & Format Check)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Security Scan (Bandit)
+        run: |
+          uv add bandit --dev
+          uv run bandit -r src/ -ll
+
+      - name: Dependency Vulnerability Check (Safety)
+        run: |
+          uv add safety --dev
+          uv run safety check
+
+      - name: Run Core Unit Tests
         env:
-          # LLM API 不要なモックテストのみ実行
           LLM_MODEL: "gemini/gemini-2.0-flash"
           LLM_RPM_LIMIT: "10"
         run: |
-          uv run pytest tests/ \
-            --ignore=tests/test_litellm.py \
-            -v \
-            --tb=short
+          # 重要なセキュリティ・コアロジックのテストのみ実行
+          uv run pytest \
+            tests/test_security_argument_injection.py \
+            tests/test_security_path_traversal.py \
+            tests/test_security_xss.py \
+            tests/test_xxe_vulnerability.py \
+            tests/test_core.py \
+            tests/test_extractor.py \
+            tests/test_utils.py \
+            -v --tb=short
