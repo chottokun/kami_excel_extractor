@@ -3,6 +3,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+def _escape_markdown_table_cell(v: Any) -> str:
+    """Markdownテーブルのセル内の特殊文字をエスケープする"""
+    s = str(v)
+    return s.replace("|", "\\|").replace("\n", "<br>")
+
+
 class JsonToMarkdownConverter:
     """JSONをRAGに適したMarkdown形式に変換するクラス"""
 
@@ -83,15 +89,11 @@ class JsonToMarkdownConverter:
         return "\n".join(lines)
 
     def _convert_to_table(self, data: List[Dict[str, Any]], keys: Any) -> str:
-        def _escape(v: Any) -> str:
-            s = str(v)
-            return s.replace("|", "\\|").replace("\n", "<br>")
-
-        header_line = "| " + " | ".join(_escape(k) for k in keys) + " |"
+        header_line = "| " + " | ".join(_escape_markdown_table_cell(k) for k in keys) + " |"
         separator_line = "| " + " | ".join(["---"] * len(keys)) + " |"
         rows = []
         for item in data:
-            row = "| " + " | ".join(_escape(item.get(k, "")) for k in keys) + " |"
+            row = "| " + " | ".join(_escape_markdown_table_cell(item.get(k, "")) for k in keys) + " |"
             rows.append(row)
         return "\n".join([header_line, separator_line] + rows)
 
