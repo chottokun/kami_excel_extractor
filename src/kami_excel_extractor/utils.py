@@ -27,7 +27,9 @@ def clean_kami_text(text: Any) -> Any:
 
     # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
     res = re.sub(
-        r"([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])", r"\1", text
+        r"([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])",
+        r"\1",
+        text,
     )
 
     return res.strip()
