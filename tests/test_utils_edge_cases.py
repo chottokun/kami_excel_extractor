@@ -3,6 +3,10 @@ import pytest
 from kami_excel_extractor.utils import clean_kami_text, secure_filename
 
 
+class CustomObj:
+    pass
+
+
 @pytest.mark.parametrize(
     "input_val",
     [
@@ -13,11 +17,29 @@ from kami_excel_extractor.utils import clean_kami_text, secure_filename
         False,
         ["list"],
         {"dict": "val"},
+        (1, 2),
+        {1, 2},
+        b"bytes",
+        CustomObj(),
     ],
 )
 def test_clean_kami_text_non_string(input_val):
     """文字列以外の入力に対する挙動 (そのまま返却されること)"""
     assert clean_kami_text(input_val) == input_val
+
+
+@pytest.mark.parametrize(
+    "input_val, expected",
+    [
+        ("", ""),
+        ("   ", ""),
+        ("\n\t", ""),
+        ("A" * 1000, "A" * 1000),
+    ],
+)
+def test_clean_kami_text_string_edge_cases(input_val, expected):
+    """文字列の境界条件に対する挙動"""
+    assert clean_kami_text(input_val) == expected
 
 
 def test_secure_filename_all_unsafe():
