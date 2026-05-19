@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import contextlib
 import html
 import logging
 import re
@@ -28,10 +29,8 @@ class DocumentGenerator:
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
     def __del__(self):
-        try:
+        with contextlib.suppress(Exception):
             self._executor.shutdown(wait=False)
-        except Exception:
-            pass
 
     def _parse_balanced_image(self, line: str) -> Optional[tuple[str, str]]:
         """
@@ -190,6 +189,7 @@ class DocumentGenerator:
 
         except Exception:
             # 万が一のパース失敗時は元のテキストを返す
+            logger.debug("Failed to render image element: %s", stripped_line, exc_info=True)
             return stripped_line
 
     def _render_paragraph(self, stripped_line: str) -> str:
