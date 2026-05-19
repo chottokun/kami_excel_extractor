@@ -380,6 +380,7 @@ class DocumentGenerator:
                 ],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=60,
             )
             if res.returncode != 0:
@@ -433,7 +434,7 @@ class DocumentGenerator:
 
             if proc.returncode != 0:
                 # 🛠️ Fix: Use errors='replace' to avoid UnicodeDecodeError on invalid stderr output
-                err_msg = stderr.decode(errors="replace")
+                err_msg = stderr.decode("utf-8", errors="replace")
                 logger.error(f"soffice conversion failed (returncode {proc.returncode}): {err_msg}")
                 return None
 
