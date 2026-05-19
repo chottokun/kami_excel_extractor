@@ -167,11 +167,19 @@ class MetadataExtractor:
 
             try:
                 # 🔒 Security & Performance Fix: Prevent DoS via memory exhaustion and optimize copy overhead
-                if isinstance(img.ref, (bytes, bytearray)):
-                    raw_data = img.ref
-                elif "Mock" in type(img.ref).__name__:
-                    # Safe handling for test mocks to avoid infinite loops on chunked reads
+                raw_data = None
+
+                # 1. テスト用 Mock の特別なハンドリング (無限ループ防止)
+                # MagicMockはあらゆる属性を動的に生成するため、他のチェックより先に判定する
+                if "Mock" in type(img.ref).__name__:
                     raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
+                # 2. すでにバイト列として存在する場合 (メモリコピーを最小化)
+                elif isinstance(img.ref, (bytes, bytearray, memoryview)):
+                    raw_data = img.ref
+                # 3. バッファに直接アクセス可能な場合 (最も効率的: BytesIO等)
+                elif hasattr(img.ref, "getbuffer"):
+                    raw_data = img.ref.getbuffer()
+                # 4. ストリーム(readメソッド)を持つ場合、チャンクごとに読み込む
                 elif hasattr(img.ref, "read"):
                     raw_data_buf = io.BytesIO()
                     total_read = 0
@@ -183,21 +191,22 @@ class MetadataExtractor:
                         total_read += len(chunk)
                         if total_read > MAX_IMAGE_BYTES:
                             logger.warning(f"Skipping large image at {coord} on {sheet_name} (stream exceeds limit)")
+                            raw_data = None
                             break
                         raw_data_buf.write(chunk)
 
-                    if total_read > MAX_IMAGE_BYTES:
-                        continue
-                    raw_data = raw_data_buf.getbuffer()
-                elif hasattr(img.ref, "getbuffer"):
-                    raw_data = img.ref.getbuffer()
+                    if total_read <= MAX_IMAGE_BYTES:
+                        raw_data = raw_data_buf.getbuffer()
+                # 5. その他の getvalue フォールバック
                 elif hasattr(img.ref, "getvalue"):
                     raw_data = img.ref.getvalue()
                 else:
                     raise AttributeError("Image reference has no readable data attribute")
 
-                if len(raw_data) > MAX_IMAGE_BYTES:
-                    logger.warning(f"Skipping large image at {coord} on {sheet_name}")
+                # 共通のサイズチェックと早期リターン
+                if raw_data is None or len(raw_data) > MAX_IMAGE_BYTES:
+                    if raw_data is not None:
+                        logger.warning(f"Skipping large image at {coord} on {sheet_name} (size: {len(raw_data)} bytes)")
                     continue
 
                 with Image.open(io.BytesIO(raw_data)) as pillow_img:
