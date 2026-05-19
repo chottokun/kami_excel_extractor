@@ -69,6 +69,7 @@ class ExcelConverter:
                     ],
                     capture_output=True,
                     text=True,
+                    errors="replace",
                     timeout=600,
                 )
 
@@ -112,6 +113,8 @@ class ExcelConverter:
                 [str(Path(raw_path).resolve()), "-png", str(pdf_path.resolve()), str(output_prefix.resolve())],
                 check=True,
                 capture_output=True,
+                text=True,
+                errors="replace",
                 timeout=300,
             )
 
@@ -185,6 +188,7 @@ class ExcelConverter:
                 ],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=300,
             )
 
@@ -236,6 +240,7 @@ class ExcelConverter:
                     ],
                     capture_output=True,
                     text=True,
+                    errors="replace",
                     timeout=300,
                 )
 
