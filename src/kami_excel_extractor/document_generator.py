@@ -370,7 +370,7 @@ class DocumentGenerator:
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             res = subprocess.run(
                 [
-                    soffice_path,
+                    str(Path(soffice_path).resolve()),
                     "--headless",
                     "--convert-to",
                     "pdf",
@@ -412,7 +412,7 @@ class DocumentGenerator:
             # 🔒 Security Fix: Use absolute paths to prevent argument injection
             # ⚡ Performance: Use asyncio.create_subprocess_exec to free up the event loop
             proc = await asyncio.create_subprocess_exec(
-                soffice_path,
+                str(Path(soffice_path).resolve()),
                 "--headless",
                 "--convert-to",
                 "pdf",

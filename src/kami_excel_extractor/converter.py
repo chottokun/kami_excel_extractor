@@ -109,7 +109,12 @@ class ExcelConverter:
         try:
             # pdftocairo を使用して全ページを連番で出力
             subprocess.run(
-                [str(Path(raw_path).resolve()), "-png", str(pdf_path.resolve()), str(output_prefix.resolve())],
+                [
+                    str(Path(raw_path).resolve()),
+                    "-png",
+                    str(pdf_path.resolve()),
+                    str(output_prefix.resolve()),
+                ],
                 check=True,
                 capture_output=True,
                 timeout=300,
@@ -231,7 +236,7 @@ class ExcelConverter:
                         str(Path(raw_cmd_path).resolve()),
                         "-density",
                         str(self.dpi),
-                        f"{pdf_path.resolve()}[0]",
+                        f"{str(pdf_path.resolve())}[0]",
                         str(output_png.resolve()),
                     ],
                     capture_output=True,
