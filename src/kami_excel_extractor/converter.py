@@ -49,16 +49,16 @@ class ExcelConverter:
                 # Step 1: Excel -> PDF
                 logger.info(f"Converting {target_excel.name} to PDF (ID: {run_id})...")
 
-                raw_soffice_path = shutil.which("soffice")
-                if not raw_soffice_path:
+                raw_cmd_path = shutil.which("soffice")
+                if not raw_cmd_path:
                     logger.error("LibreOffice (soffice) not found in PATH")
                     raise RuntimeError("LibreOffice (soffice) not found in PATH")
-                soffice_path = str(Path(raw_soffice_path).resolve())
+                soffice_path = str(Path(raw_cmd_path).resolve())
 
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                # 🛡️ Security Fix: Use absolute paths to prevent argument injection
                 res_pdf = subprocess.run(
                     [
-                        str(Path(soffice_path).resolve()),
+                        soffice_path,
                         f"-env:UserInstallation=file://{tmp_dir.resolve()}",
                         "--headless",
                         "--convert-to",
@@ -101,15 +101,21 @@ class ExcelConverter:
 
     def _convert_pdf_to_multi_png(self, pdf_path: Path, output_prefix: Path) -> List[Path]:
         """PDFの全ページをPNGに変換する"""
-        raw_path = shutil.which("pdftocairo")
-        if not raw_path:
+        raw_cmd_path = shutil.which("pdftocairo")
+        if not raw_cmd_path:
             # pdftocairo がない場合は fitz を使用 (フォールバック)
             return self._try_fitz_multi(pdf_path, output_prefix)
 
         try:
+            # 🛡️ Security Fix: Use absolute paths to prevent argument injection
             # pdftocairo を使用して全ページを連番で出力
             subprocess.run(
-                [str(Path(raw_path).resolve()), "-png", str(pdf_path.resolve()), str(output_prefix.resolve())],
+                [
+                    str(Path(raw_cmd_path).resolve()),
+                    "-png",
+                    str(pdf_path.resolve()),
+                    str(output_prefix.resolve()),
+                ],
                 check=True,
                 capture_output=True,
                 timeout=300,
@@ -168,16 +174,16 @@ class ExcelConverter:
 
     def _try_pdftocairo(self, pdf_path: Path, output_png: Path) -> bool:
         """pdftocairoを使用してPDFをPNGに変換する"""
-        raw_path = shutil.which("pdftocairo")
-        if not raw_path:
+        raw_cmd_path = shutil.which("pdftocairo")
+        if not raw_cmd_path:
             logger.warning("pdftocairo not found in PATH")
             return False
 
         try:
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection and CWE-426
+            # 🛡️ Security Fix: Use absolute paths to prevent argument injection and CWE-426
             res = subprocess.run(
                 [
-                    str(Path(raw_path).resolve()),
+                    str(Path(raw_cmd_path).resolve()),
                     "-png",
                     "-singlefile",
                     str(pdf_path.resolve()),
@@ -223,7 +229,7 @@ class ExcelConverter:
             if not raw_cmd_path:
                 continue
             try:
-                # 🔒 Security Fix: Use absolute paths to prevent argument injection
+                # 🛡️ Security Fix: Use absolute paths to prevent argument injection
                 # magick [input] [output] or convert [input] [output]
                 # For PDF to PNG with ImageMagick, [0] specifies the first page
                 res = subprocess.run(
@@ -231,7 +237,7 @@ class ExcelConverter:
                         str(Path(raw_cmd_path).resolve()),
                         "-density",
                         str(self.dpi),
-                        f"{pdf_path.resolve()}[0]",
+                        f"{str(pdf_path.resolve())}[0]",
                         str(output_png.resolve()),
                     ],
                     capture_output=True,
