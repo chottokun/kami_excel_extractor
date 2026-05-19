@@ -151,37 +151,14 @@ class DocumentGenerator:
         """
         # 形式: ![alt](path)
         if not (stripped_line.startswith("![") and "]" in stripped_line and "(" in stripped_line):
-            return stripped_line
+            return html.escape(stripped_line, quote=True)
 
         try:
-            # altテキストの抽出
-            alt_start = 2
-            alt_end = stripped_line.find("]")
-            if alt_end == -1:
-                return stripped_line
-            alt_text = stripped_line[alt_start:alt_end]
+            parsed = self._parse_balanced_image(stripped_line)
+            if parsed is None:
+                return html.escape(stripped_line, quote=True)
 
-            # パスの抽出 (括弧のバランスを考慮)
-            # ] の直後が ( であることを確認
-            remaining = stripped_line[alt_end + 1 :]
-            if not remaining.startswith("("):
-                return stripped_line
-
-            path_start = 1  # remaining における開始位置
-            stack = 0
-            path_content = None
-
-            for i, char in enumerate(remaining):
-                if char == "(":
-                    stack += 1
-                elif char == ")":
-                    stack -= 1
-                    if stack == 0:
-                        path_content = remaining[path_start:i]
-                        break
-
-            if path_content is None:
-                return stripped_line
+            alt_text, path_content = parsed
 
             # 🔒 Security Fix: HTML escape image source attribute and alt text
             escaped_img_path = html.escape(path_content, quote=True)
@@ -189,8 +166,8 @@ class DocumentGenerator:
             return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
 
         except Exception:
-            # 万が一のパース失敗時は元のテキストを返す
-            return stripped_line
+            # 万が一のパース失敗時は元のテキストをエスケープして返す
+            return html.escape(stripped_line, quote=True)
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
@@ -268,6 +245,27 @@ class DocumentGenerator:
             elif self.RE_LIST_ITEM_START.match(stripped):
                 html_list, i = self._process_list_block(lines, i)
                 body_parts.append(html_list)
+            elif (
+                stripped.startswith("![")
+                and "]" in stripped
+                and "(" in stripped
+                and stripped.endswith(")")
+                and self._parse_balanced_image(stripped)
+            ):
+                # ブロックレベルの画像 (段落にラップせず独立したdivとして出力)
+                # 行全体が一つの画像タグとして完結している場合のみ対象
+                parsed = self._parse_balanced_image(stripped)
+                if parsed:
+                    alt_text, path_content = parsed
+                    # 行全体が ![alt](path) の形式であることを厳密にチェック
+                    if stripped == f"![{alt_text}]({path_content})":
+                        body_parts.append(self._render_image_element(stripped))
+                        i += 1
+                        continue
+
+                # 厳密な一致でない場合は通常の段落として処理
+                body_parts.append(self._render_paragraph(stripped))
+                i += 1
             else:
                 body_parts.append(self._render_paragraph(stripped))
                 i += 1
