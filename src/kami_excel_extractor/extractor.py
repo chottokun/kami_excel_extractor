@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import openpyxl
 from openpyxl.utils import coordinate_to_tuple, get_column_letter
+from openpyxl.utils.exceptions import CellCoordinatesException
 from PIL import Image
 
 from .utils import clean_kami_text, secure_filename
@@ -155,8 +156,8 @@ class MetadataExtractor:
             elif isinstance(anchor, str):  # String anchor (e.g. "A1")
                 try:
                     row, col = coordinate_to_tuple(anchor)
-                except Exception:
-                    pass
+                except (ValueError, CellCoordinatesException) as e:
+                    logger.warning(f"Failed to parse coordinate anchor '{anchor}' on sheet {sheet_name}: {e}")
 
             coord = f"{get_column_letter(col)}{row}" if (row is not None and col is not None) else "unknown"
             safe_sheet_name = secure_filename(sheet_name)
@@ -364,8 +365,8 @@ class MetadataExtractor:
                 elif isinstance(anchor, str):
                     try:
                         row, col = coordinate_to_tuple(anchor)
-                    except Exception:
-                        pass
+                    except (ValueError, CellCoordinatesException) as e:
+                        logger.warning(f"Failed to parse coordinate anchor '{anchor}' in bounding box calculation: {e}")
 
                 # 🔒 Robustness: Ensure we are comparing actual integers, not mocks
                 if isinstance(row, int):
