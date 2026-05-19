@@ -251,22 +251,22 @@ class KamiExcelExtractor:
             return media_item
 
         async with semaphore if semaphore else asyncio.Lock():
-            image_url = await self._encode_image_to_base64_url(image_path)
-            prompt = (
-                "この画像がグラフや図表の場合、その軸ラベル、凡例、およびデータ値を抽出し、"
-                "Markdownのテーブル形式で整理してください。回答の冒頭に [図表データ] と付けて出力してください。"
-            )
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
-                }
-            ]
-
             try:
+                image_url = await self._encode_image_to_base64_url(image_path)
+                prompt = (
+                    "この画像がグラフや図表の場合、その軸ラベル、凡例、およびデータ値を抽出し、"
+                    "Markdownのテーブル形式で整理してください。回答の冒頭に [図表データ] と付けて出力してください。"
+                )
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ]
+
                 response = await self._awith_retry(
                     litellm.acompletion,
                     model=model,
@@ -591,16 +591,19 @@ class KamiExcelExtractor:
                 self._visual_summary_cache[cache_key] = cached_summary
                 return cached_summary
 
-        image_url = await self._encode_image_to_base64_url(image_path)
-
-        messages = [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}],
-            }
-        ]
         async with semaphore if semaphore else asyncio.Lock():
             try:
+                image_url = await self._encode_image_to_base64_url(image_path)
+
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ]
                 response = await self._awith_retry(
                     litellm.acompletion,
                     model=model,
