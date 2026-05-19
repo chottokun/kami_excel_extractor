@@ -144,54 +144,6 @@ class DocumentGenerator:
             content = stripped_line[1:].strip()
         return f"<li>{self._render_inline(content)}</li>"
 
-    def _render_image_element(self, stripped_line: str) -> str:
-        """
-        画像要素をレンダリングする。
-        括弧のネストを正しく扱うため、手動でバランスパースを行う。
-        """
-        # 形式: ![alt](path)
-        if not (stripped_line.startswith("![") and "]" in stripped_line and "(" in stripped_line):
-            return stripped_line
-
-        try:
-            # altテキストの抽出
-            alt_start = 2
-            alt_end = stripped_line.find("]")
-            if alt_end == -1:
-                return stripped_line
-            alt_text = stripped_line[alt_start:alt_end]
-
-            # パスの抽出 (括弧のバランスを考慮)
-            # ] の直後が ( であることを確認
-            remaining = stripped_line[alt_end + 1 :]
-            if not remaining.startswith("("):
-                return stripped_line
-
-            path_start = 1  # remaining における開始位置
-            stack = 0
-            path_content = None
-
-            for i, char in enumerate(remaining):
-                if char == "(":
-                    stack += 1
-                elif char == ")":
-                    stack -= 1
-                    if stack == 0:
-                        path_content = remaining[path_start:i]
-                        break
-
-            if path_content is None:
-                return stripped_line
-
-            # 🔒 Security Fix: HTML escape image source attribute and alt text
-            escaped_img_path = html.escape(path_content, quote=True)
-            escaped_alt = html.escape(alt_text or "画像", quote=True)
-            return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
-
-        except Exception:
-            # 万が一のパース失敗時は元のテキストを返す
-            return stripped_line
-
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
         return f"<p>{self._render_inline(stripped_line)}</p>"
