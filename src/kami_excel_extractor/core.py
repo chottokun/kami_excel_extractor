@@ -220,13 +220,18 @@ class KamiExcelExtractor:
                 return {"error": str(e), "_raw_data": content}
 
         try:
+            # 1. 辞書形式であることを保証
             if not isinstance(data, dict):
                 data = {"data": data}
-            elif "sheets" in data and sheet_name in data["sheets"]:
+
+            # 2. 'sheets' キーによるネスティングの解消
+            if "sheets" in data and isinstance(data["sheets"], dict) and sheet_name in data["sheets"]:
                 data = data["sheets"][sheet_name]
-            elif "data" not in data:
-                # 💡 Bug Fix: If the response is a dictionary without a "data" key, wrap it under "data"
-                # to prevent Pydantic's extra='ignore' from discarding valid parsed fields.
+
+            # 3. 最終的な正規化: Pydanticの extra='ignore' による消失を防ぐため 'data' キーを保証
+            if not isinstance(data, dict):
+                data = {"data": data}
+            elif "data" not in data and "error" not in data:
                 data = {"data": data}
 
             # Pydanticによるスキーマ検証とクレンジング
