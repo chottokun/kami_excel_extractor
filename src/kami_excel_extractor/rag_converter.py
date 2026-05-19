@@ -69,13 +69,34 @@ class JsonToMarkdownConverter:
         if type(data[0]) is dict:
             if self.list_format == "kv":
                 # KV format doesn't require uniform keys
-                if all(type(item) is dict for item in data):
-                    return self._convert_to_kv(data)
+                rows = []
+                # Performance optimization: single pass for validation and conversion
+                for item in data:
+                    if type(item) is not dict:
+                        break
+                    kv_pairs = [f"{k}: {v}" for k, v in item.items()]
+                    rows.append("- " + ", ".join(kv_pairs))
+                else:
+                    return "\n".join(rows)
             else:
                 # Table format requires uniform keys
                 first_keys = data[0].keys()
-                if all(type(item) is dict and item.keys() == first_keys for item in data):
-                    return self._convert_to_table(data, first_keys)
+                rows = []
+
+                def _escape(v: Any) -> str:
+                    s = str(v)
+                    return s.replace("|", "\\|").replace("\n", "<br>")
+
+                # Performance optimization: single pass for validation and conversion
+                for item in data:
+                    if type(item) is not dict or item.keys() != first_keys:
+                        break
+                    row = "| " + " | ".join(_escape(item.get(k, "")) for k in first_keys) + " |"
+                    rows.append(row)
+                else:
+                    header_line = "| " + " | ".join(_escape(k) for k in first_keys) + " |"
+                    separator_line = "| " + " | ".join(["---"] * len(first_keys)) + " |"
+                    return "\n".join([header_line, separator_line] + rows)
 
         lines = []
         for item in data:
@@ -83,6 +104,8 @@ class JsonToMarkdownConverter:
         return "\n".join(lines)
 
     def _convert_to_table(self, data: List[Dict[str, Any]], keys: Any) -> str:
+        """Internal helper for table conversion, also used by tests."""
+
         def _escape(v: Any) -> str:
             s = str(v)
             return s.replace("|", "\\|").replace("\n", "<br>")
@@ -96,6 +119,7 @@ class JsonToMarkdownConverter:
         return "\n".join([header_line, separator_line] + rows)
 
     def _convert_to_kv(self, data: List[Dict[str, Any]]) -> str:
+        """Internal helper for KV conversion, also used by tests."""
         lines = []
         for item in data:
             kv_pairs = [f"{k}: {v}" for k, v in item.items()]
