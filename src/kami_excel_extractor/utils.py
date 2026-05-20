@@ -11,6 +11,9 @@ from typing import Any, Optional
 _FILENAME_SANITIZE_RE = re.compile(r"[^\w\.\-]")
 _FILENAME_MULTIPLE_UNDERSCORES_RE = re.compile(r"__+")
 _FILENAME_MULTIPLE_DOTS_RE = re.compile(r"\.\.+")
+_CLEAN_KAMI_TEXT_RE = re.compile(
+    r"([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])"
+)
 
 
 def clean_kami_text(text: Any) -> Any:
@@ -26,9 +29,7 @@ def clean_kami_text(text: Any) -> Any:
     text = text.replace("\u3000", " ")
 
     # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
-    res = re.sub(
-        r"([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])", r"\1", text
-    )
+    res = _CLEAN_KAMI_TEXT_RE.sub(r"\1", text)
 
     return res.strip()
 

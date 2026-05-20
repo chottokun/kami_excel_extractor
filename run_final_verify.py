@@ -76,10 +76,11 @@ async def main():
 
     # 検証対象の重要ファイル
     target_files = [
-        "complex_report.xlsx",
-        "sample_hoganshi.xlsx",
-        "data/input/final_test_media.xlsx",
-        "data/input/ui_test_sample.xlsx",
+        "data/input/complex_report.xlsx",
+        "data/input/complex_kami_sample.xlsx",
+        "data/input/mega_mixed_report.xlsx",
+        "data/input/realistic_business_report.xlsx",
+        "data/input/tiny_test.xlsx",
     ]
 
     xlsx_files = []

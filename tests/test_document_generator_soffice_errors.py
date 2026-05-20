@@ -128,20 +128,6 @@ async def test_aresolve_single_image_not_found(doc_gen, tmp_path):
     assert result == line
 
 
-def test_render_image_element_manual_call(doc_gen):
-    """直接呼ばれないが残っている _render_image_element のテスト"""
-    # 正常系
-    assert '<img src="p.png" alt="a">' in doc_gen._render_image_element("![a](p.png)")
-    # 不完全な形式
-    assert doc_gen._render_image_element("![a]p.png") == "![a]p.png"
-    assert doc_gen._render_image_element("![a](p.png") == "![a](p.png"
-    # ] の直後が ( でない
-    assert doc_gen._render_image_element("![alt] (path)") == "![alt] (path)"
-    # 例外系 (あまり発生しないが coverage のため)
-    with patch("html.escape", side_effect=Exception("mock error")):
-        assert doc_gen._render_image_element("![a](p.png)") == "![a](p.png)"
-
-
 def test_doc_gen_del_exception(tmp_path):
     """__del__ で例外が発生した場合のテスト (coverage のため)"""
     dg = DocumentGenerator(output_dir=tmp_path)

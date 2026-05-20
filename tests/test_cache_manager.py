@@ -61,6 +61,23 @@ def test_llm_result_unique_keys(cache_manager):
     assert cache_manager.get_llm_result(model, prompt, "other") is None
 
 
+def test_llm_result_edge_cases(cache_manager):
+    """空文字列、長い文字列、様々な文字種での挙動を検証"""
+    # 空文字列
+    cache_manager.set_llm_result("", "", "", "empty")
+    assert cache_manager.get_llm_result("", "", "") == "empty"
+
+    # 長い文字列 (10,000文字)
+    long_text = "a" * 10000
+    cache_manager.set_llm_result("model", "prompt", long_text, "long")
+    assert cache_manager.get_llm_result("model", "prompt", long_text) == "long"
+
+    # 特殊文字・ユニコード
+    unicode_text = "こんにちは！🌟 \n\t\r \"' \\"
+    cache_manager.set_llm_result("unicode", unicode_text, unicode_text, "ok")
+    assert cache_manager.get_llm_result("unicode", unicode_text, unicode_text) == "ok"
+
+
 def test_vlm_result_roundtrip(cache_manager):
     """set_vlm_resultとget_vlm_resultの挙動を検証"""
     model = "gpt-4o"
@@ -71,6 +88,23 @@ def test_vlm_result_roundtrip(cache_manager):
     cache_manager.set_vlm_result(model, prompt, img_hash, content)
     assert cache_manager.get_vlm_result(model, prompt, img_hash) == content
     assert cache_manager.get_vlm_result(model, prompt, "other") is None
+
+
+def test_vlm_result_edge_cases(cache_manager):
+    """VLMキャッシュの空文字列、長い文字列、様々な文字種での挙動を検証"""
+    # 空文字列
+    cache_manager.set_vlm_result("", "", "", "empty")
+    assert cache_manager.get_vlm_result("", "", "") == "empty"
+
+    # 長い文字列 (10,000文字)
+    long_text = "a" * 10000
+    cache_manager.set_vlm_result("model", "prompt", long_text, "long")
+    assert cache_manager.get_vlm_result("model", "prompt", long_text) == "long"
+
+    # 特殊文字・ユニコード
+    unicode_text = "こんにちは！🌟 \n\t\r \"' \\"
+    cache_manager.set_vlm_result("unicode", unicode_text, unicode_text, "ok")
+    assert cache_manager.get_vlm_result("unicode", unicode_text, unicode_text) == "ok"
 
 
 def test_image_data_url_roundtrip(cache_manager):
