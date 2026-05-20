@@ -9,7 +9,6 @@ from typing import List, Optional, Union
 import openpyxl
 
 from .utils import secure_filename
-
 logger = logging.getLogger(__name__)
 
 
