@@ -36,7 +36,7 @@ def _save_sheet_results(sheet_name: str, res: dict, target_dir: Path, extractor:
 
     sheet_yaml_path = target_dir / f"{safe_sheet_name}_lib_result.yaml"
     with open(sheet_yaml_path, "w", encoding="utf-8") as out_f:
-        out_f.write(res["yaml"])
+        out_f.write(res["structured"].get("_raw_data", ""))
 
     sheet_rag_path = target_dir / f"{safe_sheet_name}_rag_chunks.json"
     with open(sheet_rag_path, "w", encoding="utf-8") as out_f:

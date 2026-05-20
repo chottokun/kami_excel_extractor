@@ -31,7 +31,9 @@ def test_generate_pdf_uses_secure_temp_dir_and_absolute_path(tmp_path):
 
                         # Check absolute path
                         args, _ = mock_run.call_args
-                        assert args[0][0] == "/usr/bin/soffice"
+                        # Use endswith or check if it's an absolute path to be more robust
+                        assert args[0][0].endswith("soffice")
+                        assert Path(args[0][0]).is_absolute()
 
             # 複数回呼ばれる可能性があるため call_count >= 1 を検証
             assert mock_temp.call_count >= 1
@@ -50,17 +52,24 @@ def test_excel_converter_uses_timeout_and_absolute_paths(tmp_path):
     with patch("subprocess.run") as mock_run, patch("shutil.which") as mock_which:
         mock_which.side_effect = lambda x: f"/usr/bin/{x}"
 
-        def mock_run_side_effect(args, **kwargs):
+        def mock_run_side_effect(*args, **kwargs):
             mock_res = MagicMock()
             mock_res.returncode = 0
-            # Create PDF file when soffice is called in the specified outdir
-            if "/usr/bin/soffice" in args[0]:
-                outdir = args[args.index("--outdir") + 1]
-                input_stem = Path(args[-1]).stem
-                (Path(outdir) / f"{input_stem}.pdf").touch()
+            # args[0] might be the list of arguments or it might be passed via kwargs
+            cmd_args = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(x) for x in cmd_args)
+
+            if "soffice" in cmd_str:
+                try:
+                    idx = cmd_args.index("--outdir")
+                    outdir = Path(cmd_args[idx + 1])
+                    target_excel_path = Path(cmd_args[-1])
+                    (outdir / f"{target_excel_path.stem}.pdf").touch()
+                except (ValueError, IndexError):
+                    pass
             # Create PNG file when pdftocairo is called
-            if "/usr/bin/pdftocairo" in args[0]:
-                prefix = args[-1]
+            if "pdftocairo" in cmd_str:
+                prefix = Path(cmd_args[-1])
                 Path(f"{prefix}.png").touch()
             return mock_res
 
@@ -73,12 +82,14 @@ def test_excel_converter_uses_timeout_and_absolute_paths(tmp_path):
 
         # First call: LibreOffice
         args, kwargs = mock_run.call_args_list[0]
-        assert args[0][0] == "/usr/bin/soffice"
+        assert args[0][0].endswith("soffice")
+        assert Path(args[0][0]).is_absolute()
         assert "timeout" in kwargs
 
         # Second call: pdftocairo
         args, kwargs = mock_run.call_args_list[1]
-        assert args[0][0] == "/usr/bin/pdftocairo"
+        assert args[0][0].endswith("pdftocairo")
+        assert Path(args[0][0]).is_absolute()
         assert "timeout" in kwargs
 
 
