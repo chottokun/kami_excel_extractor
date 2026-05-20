@@ -59,7 +59,7 @@ class KamiExcelExtractor:
         self.api_key = api_key.strip("'\" ") if api_key else (os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
         self.extractor = MetadataExtractor(self.output_dir)
-        self.converter = ExcelConverter(self.output_dir)
+        self.converter = ExcelConverter(self.output_dir, max_file_size_mb=ExtractionOptions().max_file_size_mb)
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
 
@@ -416,7 +416,7 @@ class KamiExcelExtractor:
         stat_result = await asyncio.to_thread(excel_path.stat)
         file_size_mb = stat_result.st_size / (1024 * 1024)
         if file_size_mb > self.opts.max_file_size_mb:
-            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb}MB).")
+            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb:.1f}MB).")
 
         logger.info(f"Starting extraction for {excel_path.name} (Logic: {self.opts.include_logic})")
 
@@ -453,6 +453,7 @@ class KamiExcelExtractor:
             for sheet_name in sheets_data.keys():
                 try:
                     self.converter.dpi = self.opts.dpi
+                    self.converter.max_file_size_mb = self.opts.max_file_size_mb
                     # シート個別に画像を生成
                     png_paths = await asyncio.to_thread(self.converter.convert, excel_path, sheet_name=sheet_name)
                     if isinstance(png_paths, Path):
@@ -471,6 +472,7 @@ class KamiExcelExtractor:
         if self.opts.include_visual_summaries:
             try:
                 # シート指定なしで全体概要PDFから1枚目を生成
+                self.converter.max_file_size_mb = self.opts.max_file_size_mb
                 png_path = await asyncio.to_thread(self.converter.convert, excel_path)
                 if isinstance(png_path, list):
                     png_path = png_path[0]
@@ -578,6 +580,12 @@ class KamiExcelExtractor:
         self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None
     ) -> str:
         """画像の視覚的要約を生成する。永続キャッシュ対応。"""
+        # 🔒 Security Fix: ファイルサイズ制限のチェック
+        stat_result = await asyncio.to_thread(image_path.stat)
+        if stat_result.st_size > 20 * 1024 * 1024:  # 20MB limit
+            logger.warning(f"Image file too large for visual summary: {image_path.name} ({stat_result.st_size} bytes)")
+            return "[画像が大きすぎるため、要約をスキップしました]"
+
         model = model or self.default_model
         img_hash = await self.cache.aget_file_hash(image_path)
         prompt = "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"
@@ -647,6 +655,8 @@ class KamiExcelExtractor:
             include_visual_summaries=True,
             use_visual_context=opts.use_visual_context,
             include_logic=opts.include_logic,
+            max_file_size_mb=opts.max_file_size_mb,
+            use_cache=opts.use_cache,
         )
 
         structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)

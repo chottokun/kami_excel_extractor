@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 class ExcelConverter:
     """Excelを画像に変換するクラス (PDF経由)"""
 
-    def __init__(self, output_dir: Path, dpi: int = 150):
+    def __init__(self, output_dir: Path, dpi: int = 150, max_file_size_mb: int = 50):
         self.output_dir = Path(output_dir).resolve()
         self.dpi = dpi
+        self.max_file_size_mb = max_file_size_mb
 
     def convert(self, input_file: Path, sheet_name: Optional[str] = None) -> Union[Path, List[Path]]:
         input_file = input_file.resolve()
@@ -30,6 +31,12 @@ class ExcelConverter:
         # 入力ファイルの存在確認
         if not input_file.exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
+
+        # 🔒 Security Fix: ファイルサイズ制限のチェック
+        stat_result = input_file.stat()
+        file_size_mb = stat_result.st_size / (1024 * 1024)
+        if file_size_mb > self.max_file_size_mb:
+            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.max_file_size_mb:.1f}MB).")
 
         with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str).resolve()
