@@ -155,8 +155,8 @@ class MetadataExtractor:
             elif isinstance(anchor, str):  # String anchor (e.g. "A1")
                 try:
                     row, col = coordinate_to_tuple(anchor)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse image anchor '{anchor}': {e}")
 
             coord = f"{get_column_letter(col)}{row}" if (row is not None and col is not None) else "unknown"
             safe_sheet_name = secure_filename(sheet_name)
@@ -364,8 +364,8 @@ class MetadataExtractor:
                 elif isinstance(anchor, str):
                     try:
                         row, col = coordinate_to_tuple(anchor)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to parse image anchor '{anchor}': {e}")
 
                 # 🔒 Robustness: Ensure we are comparing actual integers, not mocks
                 if isinstance(row, int):
