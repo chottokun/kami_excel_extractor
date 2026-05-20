@@ -76,4 +76,4 @@ docker compose run --rm cli uv run pytest tests/ -v --tb=short
 - **LLM Error**: `.env` の API キーが正しいか、モデル名が LiteLLM でサポートされている形式か確認してください。
 
 ---
-最終更新日: 2026年5月8日
+最終更新日: 2026年5月20日
