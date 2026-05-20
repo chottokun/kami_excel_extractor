@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from kami_excel_extractor.schema import ExtractionResult, SheetData, FullExtraction
+from kami_excel_extractor.schema import ExtractionResult, FullExtraction, SheetData
 
 
 def test_extraction_result_extra_fields_ignored():
@@ -24,10 +24,7 @@ def test_extraction_result_extra_fields_ignored():
 
 def test_extraction_result_model_validate_extra_fields():
     """ExtractionResult.model_validate should ignore unknown fields in the input dict."""
-    input_dict = {
-        "data": [{"id": 1}],
-        "extra_info": "extra"
-    }
+    input_dict = {"data": [{"id": 1}], "extra_info": "extra"}
     result = ExtractionResult.model_validate(input_dict)
 
     assert result.data == [{"id": 1}]
@@ -49,10 +46,7 @@ def test_extraction_result_private_attribute_not_set_from_init():
 
 def test_sheet_data_extra_fields_ignored():
     """SheetData should also ignore unknown fields as per its config."""
-    sheet = SheetData(
-        metadata={"author": "test"},
-        unknown_field="ignored"
-    )
+    sheet = SheetData(metadata={"author": "test"}, unknown_field="ignored")
     assert sheet.metadata == {"author": "test"}
     assert not hasattr(sheet, "unknown_field")
     assert "unknown_field" not in sheet.model_dump()
@@ -60,10 +54,7 @@ def test_sheet_data_extra_fields_ignored():
 
 def test_full_extraction_extra_fields_allowed():
     """FullExtraction should ALLOW unknown fields as per its config (extra='allow')."""
-    full = FullExtraction(
-        sheets={},
-        extra_metadata="this should be kept"
-    )
+    full = FullExtraction(sheets={}, extra_metadata="this should be kept")
     # Since extra='allow', it should be present as an attribute if pydantic version supports it
     # or at least not raise an error.
     # In Pydantic V2 with extra='allow', extra fields are stored.

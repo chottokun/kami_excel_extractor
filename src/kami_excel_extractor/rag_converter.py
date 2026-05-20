@@ -105,18 +105,12 @@ class JsonToMarkdownConverter:
                 rows = []
                 for item in data:
                     if isinstance(item, dict) and item.keys() == first_keys:
-                        row = (
-                            "| "
-                            + " | ".join(_escape_markdown_table_cell(item.get(k, "")) for k in first_keys)
-                            + " |"
-                        )
+                        row = "| " + " | ".join(_escape_markdown_table_cell(item.get(k, "")) for k in first_keys) + " |"
                         rows.append(row)
                     else:
                         break
                 else:
-                    header_line = (
-                        "| " + " | ".join(_escape_markdown_table_cell(k) for k in first_keys) + " |"
-                    )
+                    header_line = "| " + " | ".join(_escape_markdown_table_cell(k) for k in first_keys) + " |"
                     separator_line = "| " + " | ".join(["---"] * len(first_keys)) + " |"
                     return "\n".join([header_line, separator_line] + rows)
 
@@ -130,11 +124,7 @@ class JsonToMarkdownConverter:
         separator_line = "| " + " | ".join(["---"] * len(keys)) + " |"
         rows = []
         for item in data:
-            row = (
-                "| "
-                + " | ".join(_escape_markdown_table_cell(item.get(k, "")) for k in keys)
-                + " |"
-            )
+            row = "| " + " | ".join(_escape_markdown_table_cell(item.get(k, "")) for k in keys) + " |"
             rows.append(row)
         return "\n".join([header_line, separator_line] + rows)
 

@@ -1,10 +1,12 @@
 import asyncio
 from pathlib import Path
-import pytest
 from unittest.mock import MagicMock, patch
 
-from kami_excel_extractor.core import ExtractionOptions, RagOptions, KamiExcelExtractor
+import pytest
+
 from kami_excel_extractor.converter import ExcelConverter
+from kami_excel_extractor.core import ExtractionOptions, KamiExcelExtractor, RagOptions
+
 
 @pytest.mark.asyncio
 async def test_file_size_limit_exceeded(tmp_path):
@@ -18,6 +20,7 @@ async def test_file_size_limit_exceeded(tmp_path):
         await extractor.aextract_structured_data(excel_path, options=options)
 
     assert "exceeds the limit" in str(excinfo.value)
+
 
 @pytest.mark.asyncio
 async def test_rag_chunks_file_size_limit_propagation(tmp_path):
@@ -33,6 +36,7 @@ async def test_rag_chunks_file_size_limit_propagation(tmp_path):
 
     assert "exceeds the limit" in str(excinfo.value)
 
+
 @pytest.mark.asyncio
 async def test_aget_visual_summary_size_limit(tmp_path):
     extractor = KamiExcelExtractor(output_dir=tmp_path)
@@ -42,6 +46,7 @@ async def test_aget_visual_summary_size_limit(tmp_path):
 
     result = await extractor.aget_visual_summary(image_path)
     assert "[画像が大きすぎるため、要約をスキップしました]" in result
+
 
 def test_converter_size_limit(tmp_path):
     converter = ExcelConverter(output_dir=tmp_path, max_file_size_mb=1)
@@ -53,6 +58,7 @@ def test_converter_size_limit(tmp_path):
         converter.convert(excel_path)
 
     assert "exceeds the limit" in str(excinfo.value)
+
 
 @pytest.mark.asyncio
 async def test_core_converter_limit_update(tmp_path):

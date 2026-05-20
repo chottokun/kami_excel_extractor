@@ -1,6 +1,9 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from src.kami_excel_extractor.extractor import MetadataExtractor
+
 
 def test_extract_media_invalid_anchor_logging(tmp_path):
     extractor = MetadataExtractor(tmp_path)
@@ -28,6 +31,7 @@ def test_extract_media_invalid_anchor_logging(tmp_path):
 
             # Check if coord fell back to "unknown"
             assert results[0]["coord"] == "unknown"
+
 
 def test_get_bounding_box_invalid_anchor_logging(tmp_path):
     extractor = MetadataExtractor(tmp_path)
