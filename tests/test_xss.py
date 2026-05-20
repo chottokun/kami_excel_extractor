@@ -83,7 +83,6 @@ def test_multiple_images_on_same_line(doc_gen):
     # Current implementation of _simple_md_to_html only handles one image per line if it starts with ![
     assert 'src="path1.png"' in html_out
     # Since search() is used on the whole line, and it's not a global replace in _simple_md_to_html
-    # Only the first match is rendered by _render_image_element.
 
     # Let's check how it handles image followed by text in parentheses
     md = "![img](path.png) (additional info)"
