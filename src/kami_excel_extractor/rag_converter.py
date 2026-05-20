@@ -33,10 +33,16 @@ class JsonToMarkdownConverter:
     def _convert_sheets_data(self, data: Dict[str, Any]) -> str:
         lines = []
         for sheet_name, sheet_content in data.get("sheets", {}).items():
+            content = self.convert(sheet_content, 2)
+            # Skip empty sheets
+            if not content or content == "None":
+                continue
             lines.append(f"# {sheet_name}")
-            lines.append(self.convert(sheet_content, 2))
+            lines.append(content)
         if "media" in data:
-            lines.append(self._convert_media(data["media"]))
+            media_content = self._convert_media(data["media"])
+            if media_content:
+                lines.append(media_content)
         return "\n\n".join(lines)
 
     def _convert_media_data(self, data: Dict[str, Any]) -> str:
@@ -55,11 +61,21 @@ class JsonToMarkdownConverter:
             if isinstance(value, (dict, list)) and value:
                 # テストが ## を期待している場合は level+1 を使う
                 effective_level = level + 1 if level == 1 else level
+
+                content = self.convert(value, effective_level + 1)
+                # 空の内容をスキップ
+                if not content or content == "None":
+                    continue
+
                 header = "#" * effective_level + " " + str(key)
                 lines.append(header)
-                lines.append(self.convert(value, effective_level + 1))
+                lines.append(content)
             else:
-                lines.append(f"- **{key}**: {self.convert(value, level + 1)}")
+                val_str = self.convert(value, level + 1)
+                # 空の内容をスキップ
+                if not val_str or val_str == "None":
+                    continue
+                lines.append(f"- **{key}**: {val_str}")
         return "\n".join(lines)
 
     def _convert_list(self, data: List[Any], level: int) -> str:
