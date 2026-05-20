@@ -5,6 +5,7 @@ Kami Excel Extractor のコアオーケストレーションエンジン。
 
 import asyncio
 import base64
+import html
 import json
 import logging
 import os
@@ -59,7 +60,7 @@ class KamiExcelExtractor:
         self.api_key = api_key.strip("'\" ") if api_key else (os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
         self.extractor = MetadataExtractor(self.output_dir)
-        self.converter = ExcelConverter(self.output_dir)
+        self.converter = ExcelConverter(self.output_dir, max_file_size_mb=ExtractionOptions().max_file_size_mb)
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
 
@@ -206,8 +207,8 @@ class KamiExcelExtractor:
             try:
                 data = json.loads(json_str)
                 raw_str = json_str
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                logger.debug(f"JSON decoding failed for {sheet_name}, falling back to YAML: {e}")
 
         if data is None:
             yaml_match = self._RE_YAML_BLOCK.search(content)
@@ -220,13 +221,18 @@ class KamiExcelExtractor:
                 return {"error": str(e), "_raw_data": content}
 
         try:
+            # 1. 辞書形式であることを保証
             if not isinstance(data, dict):
                 data = {"data": data}
-            elif "sheets" in data and sheet_name in data["sheets"]:
+
+            # 2. 'sheets' キーによるネスティングの解消
+            if "sheets" in data and isinstance(data["sheets"], dict) and sheet_name in data["sheets"]:
                 data = data["sheets"][sheet_name]
-            elif "data" not in data:
-                # 💡 Bug Fix: If the response is a dictionary without a "data" key, wrap it under "data"
-                # to prevent Pydantic's extra='ignore' from discarding valid parsed fields.
+
+            # 3. 最終的な正規化: Pydanticの extra='ignore' による消失を防ぐため 'data' キーを保証
+            if not isinstance(data, dict):
+                data = {"data": data}
+            elif "data" not in data and "error" not in data:
                 data = {"data": data}
 
             # Pydanticによるスキーマ検証とクレンジング
@@ -251,22 +257,22 @@ class KamiExcelExtractor:
             return media_item
 
         async with semaphore if semaphore else asyncio.Lock():
-            image_url = await self._encode_image_to_base64_url(image_path)
-            prompt = (
-                "この画像がグラフや図表の場合、その軸ラベル、凡例、およびデータ値を抽出し、"
-                "Markdownのテーブル形式で整理してください。回答の冒頭に [図表データ] と付けて出力してください。"
-            )
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
-                }
-            ]
-
             try:
+                image_url = await self._encode_image_to_base64_url(image_path)
+                prompt = (
+                    "この画像がグラフや図表の場合、その軸ラベル、凡例、およびデータ値を抽出し、"
+                    "Markdownのテーブル形式で整理してください。回答の冒頭に [図表データ] と付けて出力してください。"
+                )
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ]
+
                 response = await self._awith_retry(
                     litellm.acompletion,
                     model=model,
@@ -292,7 +298,7 @@ class KamiExcelExtractor:
     def _format_visual_insights(self, coord: str, items: List[Dict]) -> str:
         """指定された座標の図表データをHTML形式にフォーマットする。"""
         insights = [
-            f"<div class='visual-insight'>[図表データ({coord})]: {i['visual_data']}</div>"
+            f"<div class='visual-insight'>[図表データ({coord})]: {html.escape(i['visual_data'])}</div>"
             for i in items
             if "visual_data" in i
         ]
@@ -411,7 +417,9 @@ class KamiExcelExtractor:
         stat_result = await asyncio.to_thread(excel_path.stat)
         file_size_mb = stat_result.st_size / (1024 * 1024)
         if file_size_mb > self.opts.max_file_size_mb:
-            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb}MB).")
+            raise ValueError(
+                f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb:.1f}MB)."
+            )
 
         logger.info(f"Starting extraction for {excel_path.name} (Logic: {self.opts.include_logic})")
 
@@ -448,6 +456,7 @@ class KamiExcelExtractor:
             for sheet_name in sheets_data.keys():
                 try:
                     self.converter.dpi = self.opts.dpi
+                    self.converter.max_file_size_mb = self.opts.max_file_size_mb
                     # シート個別に画像を生成
                     png_paths = await asyncio.to_thread(self.converter.convert, excel_path, sheet_name=sheet_name)
                     if isinstance(png_paths, Path):
@@ -466,6 +475,7 @@ class KamiExcelExtractor:
         if self.opts.include_visual_summaries:
             try:
                 # シート指定なしで全体概要PDFから1枚目を生成
+                self.converter.max_file_size_mb = self.opts.max_file_size_mb
                 png_path = await asyncio.to_thread(self.converter.convert, excel_path)
                 if isinstance(png_path, list):
                     png_path = png_path[0]
@@ -573,6 +583,12 @@ class KamiExcelExtractor:
         self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None
     ) -> str:
         """画像の視覚的要約を生成する。永続キャッシュ対応。"""
+        # 🔒 Security Fix: ファイルサイズ制限のチェック
+        stat_result = await asyncio.to_thread(image_path.stat)
+        if stat_result.st_size > 20 * 1024 * 1024:  # 20MB limit
+            logger.warning(f"Image file too large for visual summary: {image_path.name} ({stat_result.st_size} bytes)")
+            return "[画像が大きすぎるため、要約をスキップしました]"
+
         model = model or self.default_model
         img_hash = await self.cache.aget_file_hash(image_path)
         prompt = "この画像の内容を詳細に説明してください。[画像概要] と付けて出力してください。"
@@ -591,16 +607,19 @@ class KamiExcelExtractor:
                 self._visual_summary_cache[cache_key] = cached_summary
                 return cached_summary
 
-        image_url = await self._encode_image_to_base64_url(image_path)
-
-        messages = [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": image_url}}],
-            }
-        ]
         async with semaphore if semaphore else asyncio.Lock():
             try:
+                image_url = await self._encode_image_to_base64_url(image_path)
+
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ]
                 response = await self._awith_retry(
                     litellm.acompletion,
                     model=model,
@@ -642,6 +661,8 @@ class KamiExcelExtractor:
             include_visual_summaries=True,
             use_visual_context=opts.use_visual_context,
             include_logic=opts.include_logic,
+            max_file_size_mb=opts.max_file_size_mb,
+            use_cache=opts.use_cache,
         )
 
         structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)

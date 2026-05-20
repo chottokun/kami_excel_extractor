@@ -147,50 +147,25 @@ class DocumentGenerator:
     def _render_image_element(self, stripped_line: str) -> str:
         """
         画像要素をレンダリングする。
-        括弧のネストを正しく扱うため、手動でバランスパースを行う。
         """
-        # 形式: ![alt](path)
         if not (stripped_line.startswith("![") and "]" in stripped_line and "(" in stripped_line):
-            return stripped_line
+            return html.escape(stripped_line, quote=True)
 
         try:
-            # altテキストの抽出
-            alt_start = 2
-            alt_end = stripped_line.find("]")
-            if alt_end == -1:
-                return stripped_line
-            alt_text = stripped_line[alt_start:alt_end]
+            parsed = self._parse_balanced_image(stripped_line)
+            if parsed is None:
+                return html.escape(stripped_line, quote=True)
 
-            # パスの抽出 (括弧のバランスを考慮)
-            # ] の直後が ( であることを確認
-            remaining = stripped_line[alt_end + 1 :]
-            if not remaining.startswith("("):
-                return stripped_line
+            alt_text, path_content = parsed
 
-            path_start = 1  # remaining における開始位置
-            stack = 0
-            path_content = None
-
-            for i, char in enumerate(remaining):
-                if char == "(":
-                    stack += 1
-                elif char == ")":
-                    stack -= 1
-                    if stack == 0:
-                        path_content = remaining[path_start:i]
-                        break
-
-            if path_content is None:
-                return stripped_line
-
-            # 🔒 Security Fix: HTML escape image source attribute and alt text
+            # 🛡️ Security Fix: HTML escape image source attribute and alt text
             escaped_img_path = html.escape(path_content, quote=True)
             escaped_alt = html.escape(alt_text or "画像", quote=True)
             return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
 
         except Exception:
-            # 万が一のパース失敗時は元のテキストを返す
-            return stripped_line
+            # 万が一のパース失敗時は元のテキストをエスケープして返す
+            return html.escape(stripped_line, quote=True)
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
@@ -268,6 +243,22 @@ class DocumentGenerator:
             elif self.RE_LIST_ITEM_START.match(stripped):
                 html_list, i = self._process_list_block(lines, i)
                 body_parts.append(html_list)
+            elif (
+                stripped.startswith("![")
+                and "]" in stripped
+                and "(" in stripped
+                and stripped.endswith(")")
+                and self._parse_balanced_image(stripped)
+            ):
+                parsed = self._parse_balanced_image(stripped)
+                if parsed:
+                    alt_text, path_content = parsed
+                    if stripped == f"![{alt_text}]({path_content})":
+                        body_parts.append(self._render_image_element(stripped))
+                        i += 1
+                        continue
+                body_parts.append(self._render_paragraph(stripped))
+                i += 1
             else:
                 body_parts.append(self._render_paragraph(stripped))
                 i += 1
@@ -351,26 +342,26 @@ class DocumentGenerator:
         if hasattr(self, "_cached_soffice_path"):
             return self._cached_soffice_path
 
-        raw_path = shutil.which("soffice")
-        if not raw_path:
+        raw_cmd_path = shutil.which("soffice")
+        if not raw_cmd_path:
             return None
 
-        self._cached_soffice_path = str(Path(raw_path).resolve())
+        self._cached_soffice_path = str(Path(raw_cmd_path).resolve())
         return self._cached_soffice_path
 
     def _run_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す"""
         try:
-            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            # 🛡️ Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
             soffice_path = self._get_soffice_path()
             if not soffice_path:
                 logger.error("LibreOffice (soffice) not found in PATH")
                 return None
 
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # 🛡️ Security Fix: Use absolute paths to prevent argument injection
             res = subprocess.run(
                 [
-                    soffice_path,
+                    str(Path(soffice_path).resolve()),
                     "--headless",
                     "--convert-to",
                     "pdf",
@@ -404,16 +395,16 @@ class DocumentGenerator:
     async def _arun_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す (非同期版)"""
         try:
-            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            # 🛡️ Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
             soffice_path = await asyncio.to_thread(self._get_soffice_path)
             if not soffice_path:
                 logger.error("LibreOffice (soffice) not found in PATH")
                 return None
 
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # 🛡️ Security Fix: Use absolute paths to prevent argument injection
             # ⚡ Performance: Use asyncio.create_subprocess_exec to free up the event loop
             proc = await asyncio.create_subprocess_exec(
-                soffice_path,
+                str(Path(soffice_path).resolve()),
                 "--headless",
                 "--convert-to",
                 "pdf",
