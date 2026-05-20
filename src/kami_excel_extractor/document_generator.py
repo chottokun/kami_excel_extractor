@@ -144,6 +144,28 @@ class DocumentGenerator:
             content = stripped_line[1:].strip()
         return f"<li>{self._render_inline(content)}</li>"
 
+    def _render_image_element(self, stripped_line: str) -> str:
+        """
+        画像要素をレンダリングする。
+        """
+        if not (stripped_line.startswith("![") and "]" in stripped_line and "(" in stripped_line):
+            return html.escape(stripped_line, quote=True)
+
+        try:
+            parsed = self._parse_balanced_image(stripped_line)
+            if parsed is None:
+                return html.escape(stripped_line, quote=True)
+
+            alt_text, path_content = parsed
+
+            # 🔒 Security Fix: HTML escape image source attribute and alt text
+            escaped_img_path = html.escape(path_content, quote=True)
+            escaped_alt = html.escape(alt_text or "画像", quote=True)
+            return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
+
+        except Exception:
+            # 万が一のパース失敗時は元のテキストをエスケープして返す
+            return html.escape(stripped_line, quote=True)
 
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
@@ -221,6 +243,22 @@ class DocumentGenerator:
             elif self.RE_LIST_ITEM_START.match(stripped):
                 html_list, i = self._process_list_block(lines, i)
                 body_parts.append(html_list)
+            elif (
+                stripped.startswith("![")
+                and "]" in stripped
+                and "(" in stripped
+                and stripped.endswith(")")
+                and self._parse_balanced_image(stripped)
+            ):
+                parsed = self._parse_balanced_image(stripped)
+                if parsed:
+                    alt_text, path_content = parsed
+                    if stripped == f"![{alt_text}]({path_content})":
+                        body_parts.append(self._render_image_element(stripped))
+                        i += 1
+                        continue
+                body_parts.append(self._render_paragraph(stripped))
+                i += 1
             else:
                 body_parts.append(self._render_paragraph(stripped))
                 i += 1

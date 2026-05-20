@@ -5,6 +5,7 @@ Kami Excel Extractor のコアオーケストレーションエンジン。
 
 import asyncio
 import base64
+import html
 import json
 import logging
 import os
@@ -297,7 +298,7 @@ class KamiExcelExtractor:
     def _format_visual_insights(self, coord: str, items: List[Dict]) -> str:
         """指定された座標の図表データをHTML形式にフォーマットする。"""
         insights = [
-            f"<div class='visual-insight'>[図表データ({coord})]: {i['visual_data']}</div>"
+            f"<div class='visual-insight'>[図表データ({coord})]: {html.escape(i['visual_data'])}</div>"
             for i in items
             if "visual_data" in i
         ]
