@@ -206,8 +206,8 @@ class KamiExcelExtractor:
             try:
                 data = json.loads(json_str)
                 raw_str = json_str
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                logger.debug(f"JSON decoding failed for {sheet_name}, falling back to YAML: {e}")
 
         if data is None:
             yaml_match = self._RE_YAML_BLOCK.search(content)
