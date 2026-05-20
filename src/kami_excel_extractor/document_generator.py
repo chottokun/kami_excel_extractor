@@ -158,7 +158,7 @@ class DocumentGenerator:
 
             alt_text, path_content = parsed
 
-            # 🔒 Security Fix: HTML escape image source attribute and alt text
+            # 🛡️ Security Fix: HTML escape image source attribute and alt text
             escaped_img_path = html.escape(path_content, quote=True)
             escaped_alt = html.escape(alt_text or "画像", quote=True)
             return f'<div class="image-container"><img src="{escaped_img_path}" alt="{escaped_alt}"></div>'
