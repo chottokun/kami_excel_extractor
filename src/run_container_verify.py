@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # プロジェクトルートの動的解決
-project_root = Path(__file__).parent.resolve()
+project_root = Path(__file__).parent.parent.resolve()
 sys.path.append(str(project_root / "src"))
 
 from kami_excel_extractor import KamiExcelExtractor
