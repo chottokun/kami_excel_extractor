@@ -8,6 +8,7 @@ from typing import List, Optional, Union
 
 import openpyxl
 
+from .utils import secure_filename
 logger = logging.getLogger(__name__)
 
 
@@ -22,31 +23,37 @@ class ExcelConverter:
         input_file = input_file.resolve()
 
         # 🔒 Race Condition Fix: UUIDを使用して中間ファイル名の衝突を回避
-        run_id = str(uuid.uuid4())[:8]
-        output_prefix = self.output_dir / f"{input_file.stem}_{run_id}"
-        original_pdf = self.output_dir / f"{input_file.stem}_{run_id}.pdf"
+        run_id = uuid.uuid4().hex[:12]
+        safe_stem = secure_filename(input_file.stem)
+        output_prefix = self.output_dir / f"{safe_stem}_{run_id}"
 
         # 入力ファイルの存在確認
         if not input_file.exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
-        try:
-            with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
-                tmp_dir = Path(tmp_dir_str).resolve()
+        with tempfile.TemporaryDirectory(prefix="lo_profile_") as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str).resolve()
 
-                # ターゲットファイルの準備 (シート隔離が必要な場合)
-                target_excel = input_file
-                if sheet_name:
-                    target_excel = tmp_dir / f"isolated_{run_id}.xlsx"
-                    logger.info(f"Isolating sheet '{sheet_name}' for conversion...")
-                    wb = openpyxl.load_workbook(input_file, data_only=True)
-                    for name in wb.sheetnames:
-                        if name != sheet_name:
-                            del wb[name]
-                    wb.save(target_excel)
+            # ターゲットファイルの準備
+            # 常に一時ディレクトリにコピーまたは隔離することで、元ファイルへの副作用を完全に排除
+            temp_input = tmp_dir / f"input_{run_id}.xlsx"
+            if sheet_name:
+                logger.info(f"Isolating sheet '{sheet_name}' for conversion...")
+                wb = openpyxl.load_workbook(input_file, data_only=True)
+                for name in wb.sheetnames:
+                    if name != sheet_name:
+                        del wb[name]
+                wb.save(temp_input)
+            else:
+                shutil.copy2(input_file, temp_input)
 
+            # LibreOfficeは入力ファイルのステム名でPDFを出力するため、移動先を定義
+            original_pdf = tmp_dir / f"converted_{run_id}.pdf"
+            expected_pdf = tmp_dir / f"{temp_input.stem}.pdf"
+
+            try:
                 # Step 1: Excel -> PDF
-                logger.info(f"Converting {target_excel.name} to PDF (ID: {run_id})...")
+                logger.info(f"Converting {input_file.name} to PDF (ID: {run_id})...")
 
                 raw_cmd_path = shutil.which("soffice")
                 if not raw_cmd_path:
@@ -64,7 +71,7 @@ class ExcelConverter:
                         "pdf",
                         "--outdir",
                         str(tmp_dir.resolve()),
-                        str(target_excel.resolve()),
+                        str(temp_input.resolve()),
                     ],
                     capture_output=True,
                     text=True,
@@ -76,10 +83,9 @@ class ExcelConverter:
                     logger.error(f"LibreOffice failed: {res_pdf.stderr}")
                     raise RuntimeError(f"LibreOffice conversion failed: {res_pdf.stderr}")
 
-                # LibreOfficeは元のファイル名でPDFを書き出すため、生成後にリネームする
-                default_pdf = tmp_dir / f"{target_excel.stem}.pdf"
-                if default_pdf.exists():
-                    shutil.move(str(default_pdf), str(original_pdf))
+                # 生成されたPDFを固定の名前にリネームして管理しやすくする
+                if expected_pdf.exists():
+                    shutil.move(str(expected_pdf), str(original_pdf))
 
                 if not original_pdf.exists():
                     raise FileNotFoundError(f"PDF not found after conversion: {original_pdf}")
@@ -95,9 +101,12 @@ class ExcelConverter:
                     output_png = output_prefix.with_suffix(".png")
                     self._convert_pdf_to_png(original_pdf, output_png)
                     return output_png
-        finally:
-            if original_pdf.exists():
-                original_pdf.unlink()
+            finally:
+                # Cleanup inside the context manager while tmp_dir still exists
+                if original_pdf.exists():
+                    original_pdf.unlink()
+                if temp_input.exists():
+                    temp_input.unlink()
 
     def _convert_pdf_to_multi_png(self, pdf_path: Path, output_prefix: Path) -> List[Path]:
         """PDFの全ページをPNGに変換する"""

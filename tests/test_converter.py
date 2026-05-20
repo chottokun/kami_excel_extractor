@@ -17,7 +17,7 @@ def mock_shutil_which():
 def mock_uuid():
     with patch("uuid.uuid4") as mock:
         mock_val = MagicMock()
-        mock_val.__str__.return_value = "12345678-1234-1234-1234-123456789012"
+        mock_val.hex = "1234567890abcdef1234567890abcdef"
         mock.return_value = mock_val
         yield mock
 
@@ -30,8 +30,8 @@ def test_convert_success(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test_12345678.pdf"
-    png_file = output_dir / "test_12345678.png"
+    # run_id = "1234567890ab" (first 12 of hex)
+    png_file = output_dir / "test_1234567890ab.png"
 
     def mock_run(*args, **kwargs):
         mock_res = MagicMock()
@@ -54,7 +54,6 @@ def test_convert_success(tmp_path):
         result = converter.convert(input_file)
 
         assert result == png_file
-        assert not pdf_file.exists()
         assert mock_subprocess.call_count == 2
         # Verify absolute paths used
         assert mock_subprocess.call_args_list[0][0][0][0].endswith("soffice")
@@ -76,8 +75,7 @@ def test_convert_dpi_propagation(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test_12345678.pdf"
-    png_file = output_dir / "test_12345678.png"
+    png_file = output_dir / "test_1234567890ab.png"
 
     def mock_run(*args, **kwargs):
         mock_res = MagicMock()
@@ -162,8 +160,7 @@ def test_convert_fallback_to_fitz(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test_12345678.pdf"
-    png_file = output_dir / "test_12345678.png"
+    png_file = output_dir / "test_1234567890ab.png"
 
     def mock_run(*args, **kwargs):
         mock_res = MagicMock()
@@ -188,7 +185,7 @@ def test_convert_fallback_to_fitz(tmp_path):
     mock_page = mock_doc.load_page.return_value
 
     def mock_save(path):
-        png_file.touch()
+        Path(path).touch()
 
     mock_page.get_pixmap.return_value.save.side_effect = mock_save
 
@@ -197,7 +194,6 @@ def test_convert_fallback_to_fitz(tmp_path):
             result = converter.convert(input_file)
             assert result == png_file
             assert png_file.exists()
-            assert not pdf_file.exists()
             mock_fitz.open.assert_called_once()
 
 
@@ -209,8 +205,7 @@ def test_convert_fallback_to_imagemagick(tmp_path):
     input_file = tmp_path / "test.xlsx"
     input_file.touch()
 
-    pdf_file = output_dir / "test_12345678.pdf"
-    png_file = output_dir / "test_12345678.png"
+    png_file = output_dir / "test_1234567890ab.png"
 
     def mock_run(*args, **kwargs):
         mock_res = MagicMock()
@@ -229,7 +224,7 @@ def test_convert_fallback_to_imagemagick(tmp_path):
             mock_res.returncode = 1
         elif "magick" in cmd_str:
             mock_res.returncode = 0
-            png_file.touch()
+            Path(args[4]).touch()
         return mock_res
 
     # Mock fitz as missing
@@ -238,7 +233,6 @@ def test_convert_fallback_to_imagemagick(tmp_path):
             result = converter.convert(input_file)
             assert result == png_file
             assert png_file.exists()
-            assert not pdf_file.exists()
 
 
 def test_convert_all_fallbacks_fail(tmp_path):
@@ -273,6 +267,3 @@ def test_convert_all_fallbacks_fail(tmp_path):
         with patch.dict("sys.modules", {"fitz": None}):
             with pytest.raises(RuntimeError, match="All PDF to PNG conversion methods failed"):
                 converter.convert(input_file)
-
-        # Intermediate PDF should be unlinked even if all fail
-        assert not pdf_file.exists()
