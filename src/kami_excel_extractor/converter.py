@@ -2,8 +2,11 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import List, Optional, Union
+
+import openpyxl
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +19,6 @@ class ExcelConverter:
         self.dpi = dpi
 
     def convert(self, input_file: Path, sheet_name: Optional[str] = None) -> Union[Path, List[Path]]:
-        import uuid
-
-        import openpyxl
-
         input_file = input_file.resolve()
 
         # 🔒 Race Condition Fix: UUIDを使用して中間ファイル名の衝突を回避
