@@ -39,7 +39,7 @@ def test_parse_llm_response_validation_error_pydantic(extractor):
     sheet_name = "Sheet1"
 
     # We use ValueError as a representative of validation errors that can occur
-    with patch("kami_excel_extractor.core.SheetData", side_effect=ValueError("Invalid data format")):
+    with patch("kami_excel_extractor.core.ExtractionResult", side_effect=ValueError("Invalid data format")):
         result = extractor._parse_llm_response(content, sheet_name)
 
     assert "error" in result
