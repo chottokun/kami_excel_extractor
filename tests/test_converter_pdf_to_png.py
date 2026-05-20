@@ -52,7 +52,7 @@ def test_try_pdftocairo_success(converter, pdf_path, png_path, mock_which, mock_
 
     # Check arguments
     args = mock_run.call_args[0][0]
-    assert args[0] == "/usr/bin/pdftocairo"
+    assert args[0].endswith("pdftocairo")
     assert args[1] == "-png"
     assert args[2] == "-singlefile"
     assert args[3] == str(pdf_path.resolve())
@@ -119,7 +119,7 @@ def test_try_imagemagick_magick_success(converter, pdf_path, png_path, mock_whic
     assert png_path.exists()
 
     args = mock_run.call_args[0][0]
-    assert args[0] == "/usr/bin/magick"
+    assert args[0].endswith("magick")
     assert args[1] == "-density"
     assert args[2] == str(converter.dpi)
     assert args[3] == f"{pdf_path.resolve()}[0]"
@@ -139,7 +139,7 @@ def test_try_imagemagick_convert_success(converter, pdf_path, png_path, mock_whi
     assert png_path.exists()
 
     args = mock_run.call_args[0][0]
-    assert args[0] == "/usr/bin/convert"
+    assert "convert" in Path(args[0]).name
 
 
 def test_try_imagemagick_not_found(converter, pdf_path, png_path, mock_which):

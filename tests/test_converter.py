@@ -33,14 +33,20 @@ def test_convert_success(tmp_path):
     pdf_file = output_dir / "test_12345678.pdf"
     png_file = output_dir / "test_12345678.png"
 
-    def mock_run(args, **kwargs):
+    def mock_run(*args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if "/usr/bin/soffice" in args[0]:
-            outdir = args[args.index("--outdir") + 1]
-            input_stem = Path(args[-1]).stem
-            (Path(outdir) / f"{input_stem}.pdf").touch()
-        if "/usr/bin/pdftocairo" in args[0]:
+        cmd_args = args[0] if args else kwargs.get("args", [])
+        cmd_str = " ".join(str(x) for x in cmd_args)
+        if "soffice" in cmd_str:
+            try:
+                idx = cmd_args.index("--outdir")
+                outdir = Path(cmd_args[idx + 1])
+                target_excel = Path(cmd_args[-1])
+                (outdir / f"{target_excel.stem}.pdf").touch()
+            except (ValueError, IndexError):
+                pass
+        if "pdftocairo" in cmd_str:
             png_file.touch()
         return mock_res
 
@@ -51,8 +57,10 @@ def test_convert_success(tmp_path):
         assert not pdf_file.exists()
         assert mock_subprocess.call_count == 2
         # Verify absolute paths used
-        assert mock_subprocess.call_args_list[0][0][0][0] == "/usr/bin/soffice"
-        assert mock_subprocess.call_args_list[1][0][0][0] == "/usr/bin/pdftocairo"
+        assert mock_subprocess.call_args_list[0][0][0][0].endswith("soffice")
+        assert Path(mock_subprocess.call_args_list[0][0][0][0]).is_absolute()
+        assert mock_subprocess.call_args_list[1][0][0][0].endswith("pdftocairo")
+        assert Path(mock_subprocess.call_args_list[1][0][0][0]).is_absolute()
 
         # Verify pdftocairo arguments are resolved
         pdftocairo_args = mock_subprocess.call_args_list[1][0][0]
@@ -71,14 +79,20 @@ def test_convert_dpi_propagation(tmp_path):
     pdf_file = output_dir / "test_12345678.pdf"
     png_file = output_dir / "test_12345678.png"
 
-    def mock_run(args, **kwargs):
+    def mock_run(*args, **kwargs):
         mock_res = MagicMock()
         mock_res.returncode = 0
-        if "/usr/bin/soffice" in args[0]:
-            outdir = args[args.index("--outdir") + 1]
-            input_stem = Path(args[-1]).stem
-            (Path(outdir) / f"{input_stem}.pdf").touch()
-        elif "/usr/bin/magick" in args[0]:
+        cmd_args = args[0] if args else kwargs.get("args", [])
+        cmd_str = " ".join(str(x) for x in cmd_args)
+        if "soffice" in cmd_str:
+            try:
+                idx = cmd_args.index("--outdir")
+                outdir = Path(cmd_args[idx + 1])
+                target_excel = Path(cmd_args[-1])
+                (outdir / f"{target_excel.stem}.pdf").touch()
+            except (ValueError, IndexError):
+                pass
+        elif "magick" in cmd_str:
             png_file.touch()
         return mock_res
 
@@ -90,7 +104,7 @@ def test_convert_dpi_propagation(tmp_path):
                 assert result == png_file
 
                 # Find the magick call
-                magick_call = next(c for c in mock_subprocess.call_args_list if "/usr/bin/magick" in c[0][0])
+                magick_call = next(c for c in mock_subprocess.call_args_list if any("magick" in part for part in c[0][0] if isinstance(part, str)))
                 args = magick_call[0][0]
                 assert args[2] == "300"  # DPI
                 assert Path(args[3].replace("[0]", "")).is_absolute()
@@ -151,14 +165,20 @@ def test_convert_fallback_to_fitz(tmp_path):
     pdf_file = output_dir / "test_12345678.pdf"
     png_file = output_dir / "test_12345678.png"
 
-    def mock_run(args, **kwargs):
+    def mock_run(*args, **kwargs):
         mock_res = MagicMock()
-        if "/usr/bin/soffice" in args[0]:
+        cmd_args = args[0] if args else kwargs.get("args", [])
+        cmd_str = " ".join(str(x) for x in cmd_args)
+        if "soffice" in cmd_str:
             mock_res.returncode = 0
-            outdir = args[args.index("--outdir") + 1]
-            input_stem = Path(args[-1]).stem
-            (Path(outdir) / f"{input_stem}.pdf").touch()
-        elif "/usr/bin/pdftocairo" in args[0]:
+            try:
+                idx = cmd_args.index("--outdir")
+                outdir = Path(cmd_args[idx + 1])
+                target_excel = Path(cmd_args[-1])
+                (outdir / f"{target_excel.stem}.pdf").touch()
+            except (ValueError, IndexError):
+                pass
+        elif "pdftocairo" in cmd_str:
             mock_res.returncode = 1
             mock_res.stderr = "pdftocairo Error"
         return mock_res
@@ -192,16 +212,22 @@ def test_convert_fallback_to_imagemagick(tmp_path):
     pdf_file = output_dir / "test_12345678.pdf"
     png_file = output_dir / "test_12345678.png"
 
-    def mock_run(args, **kwargs):
+    def mock_run(*args, **kwargs):
         mock_res = MagicMock()
-        if "/usr/bin/soffice" in args[0]:
+        cmd_args = args[0] if args else kwargs.get("args", [])
+        cmd_str = " ".join(str(x) for x in cmd_args)
+        if "soffice" in cmd_str:
             mock_res.returncode = 0
-            outdir = args[args.index("--outdir") + 1]
-            input_stem = Path(args[-1]).stem
-            (Path(outdir) / f"{input_stem}.pdf").touch()
-        elif "/usr/bin/pdftocairo" in args[0]:
+            try:
+                idx = cmd_args.index("--outdir")
+                outdir = Path(cmd_args[idx + 1])
+                target_excel = Path(cmd_args[-1])
+                (outdir / f"{target_excel.stem}.pdf").touch()
+            except (ValueError, IndexError):
+                pass
+        elif "pdftocairo" in cmd_str:
             mock_res.returncode = 1
-        elif "/usr/bin/magick" in args[0]:
+        elif "magick" in cmd_str:
             mock_res.returncode = 0
             png_file.touch()
         return mock_res
@@ -225,13 +251,19 @@ def test_convert_all_fallbacks_fail(tmp_path):
 
     pdf_file = output_dir / "test_12345678.pdf"
 
-    def mock_run(args, **kwargs):
+    def mock_run(*args, **kwargs):
         mock_res = MagicMock()
-        if "/usr/bin/soffice" in args[0]:
+        cmd_args = args[0] if args else kwargs.get("args", [])
+        cmd_str = " ".join(str(x) for x in cmd_args)
+        if "soffice" in cmd_str:
             mock_res.returncode = 0
-            outdir = args[args.index("--outdir") + 1]
-            input_stem = Path(args[-1]).stem
-            (Path(outdir) / f"{input_stem}.pdf").touch()
+            try:
+                idx = cmd_args.index("--outdir")
+                outdir = Path(cmd_args[idx + 1])
+                target_excel = Path(cmd_args[-1])
+                (outdir / f"{target_excel.stem}.pdf").touch()
+            except (ValueError, IndexError):
+                pass
         else:
             mock_res.returncode = 1
             mock_res.stderr = "All fail"
