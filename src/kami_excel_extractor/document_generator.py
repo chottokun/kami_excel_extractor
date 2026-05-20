@@ -144,6 +144,7 @@ class DocumentGenerator:
             content = stripped_line[1:].strip()
         return f"<li>{self._render_inline(content)}</li>"
 
+
     def _render_paragraph(self, stripped_line: str) -> str:
         """段落要素をレンダリングする"""
         return f"<p>{self._render_inline(stripped_line)}</p>"
@@ -303,23 +304,23 @@ class DocumentGenerator:
         if hasattr(self, "_cached_soffice_path"):
             return self._cached_soffice_path
 
-        raw_path = shutil.which("soffice")
-        if not raw_path:
+        raw_cmd_path = shutil.which("soffice")
+        if not raw_cmd_path:
             return None
 
-        self._cached_soffice_path = str(Path(raw_path).resolve())
+        self._cached_soffice_path = str(Path(raw_cmd_path).resolve())
         return self._cached_soffice_path
 
     def _run_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す"""
         try:
-            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            # 🛡️ Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
             soffice_path = self._get_soffice_path()
             if not soffice_path:
                 logger.error("LibreOffice (soffice) not found in PATH")
                 return None
 
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # 🛡️ Security Fix: Use absolute paths to prevent argument injection
             res = subprocess.run(
                 [
                     str(Path(soffice_path).resolve()),
@@ -356,13 +357,13 @@ class DocumentGenerator:
     async def _arun_soffice_conversion(self, tmp_dir: Path, temp_html: Path) -> Optional[Path]:
         """LibreOfficeを使用してHTMLをPDFに変換し、結果のパスを返す (非同期版)"""
         try:
-            # 🔒 Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
+            # 🛡️ Security Fix: Use absolute path for executable to prevent untrusted search path (CWE-426)
             soffice_path = await asyncio.to_thread(self._get_soffice_path)
             if not soffice_path:
                 logger.error("LibreOffice (soffice) not found in PATH")
                 return None
 
-            # 🔒 Security Fix: Use absolute paths to prevent argument injection
+            # 🛡️ Security Fix: Use absolute paths to prevent argument injection
             # ⚡ Performance: Use asyncio.create_subprocess_exec to free up the event loop
             proc = await asyncio.create_subprocess_exec(
                 str(Path(soffice_path).resolve()),
