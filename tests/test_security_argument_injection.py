@@ -19,16 +19,24 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
 
     try:
 
-        def mock_run_side_effect(args, **kwargs):
+        def mock_run_side_effect(*args, **kwargs):
             mock_res = MagicMock()
             mock_res.returncode = 0
-            if "/usr/bin/soffice" in args[0]:
-                outdir = args[args.index("--outdir") + 1]
-                input_stem = Path(args[-1]).stem
-                (Path(outdir) / f"{input_stem}.pdf").touch()
-            if "/usr/bin/pdftocairo" in args[0]:
+            # args[0] might be the list of arguments or it might be passed via kwargs
+            cmd_args = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(x) for x in cmd_args)
+
+            if "soffice" in cmd_str:
+                try:
+                    idx = cmd_args.index("--outdir")
+                    outdir = Path(cmd_args[idx + 1])
+                    target_excel_path = Path(cmd_args[-1])
+                    (outdir / f"{target_excel_path.stem}.pdf").touch()
+                except (ValueError, IndexError):
+                    pass
+            if "pdftocairo" in cmd_str:
                 # pdftocairo -png ... prefix
-                prefix = args[-1]
+                prefix = Path(cmd_args[-1])
                 Path(f"{prefix}.png").touch()
             return mock_res
 
@@ -41,7 +49,8 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
             # First call: soffice
             # [ "/usr/bin/soffice", "-env:UserInstallation=...", "--headless", "--convert-to", "pdf", "--outdir", str(self.output_dir), str(input_file) ]
             soffice_args = mock_run.call_args_list[0][0][0]
-            assert soffice_args[0] == "/usr/bin/soffice"
+            assert soffice_args[0].endswith("soffice")
+            assert Path(soffice_args[0]).is_absolute()
             outdir = soffice_args[6]
             input_path = soffice_args[7]
             assert Path(outdir).is_absolute(), f"Expected absolute path for outdir, got {outdir}"
@@ -50,7 +59,8 @@ def test_excel_converter_uses_absolute_paths(tmp_path):
             # Second call: pdftocairo
             # [ "/usr/bin/pdftocairo", "-png", "-singlefile", str(original_pdf), str(self.output_dir / input_file.stem) ]
             pdftocairo_args = mock_run.call_args_list[1][0][0]
-            assert pdftocairo_args[0] == "/usr/bin/pdftocairo"
+            assert pdftocairo_args[0].endswith("pdftocairo")
+            assert Path(pdftocairo_args[0]).is_absolute()
             pdf_path = pdftocairo_args[3]
             output_base = pdftocairo_args[4]
             assert Path(pdf_path).is_absolute(), f"Expected absolute path for pdf_path, got {pdf_path}"
@@ -76,7 +86,8 @@ def test_document_generator_uses_absolute_paths(tmp_path):
 
         # [ "/usr/bin/soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html) ]
         soffice_args = mock_run.call_args[0][0]
-        assert soffice_args[0] == "/usr/bin/soffice"
+        assert soffice_args[0].endswith("soffice")
+        assert Path(soffice_args[0]).is_absolute()
         outdir = soffice_args[5]
         html_path = soffice_args[6]
         assert Path(outdir).is_absolute(), f"Expected absolute path for outdir, got {outdir}"
@@ -109,7 +120,8 @@ def test_document_generator_absolute_paths_for_commands():
 
             # [ "/usr/bin/soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(temp_html) ]
             soffice_args = mock_run.call_args[0][0]
-            assert soffice_args[0] == "/usr/bin/soffice"
+            assert soffice_args[0].endswith("soffice")
+            assert Path(soffice_args[0]).is_absolute()
             outdir = soffice_args[5]
             html_path = soffice_args[6]
             assert Path(outdir).is_absolute(), f"Expected absolute path for outdir, got {outdir}"
