@@ -436,26 +436,6 @@ class MetadataExtractor:
         html_rows.append("</table>")
         return "\n".join(html_rows), cell_metadata
 
-    def _generate_cell_metadata(
-        self,
-        ws: openpyxl.worksheet.worksheet.Worksheet,
-        ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None,
-        merged_map: Optional[Dict] = None,
-    ) -> List[Dict[str, Any]]:
-        """詳細メタデータを生成する。"""
-        _, cell_metadata = self._generate_metadata_and_html(ws, ws_formula=ws_formula, merged_map=merged_map)
-        return cell_metadata
-
-    def _generate_html_table(
-        self,
-        ws: openpyxl.worksheet.worksheet.Worksheet,
-        ws_formula: Optional[openpyxl.worksheet.worksheet.Worksheet] = None,
-        merged_map: Optional[Dict] = None,
-    ) -> str:
-        """シートからHTMLテーブルを生成する。"""
-        html_table, _ = self._generate_metadata_and_html(ws, ws_formula=ws_formula, merged_map=merged_map)
-        return html_table
-
     def extract(self, excel_path: Path, include_logic: bool = False) -> Dict[str, Any]:
         """
         Excelファイルを解析し、詳細な構造、スタイル、ロジック、メディアを抽出する。
