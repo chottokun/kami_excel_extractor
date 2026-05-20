@@ -224,7 +224,7 @@ def test_convert_fallback_to_imagemagick(tmp_path):
             mock_res.returncode = 1
         elif "magick" in cmd_str:
             mock_res.returncode = 0
-            Path(args[4]).touch()
+            Path(cmd_args[4]).touch()
         return mock_res
 
     # Mock fitz as missing
