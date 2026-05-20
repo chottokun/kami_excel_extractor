@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import openpyxl
 from openpyxl.utils import coordinate_to_tuple, get_column_letter
-from openpyxl.utils.exceptions import CellCoordinatesException
 from PIL import Image
 
 from .utils import clean_kami_text, secure_filename

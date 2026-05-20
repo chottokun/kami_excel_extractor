@@ -102,7 +102,11 @@ def test_convert_dpi_propagation(tmp_path):
                 assert result == png_file
 
                 # Find the magick call
-                magick_call = next(c for c in mock_subprocess.call_args_list if any("magick" in part for part in c[0][0] if isinstance(part, str)))
+                magick_call = next(
+                    c
+                    for c in mock_subprocess.call_args_list
+                    if any("magick" in part for part in c[0][0] if isinstance(part, str))
+                )
                 args = magick_call[0][0]
                 assert args[2] == "300"  # DPI
                 assert Path(args[3].replace("[0]", "")).is_absolute()

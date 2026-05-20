@@ -1,11 +1,12 @@
 import asyncio
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from kami_excel_extractor.document_generator import DocumentGenerator
+
 
 @pytest.mark.asyncio
 async def test_agenerate_pdf_uses_absolute_paths(tmp_path):
@@ -14,12 +15,13 @@ async def test_agenerate_pdf_uses_absolute_paths(tmp_path):
     generator = DocumentGenerator(output_dir)
 
     # Mock _get_soffice_path to return a relative path to see if it gets resolved at call site
-    with patch.object(DocumentGenerator, "_get_soffice_path", return_value="soffice"), \
-         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
-         patch("pathlib.Path.exists", return_value=True), \
-         patch("pathlib.Path.rglob", return_value=[tmp_path / "test.pdf"]), \
-         patch("shutil.move"):
-
+    with (
+        patch.object(DocumentGenerator, "_get_soffice_path", return_value="soffice"),
+        patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.rglob", return_value=[tmp_path / "test.pdf"]),
+        patch("shutil.move"),
+    ):
         # Mock communicate and wait
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"", b"")
@@ -41,6 +43,7 @@ async def test_agenerate_pdf_uses_absolute_paths(tmp_path):
 
         assert Path(outdir).is_absolute(), f"Outdir {outdir} should be absolute"
         assert Path(html_path).is_absolute(), f"HTML path {html_path} should be absolute"
+
 
 @pytest.mark.asyncio
 async def test_arun_soffice_conversion_absolute_paths():
@@ -72,6 +75,7 @@ async def test_arun_soffice_conversion_absolute_paths():
                 assert Path(args[5]).is_absolute(), f"Arg 5 {args[5]} should be absolute"
                 # input html
                 assert Path(args[6]).is_absolute(), f"Arg 6 {args[6]} should be absolute"
+
 
 def test_run_soffice_conversion_absolute_paths():
     # Targeted test for _run_soffice_conversion
