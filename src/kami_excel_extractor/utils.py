@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import hashlib
 import re
 import sqlite3
@@ -61,8 +62,9 @@ class CacheManager:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._conn = None
+        self._in_transaction = False
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -70,7 +72,27 @@ class CacheManager:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
+
+    @contextlib.contextmanager
+    def transaction(self):
+        """
+        複数のキャッシュ操作を1つのトランザクションにまとめるためのコンテキストマネージャー。
+        スレッドセーフを確保し、効率的な一括書き込みを可能にする。
+        """
+        with self._lock:
+            conn = self._get_conn()
+            self._in_transaction = True
+            try:
+                conn.execute("BEGIN")
+                yield
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                self._in_transaction = False
 
     def _init_db(self):
         """データベースとテーブルの初期化"""
@@ -132,7 +154,8 @@ class CacheManager:
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO raw_extraction_cache (key, content) VALUES (?, ?)", (key, content))
-            conn.commit()
+            if not self._in_transaction:
+                conn.commit()
 
     def get_vlm_result(self, model: str, prompt: str, image_hash: str) -> Optional[str]:
         """VLMの解析結果をキャッシュから取得"""
@@ -148,7 +171,8 @@ class CacheManager:
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO vlm_cache (key, content) VALUES (?, ?)", (key, content))
-            conn.commit()
+            if not self._in_transaction:
+                conn.commit()
 
     def get_image_data_url(self, image_hash: str) -> Optional[str]:
         """Base64データURLをキャッシュから取得"""
@@ -162,7 +186,8 @@ class CacheManager:
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO image_cache (hash, data_url) VALUES (?, ?)", (image_hash, data_url))
-            conn.commit()
+            if not self._in_transaction:
+                conn.commit()
 
     def get_llm_result(self, model: str, prompt: str, input_text: str) -> Optional[str]:
         """LLMの解析結果をキャッシュから取得"""
@@ -180,7 +205,8 @@ class CacheManager:
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO llm_cache (key, content) VALUES (?, ?)", (key, content))
-            conn.commit()
+            if not self._in_transaction:
+                conn.commit()
 
     def clear(self):
         """すべてのキャッシュを削除する"""
