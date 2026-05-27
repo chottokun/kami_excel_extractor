@@ -97,7 +97,7 @@ class KamiExcelExtractor:
 
         # 2. 永続キャッシュ(SQLite)
         if use_cache:
-            cached_url = self.cache.get_image_data_url(img_hash)
+            cached_url = await asyncio.to_thread(self.cache.get_image_data_url, img_hash)
             if cached_url:
                 self._image_cache[img_hash] = cached_url
                 return cached_url
@@ -119,7 +119,7 @@ class KamiExcelExtractor:
 
             # キャッシュ保存
             if use_cache:
-                self.cache.set_image_data_url(img_hash, result)
+                await asyncio.to_thread(self.cache.set_image_data_url, img_hash, result)
                 self._image_cache[img_hash] = result
             return result
 
@@ -355,7 +355,9 @@ class KamiExcelExtractor:
 
             # 1. 永続キャッシュのチェック
             if use_cache:
-                cached_result_str = self.cache.get_llm_result(model, system_prompt, html_content)
+                cached_result_str = await asyncio.to_thread(
+                    self.cache.get_llm_result, model, system_prompt, html_content
+                )
                 if cached_result_str:
                     return sheet_name, self._parse_llm_response(cached_result_str, sheet_name)
 
@@ -385,7 +387,9 @@ class KamiExcelExtractor:
                     if "error" not in result:
                         # 成功時にキャッシュ保存
                         if use_cache:
-                            self.cache.set_llm_result(model, system_prompt, html_content, raw_response)
+                            await asyncio.to_thread(
+                                self.cache.set_llm_result, model, system_prompt, html_content, raw_response
+                            )
                         return sheet_name, result
                     last_error = result["error"]
                 except Exception as e:
@@ -429,7 +433,7 @@ class KamiExcelExtractor:
         use_cache = self.opts.use_cache
 
         if use_cache:
-            cached_raw = self.cache.get_raw_extraction(file_hash, self.opts.include_logic)
+            cached_raw = await asyncio.to_thread(self.cache.get_raw_extraction, file_hash, self.opts.include_logic)
             if cached_raw:
                 try:
                     candidate_data = json.loads(cached_raw)
@@ -446,7 +450,9 @@ class KamiExcelExtractor:
                 self.extractor.extract, excel_path, include_logic=self.opts.include_logic
             )
             if use_cache:
-                self.cache.set_raw_extraction(file_hash, self.opts.include_logic, json.dumps(raw_data))
+                await asyncio.to_thread(
+                    self.cache.set_raw_extraction, file_hash, self.opts.include_logic, json.dumps(raw_data)
+                )
 
         sheets_data = raw_data.get("sheets", {})
 
@@ -602,7 +608,7 @@ class KamiExcelExtractor:
 
         # 2. 永続キャッシュ(SQLite)
         if use_cache:
-            cached_summary = self.cache.get_vlm_result(model, prompt, img_hash)
+            cached_summary = await asyncio.to_thread(self.cache.get_vlm_result, model, prompt, img_hash)
             if cached_summary:
                 self._visual_summary_cache[cache_key] = cached_summary
                 return cached_summary
@@ -632,7 +638,7 @@ class KamiExcelExtractor:
                 if content:
                     # キャッシュ保存
                     if use_cache:
-                        self.cache.set_vlm_result(model, prompt, img_hash, content)
+                        await asyncio.to_thread(self.cache.set_vlm_result, model, prompt, img_hash, content)
                         self._visual_summary_cache[cache_key] = content
                 return content
             except Exception as e:
