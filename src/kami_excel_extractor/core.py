@@ -412,108 +412,24 @@ class KamiExcelExtractor:
             self._image_cache = {}
             self._visual_summary_cache = {}
 
-        # 🔒 Security & Resource Fix: ファイルサイズ制限のチェック
-        # ⚡ Performance: asyncio.to_thread を使用してイベントループのブロッキングを防ぐ
-        stat_result = await asyncio.to_thread(excel_path.stat)
-        file_size_mb = stat_result.st_size / (1024 * 1024)
-        if file_size_mb > self.opts.max_file_size_mb:
-            raise ValueError(
-                f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb:.1f}MB)."
-            )
-
+        # 1. 🔒 Security & Resource Fix: ファイルサイズ制限のチェック
+        await self._validate_file_size(excel_path)
         logger.info(f"Starting extraction for {excel_path.name} (Logic: {self.opts.include_logic})")
 
-        # 1. Extractorによる基本解析 (キャッシュ対応)
-        raw_data = None
-        file_hash = await self.cache.aget_file_hash(excel_path)
-        use_cache = self.opts.use_cache
-
-        if use_cache:
-            cached_raw = self.cache.get_raw_extraction(file_hash, self.opts.include_logic)
-            if cached_raw:
-                try:
-                    candidate_data = json.loads(cached_raw)
-                    if not self._is_any_media_missing(candidate_data):
-                        logger.info("Using cached raw extraction results.")
-                        raw_data = candidate_data
-                    else:
-                        logger.warning("Cache hit for raw extraction but media files are missing. Re-extracting.")
-                except Exception as e:
-                    logger.warning(f"Failed to load cached raw extraction: {e}")
-
-        if raw_data is None:
-            raw_data = await asyncio.to_thread(
-                self.extractor.extract, excel_path, include_logic=self.opts.include_logic
-            )
-            if use_cache:
-                self.cache.set_raw_extraction(file_hash, self.opts.include_logic, json.dumps(raw_data))
-
+        # 2. Extractorによる基本解析 (キャッシュ対応)
+        raw_data = await self._get_raw_extraction_data(excel_path)
         sheets_data = raw_data.get("sheets", {})
 
-        # 2. シートごとの画像生成 (ページネーション対応)
-        sheet_images = {}
-        if self.opts.use_visual_context:
-            for sheet_name in sheets_data.keys():
-                try:
-                    self.converter.dpi = self.opts.dpi
-                    self.converter.max_file_size_mb = self.opts.max_file_size_mb
-                    # シート個別に画像を生成
-                    png_paths = await asyncio.to_thread(self.converter.convert, excel_path, sheet_name=sheet_name)
-                    if isinstance(png_paths, Path):
-                        png_paths = [png_paths]
+        # 3. シートごとの画像生成 & 全体概要用の画像
+        sheet_images = await self._generate_visual_context_images(excel_path, sheets_data)
 
-                    image_urls = []
-                    for p in png_paths:
-                        url = await self._encode_image_to_base64_url(p)
-                        image_urls.append(url)
-                    sheet_images[sheet_name] = image_urls
-                except Exception as e:
-                    logger.warning(f"Visual context generation failed for sheet '{sheet_name}': {e}")
-                    sheet_images[sheet_name] = []
+        # 4. メディア（図表・グラフ）の個別解析 & 図表データの注入
+        all_media = await self._process_and_inject_media_data(sheets_data, model, semaphore)
 
-        # 全体概要用の画像 (Summary用)
-        if self.opts.include_visual_summaries:
-            try:
-                # シート指定なしで全体概要PDFから1枚目を生成
-                self.converter.max_file_size_mb = self.opts.max_file_size_mb
-                png_path = await asyncio.to_thread(self.converter.convert, excel_path)
-                if isinstance(png_path, list):
-                    png_path = png_path[0]
-                await self._encode_image_to_base64_url(png_path)
-            except Exception as e:
-                logger.warning(f"Overall summary image generation failed: {e}")
-
-        # 3. メディア（図表・グラフ）の個別解析
-        all_media = []
-        if self.opts.include_visual_summaries:
-            unique_media = self._get_unique_media(sheets_data)
-            media_tasks = [self._aprocess_media_summary(m, model, semaphore) for m in unique_media.values()]
-            if media_tasks:
-                media_results = await asyncio.gather(*media_tasks)
-                all_media = [m for m in media_results if m]
-                self._sync_media_results_to_metadata(all_media, sheets_data)
-
-        # 4. 図表データの注入
-        for sheet_name, sheet_info in sheets_data.items():
-            if "media_map" in sheet_info:
-                sheet_info["html"] = self._inject_visual_data_to_html(sheet_info["html"], sheet_info["media_map"])
-                if "VISUAL_INSIGHT" in sheet_info["html"]:
-                    logger.warning(f"Injected visual insights for: {sheet_name}")
-
-        sys_prompt = (
-            self.opts.system_prompt
-            or "あなたはExcel構造化の専門家です。HTMLデータを統合し、意味論的なJSONを出力してください。"
+        # 5. 各シートのLLM解析 (並列実行)
+        structured_sheets = await self._run_parallel_sheet_extraction(
+            sheets_data, sheet_images, model, semaphore
         )
-
-        # 5. 各シートのLLM解析
-        tasks = [
-            self._aextract_single_sheet(
-                n, c, model, sys_prompt, sheet_images.get(n), semaphore, include_logic=self.opts.include_logic
-            )
-            for n, c in sheets_data.items()
-        ]
-        results = await asyncio.gather(*tasks)
-        structured_sheets = {name: res for name, res in results}
 
         final_data = {"sheets": structured_sheets}
         if all_media:
@@ -578,6 +494,120 @@ class KamiExcelExtractor:
                     if not (self.output_dir / "media" / fname).exists():
                         return True
         return False
+
+    async def _validate_file_size(self, excel_path: Path):
+        """🔒 Security & Resource Fix: ファイルサイズ制限のチェック"""
+        # ⚡ Performance: asyncio.to_thread を使用してイベントループのブロッキングを防ぐ
+        stat_result = await asyncio.to_thread(excel_path.stat)
+        file_size_mb = stat_result.st_size / (1024 * 1024)
+        if file_size_mb > self.opts.max_file_size_mb:
+            raise ValueError(
+                f"File size ({file_size_mb:.1f}MB) exceeds the limit ({self.opts.max_file_size_mb:.1f}MB)."
+            )
+
+    async def _get_raw_extraction_data(self, excel_path: Path) -> Dict:
+        """Extractorによる基本解析 (キャッシュ対応)"""
+        raw_data = None
+        file_hash = await self.cache.aget_file_hash(excel_path)
+        use_cache = self.opts.use_cache
+
+        if use_cache:
+            cached_raw = self.cache.get_raw_extraction(file_hash, self.opts.include_logic)
+            if cached_raw:
+                try:
+                    candidate_data = json.loads(cached_raw)
+                    if not self._is_any_media_missing(candidate_data):
+                        logger.info("Using cached raw extraction results.")
+                        raw_data = candidate_data
+                    else:
+                        logger.warning("Cache hit for raw extraction but media files are missing. Re-extracting.")
+                except Exception as e:
+                    logger.warning(f"Failed to load cached raw extraction: {e}")
+
+        if raw_data is None:
+            raw_data = await asyncio.to_thread(
+                self.extractor.extract, excel_path, include_logic=self.opts.include_logic
+            )
+            if use_cache:
+                self.cache.set_raw_extraction(file_hash, self.opts.include_logic, json.dumps(raw_data))
+
+        return raw_data
+
+    async def _generate_visual_context_images(self, excel_path: Path, sheets_data: Dict) -> Dict[str, List[str]]:
+        """シートごとの画像生成 (ページネーション対応)"""
+        sheet_images = {}
+        if self.opts.use_visual_context:
+            for sheet_name in sheets_data.keys():
+                try:
+                    self.converter.dpi = self.opts.dpi
+                    self.converter.max_file_size_mb = self.opts.max_file_size_mb
+                    # シート個別に画像を生成
+                    png_paths = await asyncio.to_thread(self.converter.convert, excel_path, sheet_name=sheet_name)
+                    if isinstance(png_paths, Path):
+                        png_paths = [png_paths]
+
+                    image_urls = []
+                    for p in png_paths:
+                        url = await self._encode_image_to_base64_url(p)
+                        image_urls.append(url)
+                    sheet_images[sheet_name] = image_urls
+                except Exception as e:
+                    logger.warning(f"Visual context generation failed for sheet '{sheet_name}': {e}")
+                    sheet_images[sheet_name] = []
+
+        # 全体概要用の画像 (Summary用)
+        if self.opts.include_visual_summaries:
+            try:
+                # シート指定なしで全体概要PDFから1枚目を生成
+                self.converter.max_file_size_mb = self.opts.max_file_size_mb
+                png_path = await asyncio.to_thread(self.converter.convert, excel_path)
+                if isinstance(png_path, list):
+                    png_path = png_path[0]
+                await self._encode_image_to_base64_url(png_path)
+            except Exception as e:
+                logger.warning(f"Overall summary image generation failed: {e}")
+
+        return sheet_images
+
+    async def _process_and_inject_media_data(
+        self, sheets_data: Dict, model: str, semaphore: Optional[asyncio.Semaphore]
+    ) -> List[Dict]:
+        """メディア（図表・グラフ）の個別解析 & 図表データの注入"""
+        all_media = []
+        if self.opts.include_visual_summaries:
+            unique_media = self._get_unique_media(sheets_data)
+            media_tasks = [self._aprocess_media_summary(m, model, semaphore) for m in unique_media.values()]
+            if media_tasks:
+                media_results = await asyncio.gather(*media_tasks)
+                all_media = [m for m in media_results if m]
+                self._sync_media_results_to_metadata(all_media, sheets_data)
+
+        # 図表データの注入
+        for sheet_name, sheet_info in sheets_data.items():
+            if "media_map" in sheet_info:
+                sheet_info["html"] = self._inject_visual_data_to_html(sheet_info["html"], sheet_info["media_map"])
+                if "VISUAL_INSIGHT" in sheet_info["html"]:
+                    logger.warning(f"Injected visual insights for: {sheet_name}")
+
+        return all_media
+
+    async def _run_parallel_sheet_extraction(
+        self, sheets_data: Dict, sheet_images: Dict, model: str, semaphore: Optional[asyncio.Semaphore]
+    ) -> Dict:
+        """各シートのLLM解析"""
+        sys_prompt = (
+            self.opts.system_prompt
+            or "あなたはExcel構造化の専門家です。HTMLデータを統合し、意味論的なJSONを出力してください。"
+        )
+
+        tasks = [
+            self._aextract_single_sheet(
+                n, c, model, sys_prompt, sheet_images.get(n), semaphore, include_logic=self.opts.include_logic
+            )
+            for n, c in sheets_data.items()
+        ]
+        results = await asyncio.gather(*tasks)
+        return {name: res for name, res in results}
 
     async def aget_visual_summary(
         self, image_path: Path, model: Optional[str] = None, semaphore: Optional[asyncio.Semaphore] = None
