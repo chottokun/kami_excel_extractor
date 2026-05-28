@@ -4,8 +4,9 @@ import re
 import sqlite3
 import threading
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 # Compiled regex patterns for performance
 _FILENAME_SANITIZE_RE = re.compile(r"[^\w\.\-]")
@@ -61,8 +62,9 @@ class CacheManager:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._conn = None
+        self._batch_mode = False
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -70,7 +72,28 @@ class CacheManager:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
+
+    @contextmanager
+    def batch(self) -> Generator["CacheManager", None, None]:
+        """複数の操作を1つのトランザクションにまとめる。"""
+        with self._lock:
+            if self._batch_mode:
+                yield self
+                return
+
+            self._batch_mode = True
+            try:
+                yield self
+                if self._conn:
+                    self._conn.commit()
+            except BaseException:  # KeyboardInterruptなどのシグナル時も安全にロールバック
+                if self._conn:
+                    self._conn.rollback()
+                raise
+            finally:
+                self._batch_mode = False
 
     def _init_db(self):
         """データベースとテーブルの初期化"""
@@ -126,13 +149,22 @@ class CacheManager:
             row = cur.fetchone()
             return row[0] if row else None
 
+    async def aget_raw_extraction(self, file_hash: str, include_logic: bool) -> Optional[str]:
+        """Excelの生解析結果を非同期で取得"""
+        return await asyncio.to_thread(self.get_raw_extraction, file_hash, include_logic)
+
     def set_raw_extraction(self, file_hash: str, include_logic: bool, content: str):
         """Excelの生解析結果（HTML/セル情報）をキャッシュに保存"""
         key = f"{file_hash}:logic={include_logic}"
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO raw_extraction_cache (key, content) VALUES (?, ?)", (key, content))
-            conn.commit()
+            if not self._batch_mode:
+                conn.commit()
+
+    async def aset_raw_extraction(self, file_hash: str, include_logic: bool, content: str):
+        """Excelの生解析結果を非同期で保存"""
+        return await asyncio.to_thread(self.set_raw_extraction, file_hash, include_logic, content)
 
     def get_vlm_result(self, model: str, prompt: str, image_hash: str) -> Optional[str]:
         """VLMの解析結果をキャッシュから取得"""
@@ -142,13 +174,22 @@ class CacheManager:
             row = cur.fetchone()
             return row[0] if row else None
 
+    async def aget_vlm_result(self, model: str, prompt: str, image_hash: str) -> Optional[str]:
+        """VLMの解析結果を非同期で取得"""
+        return await asyncio.to_thread(self.get_vlm_result, model, prompt, image_hash)
+
     def set_vlm_result(self, model: str, prompt: str, image_hash: str, content: str):
         """VLMの解析結果をキャッシュに保存"""
         key = f"{model}:{prompt}:{image_hash}"
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO vlm_cache (key, content) VALUES (?, ?)", (key, content))
-            conn.commit()
+            if not self._batch_mode:
+                conn.commit()
+
+    async def aset_vlm_result(self, model: str, prompt: str, image_hash: str, content: str):
+        """VLMの解析結果を非同期で保存"""
+        return await asyncio.to_thread(self.set_vlm_result, model, prompt, image_hash, content)
 
     def get_image_data_url(self, image_hash: str) -> Optional[str]:
         """Base64データURLをキャッシュから取得"""
@@ -157,12 +198,21 @@ class CacheManager:
             row = cur.fetchone()
             return row[0] if row else None
 
+    async def aget_image_data_url(self, image_hash: str) -> Optional[str]:
+        """Base64データURLを非同期で取得"""
+        return await asyncio.to_thread(self.get_image_data_url, image_hash)
+
     def set_image_data_url(self, image_hash: str, data_url: str):
         """Base64データURLをキャッシュに保存"""
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO image_cache (hash, data_url) VALUES (?, ?)", (image_hash, data_url))
-            conn.commit()
+            if not self._batch_mode:
+                conn.commit()
+
+    async def aset_image_data_url(self, image_hash: str, data_url: str):
+        """Base64データURLを非同期で保存"""
+        return await asyncio.to_thread(self.set_image_data_url, image_hash, data_url)
 
     def get_llm_result(self, model: str, prompt: str, input_text: str) -> Optional[str]:
         """LLMの解析結果をキャッシュから取得"""
@@ -173,6 +223,10 @@ class CacheManager:
             row = cur.fetchone()
             return row[0] if row else None
 
+    async def aget_llm_result(self, model: str, prompt: str, input_text: str) -> Optional[str]:
+        """LLMの解析結果を非同期で取得"""
+        return await asyncio.to_thread(self.get_llm_result, model, prompt, input_text)
+
     def set_llm_result(self, model: str, prompt: str, input_text: str, content: str):
         """LLMの解析結果をキャッシュに保存"""
         input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
@@ -180,7 +234,12 @@ class CacheManager:
         with self._lock:
             conn = self._get_conn()
             conn.execute("INSERT OR REPLACE INTO llm_cache (key, content) VALUES (?, ?)", (key, content))
-            conn.commit()
+            if not self._batch_mode:
+                conn.commit()
+
+    async def aset_llm_result(self, model: str, prompt: str, input_text: str, content: str):
+        """LLMの解析結果を非同期で保存"""
+        return await asyncio.to_thread(self.set_llm_result, model, prompt, input_text, content)
 
     def clear(self):
         """すべてのキャッシュを削除する"""

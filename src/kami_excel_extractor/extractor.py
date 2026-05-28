@@ -133,6 +133,120 @@ class MetadataExtractor:
             return "DATE"
         return fmt
 
+    def _parse_image_anchor(self, anchor: Any) -> Tuple[Optional[int], Optional[int]]:
+        """
+        画像のアンカー情報から行番号と列番号（1-indexed）をパースする。
+
+        Args:
+            anchor: openpyxlの画像アンカーオブジェクト。
+
+        Returns:
+            Tuple[Optional[int], Optional[int]]: (行番号, 列番号)。取得できない場合はNone。
+        """
+        row, col = None, None
+        if hasattr(anchor, "_from"):  # TwoCellAnchor
+            row = anchor._from.row + 1
+            col = anchor._from.col + 1
+        elif hasattr(anchor, "row"):  # OneCellAnchor
+            row = anchor.row + 1
+            col = anchor.col + 1
+        elif isinstance(anchor, str):  # String anchor (e.g. "A1")
+            row, col = coordinate_to_tuple(anchor)
+        return row, col
+
+    def _get_image_raw_data(self, img: Any, coord: str, sheet_name: str) -> Optional[bytes]:
+        """
+        画像リファレンスからRAWバイナリデータを取得し、サイズ制限を適用する。
+
+        Args:
+            img: openpyxlの画像オブジェクト。
+            coord: 画像の位置座標文字列。
+            sheet_name: ワークシート名。
+
+        Returns:
+            Optional[bytes]: 抽出された画像データ。スキップまたはエラー時はNone。
+        """
+        raw_data = None
+        # 1. テスト用 Mock の特別なハンドリング (無限ループ防止)
+        if "Mock" in type(img.ref).__name__:
+            raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
+        # 2. すでにバイト列として存在する場合 (メモリコピーを最小化)
+        elif isinstance(img.ref, (bytes, bytearray, memoryview)):
+            raw_data = img.ref
+        # 3. バッファに直接アクセス可能な場合 (最も効率的: BytesIO等)
+        elif hasattr(img.ref, "getbuffer"):
+            raw_data = img.ref.getbuffer()
+        # 4. ストリーム(readメソッド)を持つ場合、チャンクごとに読み込む
+        elif hasattr(img.ref, "read"):
+            raw_data_buf = io.BytesIO()
+            total_read = 0
+            chunk_size = 8192
+            while True:
+                chunk = img.ref.read(chunk_size)
+                if not chunk:
+                    break
+                total_read += len(chunk)
+                if total_read > MAX_IMAGE_BYTES:
+                    logger.warning(f"Skipping large image at {coord} on {sheet_name} (stream exceeds limit)")
+                    return None
+                raw_data_buf.write(chunk)
+
+            if total_read <= MAX_IMAGE_BYTES:
+                raw_data = raw_data_buf.getbuffer()
+        # 5. その他の getvalue フォールバック
+        elif hasattr(img.ref, "getvalue"):
+            raw_data = img.ref.getvalue()
+        else:
+            raise AttributeError("Image reference has no readable data attribute")
+
+        # 共通のサイズチェック
+        if raw_data is not None and len(raw_data) > MAX_IMAGE_BYTES:
+            logger.warning(f"Skipping large image at {coord} on {sheet_name} (size: {len(raw_data)} bytes)")
+            return None
+
+        return raw_data
+
+    def _process_single_image(self, img: Any, idx: int, sheet_name: str) -> Optional[Dict[str, Any]]:
+        """
+        単一の画像を処理し、保存してメタデータを返す。
+
+        Args:
+            img: openpyxlの画像オブジェクト。
+            idx: シート内での画像のインデックス。
+            sheet_name: シート名。
+
+        Returns:
+            Optional[Dict[str, Any]]: 画像のメタデータ。スキップされた場合はNone。
+        """
+        try:
+            row, col = self._parse_image_anchor(img.anchor)
+        except Exception as e:
+            logger.warning(f"Failed to parse coordinate anchor '{img.anchor}' on sheet {sheet_name}: {e}")
+            row, col = None, None
+
+        coord = f"{get_column_letter(col)}{row}" if (isinstance(row, int) and isinstance(col, int)) else "unknown"
+        safe_sheet_name = secure_filename(sheet_name)
+        image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
+        save_path = self.media_dir / image_filename
+
+        item = {"coord": coord, "filename": str(image_filename), "type": "image"}
+
+        try:
+            raw_data = self._get_image_raw_data(img, coord, sheet_name)
+            if raw_data is None:
+                return None
+
+            with Image.open(io.BytesIO(raw_data)) as pillow_img:
+                if pillow_img.mode in ("RGBA", "P"):
+                    pillow_img = pillow_img.convert("RGB")
+                pillow_img.save(save_path, "PNG")
+            return item
+        except Exception as e:
+            logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
+            item["filename"] = None
+            item["error"] = "unidentified_format"
+            return item
+
     def _extract_media(self, ws: openpyxl.worksheet.worksheet.Worksheet, sheet_name: str) -> List[Dict[str, Any]]:
         """
         ワークシートから埋め込み画像（図、グラフ、写真）を抽出し保存する。
@@ -142,82 +256,8 @@ class MetadataExtractor:
             return media_info
 
         for idx, img in enumerate(ws._images):
-            row, col = None, None
-            anchor = img.anchor
-
-            # 各種アンカー形式をパース
-            if hasattr(anchor, "_from"):  # TwoCellAnchor
-                row = anchor._from.row + 1
-                col = anchor._from.col + 1
-            elif hasattr(anchor, "row"):  # OneCellAnchor
-                row = anchor.row + 1
-                col = anchor.col + 1
-            elif isinstance(anchor, str):  # String anchor (e.g. "A1")
-                try:
-                    row, col = coordinate_to_tuple(anchor)
-                except Exception as e:
-                    logger.warning(f"Failed to parse coordinate anchor '{anchor}' on sheet {sheet_name}: {e}")
-
-            coord = f"{get_column_letter(col)}{row}" if (row is not None and col is not None) else "unknown"
-            safe_sheet_name = secure_filename(sheet_name)
-            image_filename = f"{safe_sheet_name}_img_{coord}_{idx}.png"
-            save_path = self.media_dir / image_filename
-
-            item = {"coord": coord, "filename": str(image_filename), "type": "image"}
-
-            try:
-                # 🔒 Security & Performance Fix: Prevent DoS via memory exhaustion and optimize copy overhead
-                raw_data = None
-
-                # 1. テスト用 Mock の特別なハンドリング (無限ループ防止)
-                # MagicMockはあらゆる属性を動的に生成するため、他のチェックより先に判定する
-                if "Mock" in type(img.ref).__name__:
-                    raw_data = img.ref.read() if hasattr(img.ref, "read") else img.ref.getvalue()
-                # 2. すでにバイト列として存在する場合 (メモリコピーを最小化)
-                elif isinstance(img.ref, (bytes, bytearray, memoryview)):
-                    raw_data = img.ref
-                # 3. バッファに直接アクセス可能な場合 (最も効率的: BytesIO等)
-                elif hasattr(img.ref, "getbuffer"):
-                    raw_data = img.ref.getbuffer()
-                # 4. ストリーム(readメソッド)を持つ場合、チャンクごとに読み込む
-                elif hasattr(img.ref, "read"):
-                    raw_data_buf = io.BytesIO()
-                    total_read = 0
-                    chunk_size = 8192
-                    while True:
-                        chunk = img.ref.read(chunk_size)
-                        if not chunk:
-                            break
-                        total_read += len(chunk)
-                        if total_read > MAX_IMAGE_BYTES:
-                            logger.warning(f"Skipping large image at {coord} on {sheet_name} (stream exceeds limit)")
-                            raw_data = None
-                            break
-                        raw_data_buf.write(chunk)
-
-                    if total_read <= MAX_IMAGE_BYTES:
-                        raw_data = raw_data_buf.getbuffer()
-                # 5. その他の getvalue フォールバック
-                elif hasattr(img.ref, "getvalue"):
-                    raw_data = img.ref.getvalue()
-                else:
-                    raise AttributeError("Image reference has no readable data attribute")
-
-                # 共通のサイズチェックと早期リターン
-                if raw_data is None or len(raw_data) > MAX_IMAGE_BYTES:
-                    if raw_data is not None:
-                        logger.warning(f"Skipping large image at {coord} on {sheet_name} (size: {len(raw_data)} bytes)")
-                    continue
-
-                with Image.open(io.BytesIO(raw_data)) as pillow_img:
-                    if pillow_img.mode in ("RGBA", "P"):
-                        pillow_img = pillow_img.convert("RGB")
-                    pillow_img.save(save_path, "PNG")
-                media_info.append(item)
-            except Exception as e:
-                logger.warning(f"Failed to extract image at {coord} on sheet {sheet_name}: {e}")
-                item["filename"] = None
-                item["error"] = "unidentified_format"
+            item = self._process_single_image(img, idx, sheet_name)
+            if item:
                 media_info.append(item)
 
         return media_info
@@ -362,19 +402,11 @@ class MetadataExtractor:
 
         if hasattr(ws, "_images"):
             for img in ws._images:
-                row, col = None, None
-                anchor = img.anchor
-                if hasattr(anchor, "_from"):  # TwoCellAnchor
-                    row = anchor._from.row + 1
-                    col = anchor._from.col + 1
-                elif hasattr(anchor, "row"):  # OneCellAnchor
-                    row = anchor.row + 1
-                    col = anchor.col + 1
-                elif isinstance(anchor, str):
-                    try:
-                        row, col = coordinate_to_tuple(anchor)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse coordinate anchor '{anchor}' in bounding box calculation: {e}")
+                try:
+                    row, col = self._parse_image_anchor(img.anchor)
+                except Exception as e:
+                    logger.warning(f"Failed to parse coordinate anchor '{img.anchor}' in bounding box calculation: {e}")
+                    continue
 
                 # 🔒 Robustness: Ensure we are comparing actual integers, not mocks
                 if isinstance(row, int):
