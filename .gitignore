@@ -149,3 +149,7 @@ container_full_verify.log
 # Docker related
 docker-compose.override.yml
 .docker-compose.env
+
+# Antigravity CLI
+.antigravitycli/
+
