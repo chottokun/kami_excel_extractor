@@ -1,0 +1,3 @@
+## 2025-05-15 - [Excel Metadata Extraction Optimization]
+**Learning:** openpyxl cell objects possess a `style_id` attribute that represents a unique combination of visual styles (font, fill, border, alignment). In most business Excel files, many cells share the same style. Caching the results of CSS string generation and other style-related computations (like border info and unit detection) based on this `style_id` drastically reduces the per-cell overhead.
+**Action:** Always check for redundant style computations in spreadsheet processing and use `style_id` or equivalent as a cache key to achieve O(unique_styles) complexity instead of O(total_cells) for those operations.

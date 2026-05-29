@@ -62,7 +62,7 @@ class MetadataExtractor:
                     borders[side] = border_side.style
         return borders
 
-    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+    def _get_cell_style_string(self, cell: openpyxl.cell.Cell, border_info: Optional[Dict[str, str]] = None) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
 
@@ -70,6 +70,7 @@ class MetadataExtractor:
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            border_info: 事前に計算された罫線情報（オプション）。
 
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
@@ -86,7 +87,8 @@ class MetadataExtractor:
                     styles.append(f"background-color: #{c_idx}")
 
         # 罫線情報をCSSのborder属性に近似
-        border_info = self._get_border_info(cell)
+        if border_info is None:
+            border_info = self._get_border_info(cell)
         style_map = {
             "medium": "2px solid",
             "thick": "3px solid",
@@ -284,19 +286,26 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        formula: Optional[str] = None,
+        val_str: Optional[str] = None,
+        style_str: Optional[str] = None,
+        unit: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         """
-        val = cell.value
-        val_str = (
-            val.isoformat()
-            if isinstance(val, (date, datetime))
-            else str(clean_kami_text(val))
-            if val is not None
-            else ""
-        )
+        if val_str is None:
+            val = cell.value
+            val_str = (
+                val.isoformat()
+                if isinstance(val, (date, datetime))
+                else str(clean_kami_text(val))
+                if val is not None
+                else ""
+            )
 
         attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
@@ -305,14 +314,16 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
+        if style_str is None:
+            style_str = self._get_cell_style_string(cell)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
+        if unit is None:
+            unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
@@ -448,6 +459,37 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
+                # ⚡ Performance: Cache and reuse style calculations using cell.style_id
+                s_id = getattr(cell, "style_id", None)
+                if s_id is not None and s_id in self._style_cache:
+                    cached_style = self._style_cache[s_id]
+                    border_info = cached_style["borders"]
+                    style_str = cached_style["style_str"]
+                    unit = cached_style["unit"]
+                    is_bold = cached_style["bold"]
+                else:
+                    border_info = self._get_border_info(cell)
+                    style_str = self._get_cell_style_string(cell, border_info=border_info)
+                    unit = self._get_unit_info(cell)
+                    is_bold = bool(cell.font.b if cell.font else False)
+                    if s_id is not None:
+                        self._style_cache[s_id] = {
+                            "borders": border_info,
+                            "style_str": style_str,
+                            "unit": unit,
+                            "bold": is_bold,
+                        }
+
+                # ⚡ Performance: Pre-calculate value string once
+                val = cell.value
+                val_str = (
+                    val.isoformat()
+                    if isinstance(val, (date, datetime))
+                    else str(clean_kami_text(val))
+                    if val is not None
+                    else ""
+                )
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
@@ -455,10 +497,10 @@ class MetadataExtractor:
                     "col": c_idx,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": unit,
                     "style": {
-                        "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "borders": border_info,
+                        "bold": is_bold,
                     },
                 }
                 if isinstance(span, dict):
@@ -466,7 +508,9 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(
+                    cell, span, formula=formula, val_str=val_str, style_str=style_str, unit=unit
+                )
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
@@ -488,6 +532,9 @@ class MetadataExtractor:
         Returns:
             Dict: 全シートの解析データを含む辞書。
         """
+        # ⚡ Performance: Reset style cache for each workbook to ensure isolation
+        self._style_cache = {}
+
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
