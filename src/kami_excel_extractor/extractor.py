@@ -42,6 +42,7 @@ class MetadataExtractor:
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self._style_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -53,6 +54,14 @@ class MetadataExtractor:
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
+        # ⚡ Performance: Use style_id cache
+        sid = getattr(cell, "style_id", None)
+        if sid is not None:
+            if sid not in self._style_cache:
+                self._style_cache[sid] = {}
+            if "border_info" in self._style_cache[sid]:
+                return self._style_cache[sid]["border_info"]
+
         borders = {}
         if cell.border:
             sides = ["left", "right", "top", "bottom"]
@@ -60,6 +69,9 @@ class MetadataExtractor:
                 border_side = getattr(cell.border, side)
                 if border_side and border_side.style:
                     borders[side] = border_side.style
+
+        if sid is not None:
+            self._style_cache[sid]["border_info"] = borders
         return borders
 
     def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
@@ -74,6 +86,14 @@ class MetadataExtractor:
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
+        # ⚡ Performance: Use style_id cache
+        sid = getattr(cell, "style_id", None)
+        if sid is not None:
+            if sid not in self._style_cache:
+                self._style_cache[sid] = {}
+            if "style_string" in self._style_cache[sid]:
+                return self._style_cache[sid]["style_string"]
+
         styles = []
 
         # 背景色の抽出 (ARGBをRGBに変換)
@@ -106,7 +126,10 @@ class MetadataExtractor:
             if cell.font.i:
                 styles.append("font-style: italic")
 
-        return "; ".join(styles)
+        res = "; ".join(styles)
+        if sid is not None:
+            self._style_cache[sid]["style_string"] = res
+        return res
 
     def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
         """
@@ -118,20 +141,33 @@ class MetadataExtractor:
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
+        # ⚡ Performance: Use style_id cache
+        sid = getattr(cell, "style_id", None)
+        if sid is not None:
+            if sid not in self._style_cache:
+                self._style_cache[sid] = {}
+            if "unit_info" in self._style_cache[sid]:
+                return self._style_cache[sid]["unit_info"]
+
         fmt = cell.number_format
         if not fmt or fmt == "General":
-            return None
+            res = None
+        else:
+            fmt_lower = fmt.lower()
+            if "¥" in fmt or "jpy" in fmt_lower:
+                res = "JPY"
+            elif "$" in fmt:
+                res = "USD"
+            elif "%" in fmt:
+                res = "PERCENT"
+            elif "yy" in fmt_lower or "mm" in fmt_lower or "dd" in fmt_lower:
+                res = "DATE"
+            else:
+                res = fmt
 
-        fmt_lower = fmt.lower()
-        if "¥" in fmt or "jpy" in fmt_lower:
-            return "JPY"
-        if "$" in fmt:
-            return "USD"
-        if "%" in fmt:
-            return "PERCENT"
-        if "yy" in fmt_lower or "mm" in fmt_lower or "dd" in fmt_lower:
-            return "DATE"
-        return fmt
+        if sid is not None:
+            self._style_cache[sid]["unit_info"] = res
+        return res
 
     def _parse_image_anchor(self, anchor: Any) -> Tuple[Optional[int], Optional[int]]:
         """
@@ -284,19 +320,30 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        val_str: Optional[str] = None,
+        style_str: Optional[str] = None,
+        unit: Optional[str] = None,
+        formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         """
-        val = cell.value
-        val_str = (
-            val.isoformat()
-            if isinstance(val, (date, datetime))
-            else str(clean_kami_text(val))
-            if val is not None
-            else ""
-        )
+        if val_str is None:
+            val = cell.value
+            val_str = (
+                val.isoformat()
+                if isinstance(val, (date, datetime))
+                else str(clean_kami_text(val))
+                if val is not None
+                else ""
+            )
+        if style_str is None:
+            style_str = self._get_cell_style_string(cell)
+        if unit is None:
+            unit = self._get_unit_info(cell)
 
         attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
@@ -305,14 +352,12 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
@@ -448,16 +493,29 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
+                # ⚡ Performance: Pre-calculate values used for both metadata and HTML
+                val = cell.value
+                val_str = (
+                    val.isoformat()
+                    if isinstance(val, (date, datetime))
+                    else str(clean_kami_text(val))
+                    if val is not None
+                    else ""
+                )
+                style_str = self._get_cell_style_string(cell)
+                unit = self._get_unit_info(cell)
+                border_info = self._get_border_info(cell)
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
                     "row": r_idx,
                     "col": c_idx,
-                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
+                    "value": val_str if val is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": unit,
                     "style": {
-                        "borders": self._get_border_info(cell),
+                        "borders": border_info,
                         "bold": bool(cell.font.b if cell.font else False),
                     },
                 }
@@ -466,7 +524,9 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(
+                    cell, span, val_str=val_str, style_str=style_str, unit=unit, formula=formula
+                )
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
@@ -488,6 +548,9 @@ class MetadataExtractor:
         Returns:
             Dict: 全シートの解析データを含む辞書。
         """
+        # ⚡ Performance: Reset style cache for each workbook
+        self._style_cache = {}
+
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
