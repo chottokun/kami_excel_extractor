@@ -13,42 +13,52 @@ def test_cell_to_html_td_styles(tmp_path):
     cell_8 = MagicMock()
     cell_8.value = "Test8"
     cell_8.fill.start_color.index = "FFFF0000"  # Red
-    html_8 = extractor._cell_to_html_td(cell_8, None)
+    html_8 = extractor._cell_to_html_td(
+        cell_8, None, clean_val="Test8", style_str=extractor._get_cell_style_string(cell_8), unit=None
+    )
     assert "background-color: #FF0000" in html_8
-    assert ">Test8</td>" in html_8
     assert ">Test8</td>" in html_8
 
     # Case 2: 6-digit color index (e.g., RRGGBB) -> Should keep as is
     cell_6 = MagicMock()
     cell_6.value = "Test6"
     cell_6.fill.start_color.index = "00FF00"  # Green
-    html_6 = extractor._cell_to_html_td(cell_6, None)
+    html_6 = extractor._cell_to_html_td(
+        cell_6, None, clean_val="Test6", style_str=extractor._get_cell_style_string(cell_6), unit=None
+    )
     assert "background-color: #00FF00" in html_6
-    assert ">Test6</td>" in html_6
     assert ">Test6</td>" in html_6
 
     # Case 3: '00000000' color index -> Should result in no background style
     cell_0 = MagicMock()
     cell_0.value = "Test0"
     cell_0.fill.start_color.index = "00000000"
-    html_0 = extractor._cell_to_html_td(cell_0, None)
+    html_0 = extractor._cell_to_html_td(
+        cell_0, None, clean_val="Test0", style_str=extractor._get_cell_style_string(cell_0), unit=None
+    )
     assert "background-color" not in html_0
-    assert ">Test0</td>" in html_0
     assert ">Test0</td>" in html_0
 
     # Case 4: No fill
     cell_no_fill = MagicMock()
     cell_no_fill.value = "TestNoFill"
     cell_no_fill.fill = None
-    html_no_fill = extractor._cell_to_html_td(cell_no_fill, None)
+    html_no_fill = extractor._cell_to_html_td(
+        cell_no_fill, None, clean_val="TestNoFill", style_str=extractor._get_cell_style_string(cell_no_fill), unit=None
+    )
     assert "background-color" not in html_no_fill
-    assert ">TestNoFill</td>" in html_no_fill
     assert ">TestNoFill</td>" in html_no_fill
 
     # Case 5: Fill without start_color
     cell_no_color = MagicMock()
     cell_no_color.value = "TestNoColor"
     cell_no_color.fill.start_color = None
-    html_no_color = extractor._cell_to_html_td(cell_no_color, None)
+    html_no_color = extractor._cell_to_html_td(
+        cell_no_color,
+        None,
+        clean_val="TestNoColor",
+        style_str=extractor._get_cell_style_string(cell_no_color),
+        unit=None,
+    )
     assert "background-color" not in html_no_color
     assert ">TestNoColor</td>" in html_no_color
