@@ -1,0 +1,3 @@
+## 2025-05-15 - [Style Caching in MetadataExtractor]
+**Learning:** `openpyxl` cell style property access (font, fill, border, number_format) is a major performance bottleneck during large sheet iterations because it involves traversing internal objects and lookups for every cell. Since Excel files typically reuse a limited set of styles, caching the computed CSS strings and metadata attributes by `cell.style_id` significantly reduces overhead.
+**Action:** Always check for `style_id` and use a per-extraction cache when iterating over thousands of cells in `openpyxl` to avoid redundant property lookups.
