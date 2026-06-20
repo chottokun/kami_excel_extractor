@@ -42,6 +42,7 @@ class MetadataExtractor:
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self._style_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -284,7 +285,12 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        style_str: str,
+        unit: Optional[str],
+        formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -305,14 +311,12 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
@@ -426,6 +430,8 @@ class MetadataExtractor:
         if merged_map is None:
             merged_map = self._get_merged_cells_map(ws)
 
+        self._style_cache = {}
+
         min_r, max_r, min_c, max_c = self._get_bounding_box(ws, ws_formula=ws_formula)
         cell_metadata = []
         html_rows = ["<table border='1' style=\"border-collapse: collapse; min-width: 100%;\">"]
@@ -448,6 +454,17 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
+                # ⚡ Performance: Cache style attributes by style_id to avoid redundant processing
+                s_id = cell.style_id
+                if s_id not in self._style_cache:
+                    self._style_cache[s_id] = {
+                        "style_str": self._get_cell_style_string(cell),
+                        "unit": self._get_unit_info(cell),
+                        "borders": self._get_border_info(cell),
+                        "bold": bool(cell.font.b if cell.font else False),
+                    }
+                cached = self._style_cache[s_id]
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
@@ -455,10 +472,10 @@ class MetadataExtractor:
                     "col": c_idx,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": cached["unit"],
                     "style": {
-                        "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "borders": cached["borders"],
+                        "bold": cached["bold"],
                     },
                 }
                 if isinstance(span, dict):
@@ -466,7 +483,7 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(cell, span, cached["style_str"], cached["unit"], formula=formula)
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
