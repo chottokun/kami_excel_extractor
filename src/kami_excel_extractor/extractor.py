@@ -42,6 +42,7 @@ class MetadataExtractor:
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self._style_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -53,6 +54,10 @@ class MetadataExtractor:
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
+        style_id = getattr(cell, "style_id", None)
+        if style_id is not None and style_id in self._style_cache:
+            return self._style_cache[style_id]["borders"]
+
         borders = {}
         if cell.border:
             sides = ["left", "right", "top", "bottom"]
@@ -74,6 +79,10 @@ class MetadataExtractor:
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
+        style_id = getattr(cell, "style_id", None)
+        if style_id is not None and style_id in self._style_cache:
+            return self._style_cache[style_id]["style_str"]
+
         styles = []
 
         # 背景色の抽出 (ARGBをRGBに変換)
@@ -118,6 +127,10 @@ class MetadataExtractor:
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
+        style_id = getattr(cell, "style_id", None)
+        if style_id is not None and style_id in self._style_cache:
+            return self._style_cache[style_id]["unit"]
+
         fmt = cell.number_format
         if not fmt or fmt == "General":
             return None
@@ -423,6 +436,7 @@ class MetadataExtractor:
         merged_map: Optional[Dict] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         """詳細メタデータとHTMLテーブルを同時に生成する。"""
+        self._style_cache = {}  # ワークシートごとにキャッシュをクリア
         if merged_map is None:
             merged_map = self._get_merged_cells_map(ws)
 
@@ -448,6 +462,22 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
+                # スタイル情報のキャッシュ処理
+                style_id = getattr(cell, "style_id", None)
+                if style_id is not None and style_id not in self._style_cache:
+                    # _get_border_info, _get_cell_style_string, _get_unit_info が
+                    # 互いに依存したりキャッシュを参照したりするため、
+                    # ここではキャッシュが空の状態で計算し、一括で格納する
+                    borders = self._get_border_info(cell)
+                    style_str = self._get_cell_style_string(cell)
+                    unit = self._get_unit_info(cell)
+                    self._style_cache[style_id] = {
+                        "borders": borders,
+                        "style_str": style_str,
+                        "unit": unit,
+                        "bold": bool(cell.font.b if cell.font else False),
+                    }
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
@@ -458,7 +488,9 @@ class MetadataExtractor:
                     "unit": self._get_unit_info(cell),
                     "style": {
                         "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "bold": self._style_cache[style_id]["bold"]
+                        if style_id is not None
+                        else bool(cell.font.b if cell.font else False),
                     },
                 }
                 if isinstance(span, dict):
