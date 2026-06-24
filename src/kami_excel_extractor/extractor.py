@@ -42,6 +42,7 @@ class MetadataExtractor:
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self._style_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -74,6 +75,11 @@ class MetadataExtractor:
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
+        # style_idが一致すれば同一のスタイル文字列を返す（キャッシュ活用）
+        sid = getattr(cell, "style_id", None)
+        if sid is not None and sid in self._style_cache:
+            return self._style_cache[sid]["style_str"]
+
         styles = []
 
         # 背景色の抽出 (ARGBをRGBに変換)
@@ -284,7 +290,12 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        style_str: str,
+        unit: Optional[str],
+        formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -305,14 +316,12 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
@@ -448,6 +457,17 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
+                # スタイル情報の取得（キャッシュ活用）
+                sid = getattr(cell, "style_id", 0)
+                if sid not in self._style_cache:
+                    self._style_cache[sid] = {
+                        "style_str": self._get_cell_style_string(cell),
+                        "unit": self._get_unit_info(cell),
+                        "borders": self._get_border_info(cell),
+                        "bold": bool(cell.font.b if cell.font else False),
+                    }
+                style_data = self._style_cache[sid]
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
@@ -455,10 +475,10 @@ class MetadataExtractor:
                     "col": c_idx,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": style_data["unit"],
                     "style": {
-                        "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "borders": style_data["borders"],
+                        "bold": style_data["bold"],
                     },
                 }
                 if isinstance(span, dict):
@@ -466,7 +486,9 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(
+                    cell, span, style_data["style_str"], style_data["unit"], formula=formula
+                )
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
@@ -488,6 +510,9 @@ class MetadataExtractor:
         Returns:
             Dict: 全シートの解析データを含む辞書。
         """
+        # ワークブックごとにスタイルキャッシュをクリア
+        self._style_cache = {}
+
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
