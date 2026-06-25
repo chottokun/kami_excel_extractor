@@ -42,6 +42,7 @@ class MetadataExtractor:
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self._style_cache: Dict[int, Dict[str, Any]] = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -132,6 +133,29 @@ class MetadataExtractor:
         if "yy" in fmt_lower or "mm" in fmt_lower or "dd" in fmt_lower:
             return "DATE"
         return fmt
+
+    def _get_cached_style_info(self, cell: openpyxl.cell.Cell) -> Dict[str, Any]:
+        """
+        セルのスタイル情報を取得し、キャッシュを利用して高速化する。
+
+        Args:
+            cell: openpyxlのセルオブジェクト。
+
+        Returns:
+            Dict[str, Any]: スタイル文字列、単位、罫線、太字情報を含む辞書。
+        """
+        sid = cell.style_id
+        if sid in self._style_cache:
+            return self._style_cache[sid]
+
+        info = {
+            "style_str": self._get_cell_style_string(cell),
+            "unit": self._get_unit_info(cell),
+            "borders": self._get_border_info(cell),
+            "bold": bool(cell.font.b if cell.font else False),
+        }
+        self._style_cache[sid] = info
+        return info
 
     def _parse_image_anchor(self, anchor: Any) -> Tuple[Optional[int], Optional[int]]:
         """
@@ -284,7 +308,12 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        style_str: str,
+        unit: Optional[str],
+        formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -305,14 +334,12 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
@@ -447,6 +474,7 @@ class MetadataExtractor:
                     continue
 
                 formula = cell_f.value if row_f else None
+                style_info = self._get_cached_style_info(cell)
 
                 # メタデータの構築
                 cell_info = {
@@ -455,10 +483,10 @@ class MetadataExtractor:
                     "col": c_idx,
                     "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": style_info["unit"],
                     "style": {
-                        "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "borders": style_info["borders"],
+                        "bold": style_info["bold"],
                     },
                 }
                 if isinstance(span, dict):
@@ -466,7 +494,9 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(
+                    cell, span, style_str=style_info["style_str"], unit=style_info["unit"], formula=formula
+                )
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
@@ -488,6 +518,9 @@ class MetadataExtractor:
         Returns:
             Dict: 全シートの解析データを含む辞書。
         """
+        # ワークブックごとにスタイルキャッシュをクリア
+        self._style_cache = {}
+
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
