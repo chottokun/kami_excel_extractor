@@ -42,6 +42,7 @@ class MetadataExtractor:
         self.output_dir = Path(output_dir)
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
+        self._style_cache: Dict[int, Dict[str, Any]] = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -284,19 +285,24 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        style_str: str,
+        unit: Optional[str],
+        clean_val: Optional[str] = None,
+        formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         """
         val = cell.value
-        val_str = (
-            val.isoformat()
-            if isinstance(val, (date, datetime))
-            else str(clean_kami_text(val))
-            if val is not None
-            else ""
-        )
+        if isinstance(val, (date, datetime)):
+            val_str = val.isoformat()
+        elif clean_val is not None:
+            val_str = clean_val
+        else:
+            val_str = str(clean_kami_text(val)) if val is not None else ""
 
         attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
@@ -305,14 +311,12 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
@@ -448,17 +452,30 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
+                # スタイル情報の取得（キャッシュを利用）
+                s_id = cell.style_id
+                if s_id not in self._style_cache:
+                    self._style_cache[s_id] = {
+                        "style_str": self._get_cell_style_string(cell),
+                        "unit": self._get_unit_info(cell),
+                        "borders": self._get_border_info(cell),
+                        "bold": bool(cell.font.b if cell.font else False),
+                    }
+                cached_style = self._style_cache[s_id]
+
+                clean_val = str(clean_kami_text(cell.value)) if cell.value is not None else None
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
                     "row": r_idx,
                     "col": c_idx,
-                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
+                    "value": clean_val,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": cached_style["unit"],
                     "style": {
-                        "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "borders": cached_style["borders"],
+                        "bold": cached_style["bold"],
                     },
                 }
                 if isinstance(span, dict):
@@ -466,7 +483,14 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(
+                    cell,
+                    span,
+                    style_str=cached_style["style_str"],
+                    unit=cached_style["unit"],
+                    clean_val=clean_val,
+                    formula=formula,
+                )
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
@@ -488,6 +512,7 @@ class MetadataExtractor:
         Returns:
             Dict: 全シートの解析データを含む辞書。
         """
+        self._style_cache = {}  # 実行ごとにキャッシュをクリア
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
