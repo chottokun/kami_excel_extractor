@@ -27,7 +27,6 @@ class RagOptions(ExtractionOptions):
     include_logic_annotations: bool = True
 
 
-
 class ExtractionResult(BaseModel):
     """LLMからの抽出結果を個別に保持するモデル"""
 

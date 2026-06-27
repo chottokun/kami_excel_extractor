@@ -2,8 +2,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import yaml
 
+import yaml
 
 
 def _escape_markdown_table_cell(v: Any) -> str:
@@ -70,7 +70,6 @@ class JsonToMarkdownConverter:
                 if media_content:
                     lines.append(media_content)
                 continue
-
 
             # テスト期待値 (test_json_to_markdown_nested) に合わせるため
             # 最初の階層でも内容が辞書やリストならヘッダーにする
@@ -227,7 +226,7 @@ class ContextualChunkGenerator:
                 chunks.append("\n".join(current_lines))
                 if overlap_lines > 0 and len(current_lines) >= overlap_lines:
                     current_lines = current_lines[-overlap_lines:]
-                    current_len = sum(len(l) + 1 for l in current_lines)
+                    current_len = sum(len(line) + 1 for line in current_lines)
                 else:
                     current_lines = []
                     current_len = 0
@@ -313,9 +312,7 @@ class ContextualChunkGenerator:
                     formula_cells.append(cell)
                     unit = cell.get("unit")
                     unit_str = f"（単位: {unit}）" if unit else ""
-                    annotations.append(
-                        f"> ℹ️ セル {coord} は計算式 `{formula}`{unit_str} から導出された集計値です。"
-                    )
+                    annotations.append(f"> ℹ️ セル {coord} は計算式 `{formula}`{unit_str} から導出された集計値です。")
 
         if not rows or not cols:
             return "", has_formulas, annotations, formula_cells
@@ -399,10 +396,10 @@ class ContextualChunkGenerator:
             header_match = self.RE_HEADER.match(section)
             section_name = header_match.group(1).strip() if header_match else "全般"
 
-            include_logic = getattr(self.options, "include_logic_annotations", True) and getattr(self.options, "include_logic", True)
-            coord_range, has_formulas, annotations, _ = self._find_coordinates_and_logic(
-                section, cells, include_logic
+            include_logic = getattr(self.options, "include_logic_annotations", True) and getattr(
+                self.options, "include_logic", True
             )
+            coord_range, has_formulas, annotations, _ = self._find_coordinates_and_logic(section, cells, include_logic)
 
             if include_logic and annotations:
                 section_with_annotations = section + "\n\n" + "\n".join(annotations)
@@ -413,22 +410,24 @@ class ContextualChunkGenerator:
 
             max_chars = getattr(self.options, "max_chunk_chars", 1000)
             overlap_lines = getattr(self.options, "chunk_overlap_lines", 2)
-            
+
             section_chunks = self._chunk_text_by_chars(section_with_annotations, max_chars, overlap_lines)
 
             for chunk_body in section_chunks:
-                temp_chunks.append({
-                    "body": chunk_body,
-                    "metadata": {
-                        "source_file": source_file,
-                        "sheet_name": sheet_name,
-                        "section": section_name,
-                        "coordinates": coord_range if getattr(self.options, "include_coordinates", True) else "",
-                        "has_formulas": has_formulas,
-                        "has_media": has_media,
-                        "extraction_date": datetime.now().isoformat(),
+                temp_chunks.append(
+                    {
+                        "body": chunk_body,
+                        "metadata": {
+                            "source_file": source_file,
+                            "sheet_name": sheet_name,
+                            "section": section_name,
+                            "coordinates": coord_range if getattr(self.options, "include_coordinates", True) else "",
+                            "has_formulas": has_formulas,
+                            "has_media": has_media,
+                            "extraction_date": datetime.now().isoformat(),
+                        },
                     }
-                })
+                )
 
         total_chunks = len(temp_chunks)
         final_chunks = []
@@ -451,10 +450,6 @@ class ContextualChunkGenerator:
             else:
                 content = body
 
-            final_chunks.append({
-                "content": content,
-                "metadata": meta
-            })
+            final_chunks.append({"content": content, "metadata": meta})
 
         return final_chunks
-

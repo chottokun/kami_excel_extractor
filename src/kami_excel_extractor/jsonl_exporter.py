@@ -14,10 +14,7 @@ class JsonlExporter:
 
         with open(output_path, "w", encoding="utf-8") as f:
             for chunk in chunks:
-                line_data = {
-                    "content": chunk.get("content", ""),
-                    "metadata": chunk.get("metadata", {})
-                }
+                line_data = {"content": chunk.get("content", ""), "metadata": chunk.get("metadata", {})}
                 f.write(json.dumps(line_data, ensure_ascii=False) + "\n")
 
     @staticmethod
@@ -25,9 +22,6 @@ class JsonlExporter:
         """チャンクのリストをJSONL形式の文字列に変換する"""
         lines = []
         for chunk in chunks:
-            line_data = {
-                "content": chunk.get("content", ""),
-                "metadata": chunk.get("metadata", {})
-            }
+            line_data = {"content": chunk.get("content", ""), "metadata": chunk.get("metadata", {})}
             lines.append(json.dumps(line_data, ensure_ascii=False))
         return "\n".join(lines) + "\n"

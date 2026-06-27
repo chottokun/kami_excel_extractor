@@ -1,5 +1,7 @@
 from datetime import datetime
+
 import pytest
+
 from kami_excel_extractor.rag_converter import ContextualChunkGenerator
 from kami_excel_extractor.schema import RagOptions
 
@@ -41,27 +43,21 @@ def test_generate_chunks_yaml_frontmatter():
     options = RagOptions(output_format="yaml_frontmatter", max_chunk_chars=1000)
     generator = ContextualChunkGenerator(options=options)
 
-    structured_content = {
-        "sheets": {
-            "Sheet1": {
-                "Project": [{"ID": 1, "Name": "Alice"}]
-            }
-        }
-    }
+    structured_content = {"sheets": {"Sheet1": {"Project": [{"ID": 1, "Name": "Alice"}]}}}
 
     raw_sheet_data = {
         "cells": [
             {"coord": "A1", "value": "Project", "formula": None},
             {"coord": "B1", "value": "Alice", "formula": None},
         ],
-        "media": []
+        "media": [],
     }
 
     chunks = generator.generate_chunks(
         sheet_name="Sheet1",
         structured_content=structured_content,
         raw_sheet_data=raw_sheet_data,
-        source_file="test.xlsx"
+        source_file="test.xlsx",
     )
 
     assert len(chunks) == 1
