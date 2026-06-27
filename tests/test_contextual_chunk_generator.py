@@ -71,3 +71,25 @@ def test_generate_chunks_yaml_frontmatter():
     assert "sheet_name: Sheet1" in content
     assert "chunk_index: 1" in content
     assert "total_chunks: 1" in content
+
+
+def test_rag_options_env_fallback():
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(
+        os.environ,
+        {
+            "RAG_OUTPUT_FORMAT": "jsonl",
+            "RAG_MAX_CHUNK_CHARS": "500",
+            "RAG_CHUNK_OVERLAP_LINES": "5",
+            "RAG_INCLUDE_COORDINATES": "False",
+            "RAG_INCLUDE_LOGIC_ANNOTATIONS": "False",
+        },
+    ):
+        options = RagOptions()
+        assert options.output_format == "jsonl"
+        assert options.max_chunk_chars == 500
+        assert options.chunk_overlap_lines == 5
+        assert options.include_coordinates is False
+        assert options.include_logic_annotations is False

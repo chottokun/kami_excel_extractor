@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,11 +21,15 @@ class RagOptions(ExtractionOptions):
     """RAGチャンク生成時のオプション"""
 
     list_format: str = "kv"
-    output_format: str = "yaml_frontmatter"  # 'markdown', 'yaml_frontmatter', 'jsonl'
-    max_chunk_chars: int = 1000
-    chunk_overlap_lines: int = 2
-    include_coordinates: bool = True
-    include_logic_annotations: bool = True
+    output_format: str = Field(default_factory=lambda: os.getenv("RAG_OUTPUT_FORMAT", "yaml_frontmatter"))
+    max_chunk_chars: int = Field(default_factory=lambda: int(os.getenv("RAG_MAX_CHUNK_CHARS", "1000")))
+    chunk_overlap_lines: int = Field(default_factory=lambda: int(os.getenv("RAG_CHUNK_OVERLAP_LINES", "2")))
+    include_coordinates: bool = Field(
+        default_factory=lambda: os.getenv("RAG_INCLUDE_COORDINATES", "True").lower() == "true"
+    )
+    include_logic_annotations: bool = Field(
+        default_factory=lambda: os.getenv("RAG_INCLUDE_LOGIC_ANNOTATIONS", "True").lower() == "true"
+    )
 
 
 class ExtractionResult(BaseModel):
