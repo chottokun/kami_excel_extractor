@@ -18,8 +18,10 @@
 ## ドキュメント
 
 - **[ユーザマニュアル (USAGE.md)](USAGE.md)**: セットアップから CLI/API の詳細な使い方まで。
-- **[抽出エンジン技術解説 (docs/extraction_engine.md)](docs/extraction_engine.md)**: 5つのレイヤーによる解析アルゴリズムの解説。
+- **[RAG最適化ガイド (docs/rag_optimization_guide.md)](docs/rag_optimization_guide.md)**: **[NEW]** 各種RAGフレームワーク（LangChain, LlamaIndex, Dify）との連携方法。
+- **[抽出エンジン技術解説 (docs/extraction_engine.md)](docs/extraction_engine.md)**: 解析アルゴリズムおよびRAGチャンキングの解説。
 - **[改善提案ロードマップ (docs/improvement_proposals.md)](docs/improvement_proposals.md)**: 今後の精度向上に向けた考察。
+
 
 ## クイックスタート (Docker)
 

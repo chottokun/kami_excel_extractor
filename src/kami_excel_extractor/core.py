@@ -21,8 +21,10 @@ import yaml
 from .converter import ExcelConverter
 from .document_generator import DocumentGenerator
 from .extractor import MetadataExtractor
-from .rag_converter import JsonToMarkdownConverter, RagChunker
+from .rag_converter import JsonToMarkdownConverter, RagChunker, ContextualChunkGenerator
+from .jsonl_exporter import JsonlExporter
 from .schema import ExtractionOptions, ExtractionResult, RagOptions
+
 from .utils import CacheManager
 
 logger = logging.getLogger(__name__)
@@ -741,11 +743,60 @@ class KamiExcelExtractor:
 
         structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)
 
+        # Excel原本データを取得 (キャッシュ経由なので高速)
+        raw_data = await self._get_raw_extraction_results(
+            excel_path, include_logic=opts.include_logic, use_cache=opts.use_cache
+        )
+
+        # RAG出力用ディレクトリの作成
+        rag_dir = self.output_dir / f"{excel_path.stem}_rag"
+        await asyncio.to_thread(rag_dir.mkdir, parents=True, exist_ok=True)
+
         sheet_results = {}
+        all_jsonl_chunks = []
+
         for sheet_name, sheet_data in structured_data.get("sheets", {}).items():
+            raw_sheet_data = raw_data.get("sheets", {}).get(sheet_name)
+            
+            # 新しい ContextualChunkGenerator の使用
+            generator = ContextualChunkGenerator(options=opts)
+            chunks = generator.generate_chunks(
+                sheet_name=sheet_name,
+                structured_content={"sheets": {sheet_name: sheet_data}},
+                raw_sheet_data=raw_sheet_data,
+                source_file=excel_path.name
+            )
+
+            # 後方互換性のためのプレーンなMarkdownテキスト生成
             markdown_text = self.rag_converter.convert({"sheets": {sheet_name: sheet_data}})
-            chunker = RagChunker(metadata={"source": excel_path.name, "sheet": sheet_name})
-            chunks = chunker.chunk(markdown_text, f"{excel_path.name}-{sheet_name}")
+            
             sheet_results[sheet_name] = {"chunks": chunks, "markdown": markdown_text, "structured": sheet_data}
 
+            # ファイルへの書き出し
+            if opts.output_format == "yaml_frontmatter":
+                for idx, chunk in enumerate(chunks, 1):
+                    chunk_file = rag_dir / f"{sheet_name}_chunk_{idx}.md"
+                    
+                    def _write_chunk(p, c):
+                        with open(p, "w", encoding="utf-8") as f:
+                            f.write(c)
+                            
+                    await asyncio.to_thread(_write_chunk, chunk_file, chunk["content"])
+            elif opts.output_format == "markdown":
+                sheet_file = rag_dir / f"{sheet_name}.md"
+                
+                def _write_sheet(p, c):
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(c)
+                        
+                await asyncio.to_thread(_write_sheet, sheet_file, markdown_text)
+            elif opts.output_format == "jsonl":
+                all_jsonl_chunks.extend(chunks)
+
+        # JSONL一括出力
+        if opts.output_format == "jsonl" and all_jsonl_chunks:
+            jsonl_file = self.output_dir / f"{excel_path.stem}_rag.jsonl"
+            await asyncio.to_thread(JsonlExporter.export, all_jsonl_chunks, jsonl_file)
+
         return sheet_results, structured_data
+

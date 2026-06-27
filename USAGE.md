@@ -37,8 +37,14 @@ uv run python3 -m kami_excel_extractor.cli input.xlsx --output-dir ./results
 
 ### 主要なコマンドライン引数
 - `--model`: 使用する AI モデルを指定 (例: `gemini-1.5-pro`)。
-- `--rag`: 構造化 JSON に加え、RAG（検索拡張生成）に最適な Markdown チャンクを生成します。
+- `--rag`: 構造化 JSON に加え、RAG（検索拡張生成）に最適なチャンクを生成します。
+- `--rag-format`: **[NEW]** RAGの出力形式を指定。`yaml_frontmatter` (デフォルト), `markdown`, `jsonl` が利用可能です。
+- `--max-chunk-chars`: **[NEW]** 1チャンクあたりの最大文字数制限を指定 (デフォルト: 1000)。
+- `--chunk-overlap-lines`: **[NEW]** チャンク間の重複（オーバーラップ）行数を指定 (デフォルト: 2)。
+- `--no-coordinates`: **[NEW]** RAGチャンクにExcelのセル座標メタデータを含めないようにします。
+- `--no-logic-annotations`: **[NEW]** RAGチャンクに計算式のインライン注釈を含めないようにします。
 - `--include-logic`: **[NEW]** エクセル内の計算式（例: `=SUM(A1:B1)`）と表示形式（円、%、日付）を抽出し、AI に伝えます。
+
 - `--no-vision`: 画像解析を無効化し、テキストと構造情報のみで実行します。
 - `--dpi`: 画像変換時の解像度を指定（デフォルト: 150）。
 
@@ -56,10 +62,28 @@ uv run python3 -m kami_excel_extractor.cli input.xlsx --output-dir ./results
 ### 3.4 Visual Intelligence (図表データ統合)
 シート内の画像やグラフを VLM で解析し、内容を HTML テーブルの中に埋め込みます。
 
-### 3.4 ロジック・インジェクション (Logic-aware)
+### 3.5 ロジック・インジェクション (Logic-aware)
 セルの「計算式」を抽出し、集計構造の把握を助けます。
 
+### 3.6 RAG & Search 最適化 (Contextual Chunks)
+
+**[NEW]** ベクトルDBやLLMに入力する前段階として、原本エクセルの構造的文脈（ファイル名、シート名、座標範囲、計算式、メディア有無）をメタデータとして保持した高品質なチャンクを自動生成します。
+
+#### コマンド例
+```bash
+# YAML Front Matter 付きのMarkdownチャンクを生成 (デフォルト)
+uv run python3 -m kami_excel_extractor.cli input.xlsx --rag --rag-format yaml_frontmatter --include-logic
+
+# JSON Lines (JSONL) 形式で一括出力
+uv run python3 -m kami_excel_extractor.cli input.xlsx --rag --rag-format jsonl --max-chunk-chars 500
+```
+
+#### 生成ファイル構成
+- `--rag-format yaml_frontmatter`: 出力ディレクトリ配下に `{stem}_rag/{sheet_name}_chunk_{idx}.md` が生成されます。各チャンクには YAML 形式の Front Matter が付与されます。
+- `--rag-format jsonl`: 出力ディレクトリ直下に `{stem}_rag.jsonl` が生成されます。
+
 ## 4. プログラマ向けの使い方 (Python API)
+
 
 ```python
 import asyncio

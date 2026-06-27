@@ -20,6 +20,12 @@ class RagOptions(ExtractionOptions):
     """RAGチャンク生成時のオプション"""
 
     list_format: str = "kv"
+    output_format: str = "yaml_frontmatter"  # 'markdown', 'yaml_frontmatter', 'jsonl'
+    max_chunk_chars: int = 1000
+    chunk_overlap_lines: int = 2
+    include_coordinates: bool = True
+    include_logic_annotations: bool = True
+
 
 
 class ExtractionResult(BaseModel):
