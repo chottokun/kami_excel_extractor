@@ -43,9 +43,15 @@ class MetadataExtractor:
         self.media_dir = self.output_dir / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
+        # ⚡ Performance: Cache for style-related computations to avoid redundant lookups
+        self._style_cache = {}
+        self._unit_cache = {}
+        self._border_cache = {}
+
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
         セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
+        ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
@@ -53,6 +59,10 @@ class MetadataExtractor:
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
+        style_id = getattr(cell, "style_id", None)
+        if style_id is not None and style_id in self._border_cache:
+            return self._border_cache[style_id]
+
         borders = {}
         if cell.border:
             sides = ["left", "right", "top", "bottom"]
@@ -60,11 +70,15 @@ class MetadataExtractor:
                 border_side = getattr(cell.border, side)
                 if border_side and border_side.style:
                     borders[side] = border_side.style
+
+        if style_id is not None:
+            self._border_cache[style_id] = borders
         return borders
 
     def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
+        ⚡ Performance: Uses caching via cell.style_id.
 
         LLMがテーブルの構造（ヘッダー、セクションの区切り）を理解するための重要なヒントとなる。
 
@@ -74,6 +88,10 @@ class MetadataExtractor:
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
+        style_id = getattr(cell, "style_id", None)
+        if style_id is not None and style_id in self._style_cache:
+            return self._style_cache[style_id]
+
         styles = []
 
         # 背景色の抽出 (ARGBをRGBに変換)
@@ -106,11 +124,15 @@ class MetadataExtractor:
             if cell.font.i:
                 styles.append("font-style: italic")
 
-        return "; ".join(styles)
+        result = "; ".join(styles)
+        if style_id is not None:
+            self._style_cache[style_id] = result
+        return result
 
     def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
         """
         セルの表示形式(Number Format)からデータの単位や型を推測する。
+        ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
@@ -118,20 +140,28 @@ class MetadataExtractor:
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
-        fmt = cell.number_format
-        if not fmt or fmt == "General":
-            return None
+        style_id = getattr(cell, "style_id", None)
+        if style_id is not None and style_id in self._unit_cache:
+            return self._unit_cache[style_id]
 
-        fmt_lower = fmt.lower()
-        if "¥" in fmt or "jpy" in fmt_lower:
-            return "JPY"
-        if "$" in fmt:
-            return "USD"
-        if "%" in fmt:
-            return "PERCENT"
-        if "yy" in fmt_lower or "mm" in fmt_lower or "dd" in fmt_lower:
-            return "DATE"
-        return fmt
+        fmt = cell.number_format
+        result = None
+        if fmt and fmt != "General":
+            fmt_lower = fmt.lower()
+            if "¥" in fmt or "jpy" in fmt_lower:
+                result = "JPY"
+            elif "$" in fmt:
+                result = "USD"
+            elif "%" in fmt:
+                result = "PERCENT"
+            elif "yy" in fmt_lower or "mm" in fmt_lower or "dd" in fmt_lower:
+                result = "DATE"
+            else:
+                result = fmt
+
+        if style_id is not None:
+            self._unit_cache[style_id] = result
+        return result
 
     def _parse_image_anchor(self, anchor: Any) -> Tuple[Optional[int], Optional[int]]:
         """
