@@ -314,15 +314,20 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self,
-        cell: openpyxl.cell.Cell,
-        span_info: Union[str, Dict],
-        clean_val: str,
-        formula: Optional[str] = None,
+        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         """
+        val = cell.value
+        val_str = (
+            val.isoformat()
+            if isinstance(val, (date, datetime))
+            else str(clean_kami_text(val))
+            if val is not None
+            else ""
+        )
+
         attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
@@ -342,7 +347,7 @@ class MetadataExtractor:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(clean_val).replace("\n", "<br>")
+        safe_val = html.escape(val_str).replace("\n", "<br>")
         return f"<td{attr_str}>{safe_val}</td>"
 
     def is_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
@@ -473,21 +478,12 @@ class MetadataExtractor:
 
                 formula = cell_f.value if row_f else None
 
-                # ⚡ Performance: Value cleaning (execute only once per cell)
-                val = cell.value
-                if val is None:
-                    clean_val = ""
-                elif isinstance(val, (date, datetime)):
-                    clean_val = val.isoformat()
-                else:
-                    clean_val = str(clean_kami_text(val))
-
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
                     "row": r_idx,
                     "col": c_idx,
-                    "value": clean_val if val is not None else None,
+                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
                     "unit": self._get_unit_info(cell),
                     "style": {
@@ -500,7 +496,7 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, clean_val, formula=formula)
+                td_html = self._cell_to_html_td(cell, span, formula=formula)
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力
