@@ -47,6 +47,7 @@ class MetadataExtractor:
         self._style_cache = {}
         self._unit_cache = {}
         self._border_cache = {}
+        self._bold_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -314,12 +315,19 @@ class MetadataExtractor:
         return merged_map
 
     def _cell_to_html_td(
-        self, cell: openpyxl.cell.Cell, span_info: Union[str, Dict], formula: Optional[str] = None
+        self,
+        cell: openpyxl.cell.Cell,
+        span_info: Union[str, Dict],
+        style_str: Optional[str] = None,
+        unit: Optional[str] = None,
+        clean_val: Optional[Any] = None,
+        formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
+        ⚡ Performance: Pre-calculated values (style_str, unit, clean_val) can be passed to avoid redundant calls.
         """
-        val = cell.value
+        val = clean_val if clean_val is not None else cell.value
         val_str = (
             val.isoformat()
             if isinstance(val, (date, datetime))
@@ -335,16 +343,16 @@ class MetadataExtractor:
             if span_info.get("rowspan", 1) > 1:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
-        style_str = self._get_cell_style_string(cell)
-        if style_str:
-            attrs.append(f'style="{style_str}"')
+        final_style = style_str if style_str is not None else self._get_cell_style_string(cell)
+        if final_style:
+            attrs.append(f'style="{final_style}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        unit = self._get_unit_info(cell)
-        if unit:
-            attrs.append(f'data-unit="{html.escape(unit)}"')
+        final_unit = unit if unit is not None else self._get_unit_info(cell)
+        if final_unit:
+            attrs.append(f'data-unit="{html.escape(final_unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
         safe_val = html.escape(val_str).replace("\n", "<br>")
@@ -471,24 +479,42 @@ class MetadataExtractor:
             row_html = ["  <tr>"]
 
             current_row_html = []
-            for c_idx, (cell, cell_f) in enumerate(zip(row, row_f if row_f else row), min_c):
+            # ⚡ Performance: Optimization to avoid zip if row_f is not needed
+            enum_gen = zip(row, row_f) if row_f else row
+
+            for c_idx, item in enumerate(enum_gen, min_c):
+                cell, cell_f = item if row_f else (item, None)
+
                 span = merged_map.get((r_idx, c_idx))
                 if span == "skip":
                     continue
 
-                formula = cell_f.value if row_f else None
+                formula = cell_f.value if cell_f else None
+                # ⚡ Performance: Pre-calculate once per cell
+                style_str = self._get_cell_style_string(cell)
+                unit = self._get_unit_info(cell)
+                clean_val = clean_kami_text(cell.value)
+
+                # ⚡ Performance: Cache bold status
+                style_id = getattr(cell, "style_id", None)
+                if style_id is not None and style_id in self._bold_cache:
+                    bold = self._bold_cache[style_id]
+                else:
+                    bold = bool(cell.font.b if cell.font else False)
+                    if style_id is not None:
+                        self._bold_cache[style_id] = bold
 
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
                     "row": r_idx,
                     "col": c_idx,
-                    "value": str(clean_kami_text(cell.value)) if cell.value is not None else None,
+                    "value": str(clean_val) if clean_val is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
-                    "unit": self._get_unit_info(cell),
+                    "unit": unit,
                     "style": {
                         "borders": self._get_border_info(cell),
-                        "bold": bool(cell.font.b if cell.font else False),
+                        "bold": bold,
                     },
                 }
                 if isinstance(span, dict):
@@ -496,7 +522,9 @@ class MetadataExtractor:
                 cell_metadata.append(cell_info)
 
                 # HTMLテーブル行の構築
-                td_html = self._cell_to_html_td(cell, span, formula=formula)
+                td_html = self._cell_to_html_td(
+                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                )
                 current_row_html.append(td_html)
 
             # 結合セルなどの情報を考慮し、bounding box内の全行を出力

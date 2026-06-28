@@ -1,7 +1,10 @@
-import pytest
 from pathlib import Path
+
+import pytest
+
 from kami_excel_extractor.core import KamiExcelExtractor
 from kami_excel_extractor.schema import RagOptions
+
 
 @pytest.mark.asyncio
 async def test_integration_docx_generation(tmp_path):
@@ -16,7 +19,7 @@ async def test_integration_docx_generation(tmp_path):
         pytest.skip("complex_report.xlsx is not found at project root")
 
     extractor = KamiExcelExtractor(output_dir=tmp_path)
-    
+
     opts = RagOptions(
         model="gemini/gemini-1.5-flash", # テスト時はLLMの呼び出しが発生する可能性があるが、
         # モックまたはキャッシュが動作することを期待するか、あるいはLLMをダミーにする。
@@ -27,7 +30,7 @@ async def test_integration_docx_generation(tmp_path):
         use_visual_context=False,
         include_visual_summaries=False,
     )
-    
+
     # is_simple のダミーを作成
     import openpyxl
     dummy_excel = tmp_path / "dummy_simple.xlsx"
@@ -37,18 +40,20 @@ async def test_integration_docx_generation(tmp_path):
     ws.append(["Name", "Age"])
     ws.append(["Alice", "30"])
     wb.save(dummy_excel)
-    
+
     # docx の生成を直接呼び出し
     docx_path, structured_data = await extractor.aextract_docx(dummy_excel, options=opts)
-    
+
     assert docx_path.exists()
     assert docx_path.suffix == ".docx"
     assert "SimpleSheet" in structured_data["sheets"]
 
 @pytest.mark.asyncio
 async def test_cli_docx_option(tmp_path):
-    import openpyxl
     import argparse
+
+    import openpyxl
+
     from kami_excel_extractor.cli import run_async
 
     dummy_excel = tmp_path / "dummy_simple_cli.xlsx"
@@ -89,9 +94,11 @@ async def test_cli_docx_option(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cli_rag_docx_format(tmp_path):
-    import openpyxl
     import argparse
     import json
+
+    import openpyxl
+
     from kami_excel_extractor.cli import run_async
 
     dummy_excel = tmp_path / "dummy_simple_rag.xlsx"
@@ -133,7 +140,7 @@ async def test_cli_rag_docx_format(tmp_path):
     # RAGメタデータJSONファイルも確認
     expected_rag_json = tmp_path / "dummy_simple_rag_rag.json"
     assert expected_rag_json.exists()
-    
+
     with open(expected_rag_json, "r", encoding="utf-8") as f:
         meta_data = json.load(f)
     assert "docx_path" in meta_data

@@ -2,9 +2,8 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import main
+import pytest
 
 
 def test_main_no_api_key(caplog):

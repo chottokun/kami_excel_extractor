@@ -2,9 +2,9 @@ import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import docx
+
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches
 
 logger = logging.getLogger(__name__)
 
@@ -57,24 +57,24 @@ class DocxRenderer:
         Dify最適化DOCXファイルを生成する（ハイブリッド構造版）。
         """
         doc = Document()
-        
+
         # 1. ドキュメントタイトル (Heading 1)
         doc.add_heading(source_filename, level=1)
-        
+
         sheets_structured = structured_data.get("sheets", {})
         sheets_raw = raw_data.get("sheets", {})
-        
+
         for sheet_name, sheet_data in sheets_structured.items():
             raw_sheet = sheets_raw.get(sheet_name, {})
             raw_cells = raw_sheet.get("cells", [])
             raw_media = raw_sheet.get("media", [])
-            
+
             # シート見出し
             doc.add_heading(sheet_name, level=1)
-            
+
             # シート全体の概要・説明
             self._add_overview_text(doc, sheet_data)
-            
+
             # 挿入済み画像を追跡するセット
             inserted_media = set()
 
@@ -89,7 +89,7 @@ class DocxRenderer:
                 # 構造化データがない場合は、原本テーブルをフォールバック出力
                 if raw_cells:
                     self._add_table_with_merges_and_prefixes(doc, raw_cells)
-            
+
             # テーブル外（直後）に関連画像を挿入
             self._add_associated_images_below_table(doc, sheet_data, raw_media, inserted_media, image_width_inches)
 
@@ -102,14 +102,14 @@ class DocxRenderer:
                 filename = media_item.get("filename")
                 if filename and filename not in inserted_media:
                     self._add_image_with_caption(doc, media_item, image_width_inches)
-            
+
             # シートごとのページ区切り
             doc.add_page_break()
 
         # 出力ファイル名の解決
         if not output_name:
             output_name = Path(source_filename).stem
-        
+
         out_path = self.output_dir / f"{output_name}.docx"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         doc.save(out_path)
@@ -195,7 +195,7 @@ class DocxRenderer:
         if table_data:
             # 検出された辞書リストからテーブルを作成
             self._add_structured_table_with_insights(doc, table_data, raw_cells, raw_media, inserted_media)
-            
+
             # テーブルデータ以外の追加の意味データがあれば段落として展開
             # 重複を防ぐため、k != table_key に加え "data" も除外する
             ignored_keys = ["summary", "description", "overview", "analysis", "_raw_data", "raw_data", "data"]
@@ -266,13 +266,13 @@ class DocxRenderer:
         for cell in cells:
             colspan = cell.get("colspan", 1)
             rowspan = cell.get("rowspan", 1)
-            
+
             if colspan > 1 or rowspan > 1:
                 r_start = cell["row"] - 1
                 c_start = cell["col"] - 1
                 r_end = r_start + rowspan - 1
                 c_end = c_start + colspan - 1
-                
+
                 try:
                     cell_start = table.cell(r_start, c_start)
                     cell_end = table.cell(r_end, c_end)
@@ -293,7 +293,7 @@ class DocxRenderer:
                 m_coord = str(m.get("coord", "")).upper()
                 if m_coord == coord_str:
                     return m
-                
+
         # 2. photo_area などの範囲オブジェクトでの比較
         photo_area = row_data.get("photo_area")
         if isinstance(photo_area, dict):
@@ -337,7 +337,7 @@ class DocxRenderer:
             return
 
         headers = list(data_list[0].keys())
-        
+
         # 既存ヘッダーに画像説明系キーがあるかチェックし、なければ「ビジュアルインサイト」列を新規追加
         has_insight_header = any(h in ["visual_insights", "visual_summary", "image_details", "description"] for h in headers)
         new_insight_col_added = False
@@ -360,7 +360,7 @@ class DocxRenderer:
         # データ行の設定
         for r_idx, row_data in enumerate(data_list, 1):
             row_cells = table.rows[r_idx].cells
-            
+
             # 代表となる行全体の座標を特定 (coordinate_title を最優先)
             row_coord = row_data.get("coordinate_title") or row_data.get("coordinate") or row_data.get("coord")
             if not row_coord:
@@ -374,10 +374,10 @@ class DocxRenderer:
             for c_idx, header in enumerate(headers):
                 if header == "ビジュアルインサイト" and new_insight_col_added:
                     continue
-                
+
                 val = row_data.get(header)
                 val_str = str(val) if val is not None else ""
-                
+
                 # 座標プレフィックスの自動生成
                 if row_coord:
                     cell_text = f"[{row_coord}] {val_str}"
@@ -439,7 +439,7 @@ class DocxRenderer:
                 photo_id = row_data.get("id") or row_data.get("photo_no") or r_idx
                 clean_id = str(photo_id).replace("No.", "").replace("NO.", "").strip()
                 title = row_data.get("title") or row_data.get("name") or "画像データ"
-                
+
                 # 表示座標情報の整理
                 coord = row_data.get("coordinate_title") or row_data.get("coordinate") or row_data.get("coord")
                 photo_area = row_data.get("photo_area")
@@ -452,7 +452,7 @@ class DocxRenderer:
                     coord = "A1"
 
                 m_coord = media_item.get("coord", "")
-                
+
                 caption_text = f"【図：No.{clean_id} {title} (表中座標: {coord} / 画像座標: {m_coord})】"
                 doc.add_paragraph(caption_text, style='Caption')
 
@@ -469,7 +469,7 @@ class DocxRenderer:
         原本の計算式情報の注釈をQuoteスタイルで追加する。
         """
         RE_LOGIC_FORMULA = re.compile(r"=(SUM|AVERAGE|AVG|COUNT|MAX|MIN|SUBTOTAL|VLOOKUP|IF|ROUND)\b", re.IGNORECASE)
-        
+
         annotations = []
         for cell in cells:
             formula = cell.get("formula")
@@ -479,7 +479,7 @@ class DocxRenderer:
                     unit = cell.get("unit")
                     unit_str = f"（単位: {unit}）" if unit else ""
                     annotations.append(f"ℹ️ セル {coord} は計算式 `{formula}`{unit_str} から導出された集計値です。")
-        
+
         if annotations:
             for note in annotations:
                 doc.add_paragraph(note, style='Quote')

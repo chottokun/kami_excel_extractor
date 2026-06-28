@@ -20,10 +20,10 @@ import yaml
 
 from .converter import ExcelConverter
 from .document_generator import DocumentGenerator
+from .docx_renderer import DocxRenderer
 from .extractor import MetadataExtractor
 from .jsonl_exporter import JsonlExporter
 from .rag_converter import ContextualChunkGenerator, JsonToMarkdownConverter
-from .docx_renderer import DocxRenderer
 from .schema import ExtractionOptions, ExtractionResult, RagOptions
 from .utils import CacheManager
 
