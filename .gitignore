@@ -172,7 +172,10 @@ run_batch_test.py
 run_container_verify.py
 run_exhaustive_test.py
 run_final_verify.py
+run_final_mega_verify.py
 run_test.py
+src/main.py
+src/run_container_verify.py
 
 # LiteLLM config (may contain keys)
 litellm-config.yaml
