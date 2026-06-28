@@ -179,3 +179,10 @@ src/run_container_verify.py
 
 # LiteLLM config (may contain keys)
 litellm-config.yaml
+
+# IDE / Tool caches
+.antigravitycli/
+
+# Test temporary outputs
+tests/real_data_test_out/
+tests/tmp_result.json
