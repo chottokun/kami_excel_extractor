@@ -23,6 +23,7 @@ from .document_generator import DocumentGenerator
 from .extractor import MetadataExtractor
 from .jsonl_exporter import JsonlExporter
 from .rag_converter import ContextualChunkGenerator, JsonToMarkdownConverter
+from .docx_renderer import DocxRenderer
 from .schema import ExtractionOptions, ExtractionResult, RagOptions
 from .utils import CacheManager
 
@@ -64,6 +65,7 @@ class KamiExcelExtractor:
         self.converter = ExcelConverter(self.output_dir, max_file_size_mb=ExtractionOptions().max_file_size_mb)
         self.rag_converter = JsonToMarkdownConverter()
         self.doc_generator = DocumentGenerator(self.output_dir)
+        self.docx_renderer = DocxRenderer(self.output_dir)
 
         # キャッシュ管理の初期化
         self._db_path = self.output_dir / ".cache.db"
@@ -742,6 +744,10 @@ class KamiExcelExtractor:
 
         structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)
 
+        if opts.output_format == "docx":
+            docx_path, structured_data = await self.aextract_docx(excel_path, options=opts)
+            return {"docx": {"path": docx_path}}, structured_data
+
         # Excel原本データを取得 (キャッシュ経由なので高速)
         raw_data = await self._get_raw_extraction_results(
             excel_path, include_logic=opts.include_logic, use_cache=opts.use_cache
@@ -798,3 +804,46 @@ class KamiExcelExtractor:
             await asyncio.to_thread(JsonlExporter.export, all_jsonl_chunks, jsonl_file)
 
         return sheet_results, structured_data
+
+    async def aextract_docx(
+        self, excel_path: Union[str, Path], options: Optional[RagOptions] = None
+    ) -> Tuple[Path, Dict]:
+        """
+        Excelを解析し、Dify最適化DOCXを生成する (非同期)。
+        """
+        opts = options or RagOptions()
+        excel_path = Path(excel_path)
+
+        extract_opts = ExtractionOptions(
+            model=opts.model,
+            system_prompt=opts.system_prompt,
+            include_visual_summaries=True,
+            use_visual_context=opts.use_visual_context,
+            include_logic=opts.include_logic,
+            max_file_size_mb=opts.max_file_size_mb,
+            use_cache=opts.use_cache,
+        )
+
+        structured_data = await self.aextract_structured_data(excel_path, options=extract_opts)
+        raw_data = await self._get_raw_extraction_results(
+            excel_path, include_logic=opts.include_logic, use_cache=opts.use_cache
+        )
+
+        docx_path = await asyncio.to_thread(
+            self.docx_renderer.generate_docx,
+            structured_data=structured_data,
+            raw_data=raw_data,
+            source_filename=excel_path.name,
+            include_logic_annotations=opts.include_logic_annotations,
+        )
+
+        return docx_path, structured_data
+
+    def extract_docx(
+        self, excel_path: Union[str, Path], options: Optional[RagOptions] = None
+    ) -> Tuple[Path, Dict]:
+        """
+        Excelを解析し、Dify最適化DOCXを生成する (同期)。
+        """
+        return asyncio.run(self.aextract_docx(excel_path, options=options))
+

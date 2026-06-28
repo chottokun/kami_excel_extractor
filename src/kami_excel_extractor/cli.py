@@ -27,9 +27,10 @@ def create_parser():
     parser.add_argument(
         "--rag-format",
         default="yaml_frontmatter",
-        choices=["markdown", "yaml_frontmatter", "jsonl"],
+        choices=["markdown", "yaml_frontmatter", "jsonl", "docx"],
         help="RAG出力形式 (デフォルト: yaml_frontmatter)",
     )
+    parser.add_argument("--docx", action="store_true", help="Dify最適化DOCX変換を有効にする")
     parser.add_argument("--max-chunk-chars", type=int, default=1000, help="チャンクの最大文字数制限 (デフォルト: 1000)")
     parser.add_argument("--chunk-overlap-lines", type=int, default=2, help="チャンク間の重複行数 (デフォルト: 2)")
     parser.add_argument("--no-coordinates", action="store_true", help="RAGチャンクにExcelセル座標メタデータを含めない")
@@ -64,15 +65,30 @@ async def run_async(args):
     include_visual_summaries = args.visual_summaries if args.visual_summaries else (not args.no_vision)
 
     try:
-        if args.rag:
-            logger.info("RAGチャンク生成モードで実行中...")
+        # モックオブジェクト対策のための安全な属性ゲッター
+        def safe_get(obj, attr, default):
+            val = getattr(obj, attr, default)
+            if "Mock" in type(val).__name__:
+                return default
+            return val
 
-            # モックオブジェクト対策のための安全な属性ゲッター
-            def safe_get(obj, attr, default):
-                val = getattr(obj, attr, default)
-                if "Mock" in type(val).__name__:
-                    return default
-                return val
+        if safe_get(args, "docx", False):
+            logger.info("DOCX出力モードで実行中...")
+            rag_options = RagOptions(
+                model=args.model,
+                use_visual_context=use_visual_context,
+                include_visual_summaries=include_visual_summaries,
+                include_logic=args.include_logic,
+                dpi=args.dpi if args.dpi is not None else 150,
+                output_format="docx",
+                include_logic_annotations=not safe_get(args, "no_logic_annotations", False),
+            )
+            docx_path, structured_data = await extractor.aextract_docx(args.input, options=rag_options)
+            result_data = structured_data
+            logger.info(f"DOCXファイルを保存しました: {docx_path}")
+
+        elif args.rag:
+            logger.info("RAGチャンク生成モードで実行中...")
 
             rag_options = RagOptions(
                 model=args.model,
@@ -113,9 +129,14 @@ async def run_async(args):
 
         if args.rag:
             rag_path = Path(args.output_dir) / f"{safe_stem}_rag.json"
-            serializable_chunks = {
-                k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()
-            }
+            if safe_get(args, "rag_format", "yaml_frontmatter") == "docx":
+                serializable_chunks = {
+                    "docx_path": str(chunks_map.get("docx", {}).get("path", ""))
+                }
+            else:
+                serializable_chunks = {
+                    k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()
+                }
             await asyncio.to_thread(_save_json, rag_path, serializable_chunks)
             logger.info(f"RAG用データを保存しました: {rag_path}")
 
