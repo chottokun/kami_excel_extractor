@@ -2,18 +2,20 @@ import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import docx
+
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches
 
 logger = logging.getLogger(__name__)
+
 
 def col_to_num(col_str: str) -> int:
     """Excelの列文字列(A, B, C...)をインデックス(1-indexed)に変換する。"""
     num = 0
     for c in col_str.upper():
-        num = num * 26 + (ord(c) - ord('A') + 1)
+        num = num * 26 + (ord(c) - ord("A") + 1)
     return num
+
 
 def parse_coord(coord_str: str) -> Tuple[int, int]:
     """セル座標文字列(A1, B5...)を (row, col) インデックス(1-indexed)に変換する。"""
@@ -22,6 +24,7 @@ def parse_coord(coord_str: str) -> Tuple[int, int]:
         return (0, 0)
     col_str, row_str = match.groups()
     return int(row_str), col_to_num(col_str)
+
 
 def is_coord_in_range(coord: str, start: str, end: str) -> bool:
     """座標 coord が start から end の範囲内に含まれるか判定する。"""
@@ -57,30 +60,32 @@ class DocxRenderer:
         Dify最適化DOCXファイルを生成する（ハイブリッド構造版）。
         """
         doc = Document()
-        
+
         # 1. ドキュメントタイトル (Heading 1)
         doc.add_heading(source_filename, level=1)
-        
+
         sheets_structured = structured_data.get("sheets", {})
         sheets_raw = raw_data.get("sheets", {})
-        
+
         for sheet_name, sheet_data in sheets_structured.items():
             raw_sheet = sheets_raw.get(sheet_name, {})
             raw_cells = raw_sheet.get("cells", [])
             raw_media = raw_sheet.get("media", [])
-            
+
             # シート見出し
             doc.add_heading(sheet_name, level=1)
-            
+
             # シート全体の概要・説明
             self._add_overview_text(doc, sheet_data)
-            
+
             # 挿入済み画像を追跡するセット
             inserted_media = set()
 
             # 構造化データ（論理テーブルや概要データ）があるか判定
             table_data, _ = self._detect_table_data(sheet_data)
-            has_structured_data = table_data is not None or (isinstance(sheet_data.get("data"), dict) and len(sheet_data["data"]) > 0)
+            has_structured_data = table_data is not None or (
+                isinstance(sheet_data.get("data"), dict) and len(sheet_data["data"]) > 0
+            )
 
             if has_structured_data:
                 # 構造化データが存在する場合は、論理データのみを出力
@@ -89,7 +94,7 @@ class DocxRenderer:
                 # 構造化データがない場合は、原本テーブルをフォールバック出力
                 if raw_cells:
                     self._add_table_with_merges_and_prefixes(doc, raw_cells)
-            
+
             # テーブル外（直後）に関連画像を挿入
             self._add_associated_images_below_table(doc, sheet_data, raw_media, inserted_media, image_width_inches)
 
@@ -102,14 +107,14 @@ class DocxRenderer:
                 filename = media_item.get("filename")
                 if filename and filename not in inserted_media:
                     self._add_image_with_caption(doc, media_item, image_width_inches)
-            
+
             # シートごとのページ区切り
             doc.add_page_break()
 
         # 出力ファイル名の解決
         if not output_name:
             output_name = Path(source_filename).stem
-        
+
         out_path = self.output_dir / f"{output_name}.docx"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         doc.save(out_path)
@@ -126,7 +131,9 @@ class DocxRenderer:
                 doc.add_paragraph(str(sheet_data[key]))
                 break
 
-    def _find_cell_coord(self, raw_cells: List[Dict[str, Any]], value: Any, key_name: Optional[str] = None) -> Optional[str]:
+    def _find_cell_coord(
+        self, raw_cells: List[Dict[str, Any]], value: Any, key_name: Optional[str] = None
+    ) -> Optional[str]:
         """
         値が一致する原本セルを検索し、その座標 (A1等) を返す。
         """
@@ -185,7 +192,7 @@ class DocxRenderer:
         sheet_data: Dict[str, Any],
         raw_cells: List[Dict[str, Any]],
         raw_media: List[Dict[str, Any]],
-        inserted_media: set
+        inserted_media: set,
     ) -> None:
         """
         構造化データ (data) を論理テーブルまたは文章として再構築する。
@@ -195,7 +202,7 @@ class DocxRenderer:
         if table_data:
             # 検出された辞書リストからテーブルを作成
             self._add_structured_table_with_insights(doc, table_data, raw_cells, raw_media, inserted_media)
-            
+
             # テーブルデータ以外の追加の意味データがあれば段落として展開
             # 重複を防ぐため、k != table_key に加え "data" も除外する
             ignored_keys = ["summary", "description", "overview", "analysis", "_raw_data", "raw_data", "data"]
@@ -239,7 +246,7 @@ class DocxRenderer:
         max_col = max(c["col"] for c in cells)
 
         table = doc.add_table(rows=max_row, cols=max_col)
-        table.style = 'Table Grid'
+        table.style = "Table Grid"
 
         # 1. データの充填
         for cell in cells:
@@ -266,13 +273,13 @@ class DocxRenderer:
         for cell in cells:
             colspan = cell.get("colspan", 1)
             rowspan = cell.get("rowspan", 1)
-            
+
             if colspan > 1 or rowspan > 1:
                 r_start = cell["row"] - 1
                 c_start = cell["col"] - 1
                 r_end = r_start + rowspan - 1
                 c_end = c_start + colspan - 1
-                
+
                 try:
                     cell_start = table.cell(r_start, c_start)
                     cell_end = table.cell(r_end, c_end)
@@ -281,7 +288,9 @@ class DocxRenderer:
                 except Exception as e:
                     logger.warning(f"Failed to merge cells from ({r_start},{c_start}) to ({r_end},{c_end}): {e}")
 
-    def _find_associated_media(self, row_data: Dict[str, Any], raw_media: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def _find_associated_media(
+        self, row_data: Dict[str, Any], raw_media: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
         """
         行データに関連する画像を raw_media から見つける。
         """
@@ -293,7 +302,7 @@ class DocxRenderer:
                 m_coord = str(m.get("coord", "")).upper()
                 if m_coord == coord_str:
                     return m
-                
+
         # 2. photo_area などの範囲オブジェクトでの比較
         photo_area = row_data.get("photo_area")
         if isinstance(photo_area, dict):
@@ -326,7 +335,7 @@ class DocxRenderer:
         data_list: List[Dict[str, Any]],
         raw_cells: List[Dict[str, Any]],
         raw_media: List[Dict[str, Any]],
-        inserted_media: set
+        inserted_media: set,
     ) -> None:
         """
         テーブルの最右列に「ビジュアルインサイト」テキストカラムを追加して生成する。
@@ -337,9 +346,11 @@ class DocxRenderer:
             return
 
         headers = list(data_list[0].keys())
-        
+
         # 既存ヘッダーに画像説明系キーがあるかチェックし、なければ「ビジュアルインサイト」列を新規追加
-        has_insight_header = any(h in ["visual_insights", "visual_summary", "image_details", "description"] for h in headers)
+        has_insight_header = any(
+            h in ["visual_insights", "visual_summary", "image_details", "description"] for h in headers
+        )
         new_insight_col_added = False
         if not has_insight_header:
             headers.append("ビジュアルインサイト")
@@ -347,7 +358,7 @@ class DocxRenderer:
 
         # Wordテーブルの生成
         table = doc.add_table(rows=len(data_list) + 1, cols=len(headers))
-        table.style = 'Table Grid'
+        table.style = "Table Grid"
 
         # ヘッダーセルの太字設定
         hdr_cells = table.rows[0].cells
@@ -360,7 +371,7 @@ class DocxRenderer:
         # データ行の設定
         for r_idx, row_data in enumerate(data_list, 1):
             row_cells = table.rows[r_idx].cells
-            
+
             # 代表となる行全体の座標を特定 (coordinate_title を最優先)
             row_coord = row_data.get("coordinate_title") or row_data.get("coordinate") or row_data.get("coord")
             if not row_coord:
@@ -374,10 +385,10 @@ class DocxRenderer:
             for c_idx, header in enumerate(headers):
                 if header == "ビジュアルインサイト" and new_insight_col_added:
                     continue
-                
+
                 val = row_data.get(header)
                 val_str = str(val) if val is not None else ""
-                
+
                 # 座標プレフィックスの自動生成
                 if row_coord:
                     cell_text = f"[{row_coord}] {val_str}"
@@ -411,7 +422,7 @@ class DocxRenderer:
         sheet_data: Dict[str, Any],
         raw_media: List[Dict[str, Any]],
         inserted_media: set,
-        image_width: float
+        image_width: float,
     ) -> None:
         """
         テーブルの直後に、テーブルレコードとの関連を明記したキャプション付きで関連画像を配置する。
@@ -439,7 +450,7 @@ class DocxRenderer:
                 photo_id = row_data.get("id") or row_data.get("photo_no") or r_idx
                 clean_id = str(photo_id).replace("No.", "").replace("NO.", "").strip()
                 title = row_data.get("title") or row_data.get("name") or "画像データ"
-                
+
                 # 表示座標情報の整理
                 coord = row_data.get("coordinate_title") or row_data.get("coordinate") or row_data.get("coord")
                 photo_area = row_data.get("photo_area")
@@ -452,9 +463,9 @@ class DocxRenderer:
                     coord = "A1"
 
                 m_coord = media_item.get("coord", "")
-                
+
                 caption_text = f"【図：No.{clean_id} {title} (表中座標: {coord} / 画像座標: {m_coord})】"
-                doc.add_paragraph(caption_text, style='Caption')
+                doc.add_paragraph(caption_text, style="Caption")
 
                 # 画像挿入
                 try:
@@ -469,7 +480,7 @@ class DocxRenderer:
         原本の計算式情報の注釈をQuoteスタイルで追加する。
         """
         RE_LOGIC_FORMULA = re.compile(r"=(SUM|AVERAGE|AVG|COUNT|MAX|MIN|SUBTOTAL|VLOOKUP|IF|ROUND)\b", re.IGNORECASE)
-        
+
         annotations = []
         for cell in cells:
             formula = cell.get("formula")
@@ -479,10 +490,10 @@ class DocxRenderer:
                     unit = cell.get("unit")
                     unit_str = f"（単位: {unit}）" if unit else ""
                     annotations.append(f"ℹ️ セル {coord} は計算式 `{formula}`{unit_str} から導出された集計値です。")
-        
+
         if annotations:
             for note in annotations:
-                doc.add_paragraph(note, style='Quote')
+                doc.add_paragraph(note, style="Quote")
 
     def _add_image_with_caption(self, doc: Document, media_item: Dict[str, Any], image_width: float) -> None:
         """
@@ -506,7 +517,7 @@ class DocxRenderer:
         else:
             caption_text = f"{summary[:-1]} (座標: {coord})】"
 
-        doc.add_paragraph(caption_text, style='Caption')
+        doc.add_paragraph(caption_text, style="Caption")
 
         try:
             doc.add_picture(str(image_path), width=Inches(image_width))

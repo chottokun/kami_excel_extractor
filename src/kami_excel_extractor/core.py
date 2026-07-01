@@ -20,10 +20,10 @@ import yaml
 
 from .converter import ExcelConverter
 from .document_generator import DocumentGenerator
+from .docx_renderer import DocxRenderer
 from .extractor import MetadataExtractor
 from .jsonl_exporter import JsonlExporter
 from .rag_converter import ContextualChunkGenerator, JsonToMarkdownConverter
-from .docx_renderer import DocxRenderer
 from .schema import ExtractionOptions, ExtractionResult, RagOptions
 from .utils import CacheManager
 
@@ -839,11 +839,8 @@ class KamiExcelExtractor:
 
         return docx_path, structured_data
 
-    def extract_docx(
-        self, excel_path: Union[str, Path], options: Optional[RagOptions] = None
-    ) -> Tuple[Path, Dict]:
+    def extract_docx(self, excel_path: Union[str, Path], options: Optional[RagOptions] = None) -> Tuple[Path, Dict]:
         """
         Excelを解析し、Dify最適化DOCXを生成する (同期)。
         """
         return asyncio.run(self.aextract_docx(excel_path, options=options))
-

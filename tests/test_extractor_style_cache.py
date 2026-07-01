@@ -85,3 +85,69 @@ def test_style_cache_missing_style_id(tmp_path):
     assert len(extractor._style_cache) == 0
     assert len(extractor._unit_cache) == 0
     assert len(extractor._border_cache) == 0
+
+
+def test_bold_cache_integration(tmp_path):
+    """MetadataExtractorのデータ抽出ループで _bold_cache が正しく使われ、太字判定がキャッシュされることをテストする。"""
+    extractor = MetadataExtractor(tmp_path)
+
+    # 実際の一時Excelファイルを作成
+    excel_path = tmp_path / "test_bold.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+
+    ws["A1"] = "Test1"
+    ws["A2"] = "Test2"
+
+    # 太字のフォントを設定（同じスタイルが適用される）
+    font = Font(bold=True)
+    ws["A1"].font = font
+    ws["A2"].font = font
+
+    wb.save(excel_path)
+    wb.close()
+
+    # extractを実行（_generate_metadata_and_html が内部で呼ばれる）
+    wb_loaded = openpyxl.load_workbook(excel_path, data_only=True)
+    ws_loaded = wb_loaded.active
+
+    html_tbl, cell_metadata = extractor._generate_metadata_and_html(ws_loaded)
+
+    # A1 と A2 の style_id が同一であることを確認し、キャッシュに保存されていることを確認
+    style_id_a1 = getattr(ws_loaded["A1"], "style_id", None)
+    style_id_a2 = getattr(ws_loaded["A2"], "style_id", None)
+
+    assert style_id_a1 == style_id_a2
+    assert style_id_a1 in extractor._bold_cache
+    assert extractor._bold_cache[style_id_a1] is True
+    wb_loaded.close()
+
+
+def test_datetime_and_date_preservation(tmp_path):
+    """日付 (date) や日時 (datetime) オブジェクトが HTML 上で isoformat に変換され、デグレードしていないことをテストする。"""
+    from datetime import date, datetime
+
+    extractor = MetadataExtractor(tmp_path)
+
+    excel_path = tmp_path / "test_date.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+
+    test_date = date(2026, 7, 1)
+    test_datetime = datetime(2026, 7, 1, 12, 30, 45)
+
+    ws["A1"] = test_date
+    ws["B1"] = test_datetime
+
+    wb.save(excel_path)
+    wb.close()
+
+    wb_loaded = openpyxl.load_workbook(excel_path, data_only=True)
+    ws_loaded = wb_loaded.active
+
+    html_tbl, cell_metadata = extractor._generate_metadata_and_html(ws_loaded)
+
+    # HTML上に ISO 形式文字列が出現することを確認
+    assert "2026-07-01" in html_tbl
+    assert "2026-07-01T12:30:45" in html_tbl
+    wb_loaded.close()
