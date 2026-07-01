@@ -153,3 +153,36 @@ docker-compose.override.yml
 # Antigravity CLI
 .antigravitycli/
 
+# Temp outputs and scratch files
+output/
+scratch/
+
+# Test output directories
+test_real_data_out/
+test_full_results/
+test_out/
+test_verify_out/
+test_verify_results/
+mega_test_out/
+full_batch_test.log
+container_full_verify.log
+
+# One-off run scripts (not part of the package)
+run_batch_test.py
+run_container_verify.py
+run_exhaustive_test.py
+run_final_verify.py
+run_final_mega_verify.py
+run_test.py
+src/main.py
+src/run_container_verify.py
+
+# LiteLLM config (may contain keys)
+litellm-config.yaml
+
+# IDE / Tool caches
+.antigravitycli/
+
+# Test temporary outputs
+tests/real_data_test_out/
+tests/tmp_result.json
