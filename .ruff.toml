@@ -11,6 +11,6 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/*" = ["F401", "F841"] # Allow unused imports and variables in tests for now
+"tests/*" = ["F401", "F841", "I001"] # Allow unused imports, variables, and un-sorted imports in tests
 "run_*.py" = ["F401", "F841", "E402"]
 "src/run_*.py" = ["E402"]
