@@ -130,9 +130,7 @@ async def run_async(args):
         if args.rag:
             rag_path = Path(args.output_dir) / f"{safe_stem}_rag.json"
             if safe_get(args, "rag_format", "yaml_frontmatter") == "docx":
-                serializable_chunks = {
-                    "docx_path": str(chunks_map.get("docx", {}).get("path", ""))
-                }
+                serializable_chunks = {"docx_path": str(chunks_map.get("docx", {}).get("path", ""))}
             else:
                 serializable_chunks = {
                     k: {"chunks_count": len(v["chunks"]), "markdown": v["markdown"]} for k, v in chunks_map.items()
