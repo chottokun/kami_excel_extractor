@@ -15,6 +15,7 @@ _FILENAME_MULTIPLE_DOTS_RE = re.compile(r"\.\.+")
 _CLEAN_KAMI_TEXT_RE = re.compile(
     r"([\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])\s{1,3}(?=[\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff])"
 )
+_JAPANESE_CHARS_PATTERN = re.compile(r"[\u3000\u4e00-\u9faf\u3040-\u309f\u30a0-\u30ff]")
 
 
 def clean_kami_text(text: Any) -> Any:
@@ -25,6 +26,13 @@ def clean_kami_text(text: Any) -> Any:
     """
     if not isinstance(text, str):
         return text
+
+    if not text:
+        return ""
+
+    # ⚡ Performance: Fast-path for non-Japanese text to avoid regex overhead
+    if text.isascii() or not _JAPANESE_CHARS_PATTERN.search(text):
+        return text.strip()
 
     # 全角スペースを半角に
     text = text.replace("\u3000", " ")
