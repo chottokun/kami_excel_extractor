@@ -495,6 +495,8 @@ class MetadataExtractor:
                 if span == "skip":
                     continue
 
+                # ⚡ Performance: Pre-calculate common properties once to avoid redundant work
+                style_id = getattr(cell, "style_id", None)
                 formula = cell_f.value if cell_f else None
                 style_str = self._get_cell_style_string(cell)
                 unit = self._get_unit_info(cell)
@@ -507,7 +509,6 @@ class MetadataExtractor:
                     else ""
                 )
 
-                style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
                 if bold is None:
                     bold = bool(cell.font.b if cell.font else False)
@@ -533,7 +534,7 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell, span, style_str=style_str, unit=unit or "", clean_val=clean_val, formula=formula
                 )
                 current_row_html.append(td_html)
 
