@@ -17,6 +17,15 @@ from .utils import clean_kami_text, secure_filename
 
 logger = logging.getLogger(__name__)
 
+# ⚡ Performance: Pre-defined style mapping to avoid dict recreation
+BORDER_STYLE_MAP = {
+    "medium": "2px solid",
+    "thick": "3px solid",
+    "thin": "1px solid",
+    "dashed": "1px dashed",
+    "dotted": "1px dotted",
+}
+
 # セキュリティ設定: 画像の最大ピクセル数と最大バイト数
 MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
@@ -48,6 +57,7 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._italic_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -106,16 +116,9 @@ class MetadataExtractor:
 
         # 罫線情報をCSSのborder属性に近似
         border_info = self._get_border_info(cell)
-        style_map = {
-            "medium": "2px solid",
-            "thick": "3px solid",
-            "thin": "1px solid",
-            "dashed": "1px dashed",
-            "dotted": "1px dotted",
-        }
 
         for side, style in border_info.items():
-            css_style = style_map.get(style, "1px solid")
+            css_style = BORDER_STYLE_MAP.get(style, "1px solid")
             styles.append(f"border-{side}: {css_style} black")
 
         # フォントウェイト
@@ -127,7 +130,13 @@ class MetadataExtractor:
                     self._bold_cache[style_id] = bold
             if bold:
                 styles.append("font-weight: bold")
-            if cell.font.i:
+
+            italic = self._italic_cache.get(style_id)
+            if italic is None:
+                italic = bool(cell.font.i)
+                if style_id is not None:
+                    self._italic_cache[style_id] = italic
+            if italic:
                 styles.append("font-style: italic")
 
         result = "; ".join(styles)
@@ -327,6 +336,7 @@ class MetadataExtractor:
         unit: Optional[str] = None,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -342,7 +352,10 @@ class MetadataExtractor:
                 else ""
             )
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        if coord is None:
+            coord = cell.coordinate
+
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -514,9 +527,17 @@ class MetadataExtractor:
                     if style_id is not None:
                         self._bold_cache[style_id] = bold
 
+                italic = self._italic_cache.get(style_id)
+                if italic is None:
+                    italic = bool(cell.font.i if cell.font else False)
+                    if style_id is not None:
+                        self._italic_cache[style_id] = italic
+
+                coord = cell.coordinate
+
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
@@ -525,6 +546,7 @@ class MetadataExtractor:
                     "style": {
                         "borders": self._get_border_info(cell),
                         "bold": bold,
+                        "italic": italic,
                     },
                 }
                 if isinstance(span, dict):
@@ -533,7 +555,13 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell,
+                    span,
+                    style_str=style_str,
+                    unit=unit,
+                    clean_val=clean_val,
+                    formula=formula,
+                    coord=coord,
                 )
                 current_row_html.append(td_html)
 

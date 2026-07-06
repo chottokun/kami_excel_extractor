@@ -26,6 +26,13 @@ def clean_kami_text(text: Any) -> Any:
     if not isinstance(text, str):
         return text
 
+    if not text:
+        return ""
+
+    # ⚡ Performance: Fast-path for ASCII text (English, Numbers, etc.)
+    if text.isascii():
+        return text.strip()
+
     # 全角スペースを半角に
     text = text.replace("\u3000", " ")
 
