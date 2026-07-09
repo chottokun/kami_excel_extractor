@@ -17,6 +17,15 @@ from .utils import clean_kami_text, secure_filename
 
 logger = logging.getLogger(__name__)
 
+# ⚡ Performance: Pre-defined map for border styles to avoid dictionary recreation in loops
+BORDER_STYLE_MAP = {
+    "medium": "2px solid",
+    "thick": "3px solid",
+    "thin": "1px solid",
+    "dashed": "1px dashed",
+    "dotted": "1px dotted",
+}
+
 # セキュリティ設定: 画像の最大ピクセル数と最大バイト数
 MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
@@ -48,6 +57,7 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._italic_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -106,19 +116,12 @@ class MetadataExtractor:
 
         # 罫線情報をCSSのborder属性に近似
         border_info = self._get_border_info(cell)
-        style_map = {
-            "medium": "2px solid",
-            "thick": "3px solid",
-            "thin": "1px solid",
-            "dashed": "1px dashed",
-            "dotted": "1px dotted",
-        }
 
         for side, style in border_info.items():
-            css_style = style_map.get(style, "1px solid")
+            css_style = BORDER_STYLE_MAP.get(style, "1px solid")
             styles.append(f"border-{side}: {css_style} black")
 
-        # フォントウェイト
+        # フォントスタイル
         if cell.font:
             bold = self._bold_cache.get(style_id)
             if bold is None:
@@ -127,7 +130,13 @@ class MetadataExtractor:
                     self._bold_cache[style_id] = bold
             if bold:
                 styles.append("font-weight: bold")
-            if cell.font.i:
+
+            italic = self._italic_cache.get(style_id)
+            if italic is None:
+                italic = bool(cell.font.i)
+                if style_id is not None:
+                    self._italic_cache[style_id] = italic
+            if italic:
                 styles.append("font-style: italic")
 
         result = "; ".join(styles)
@@ -514,6 +523,12 @@ class MetadataExtractor:
                     if style_id is not None:
                         self._bold_cache[style_id] = bold
 
+                italic = self._italic_cache.get(style_id)
+                if italic is None:
+                    italic = bool(cell.font.i if cell.font else False)
+                    if style_id is not None:
+                        self._italic_cache[style_id] = italic
+
                 # メタデータの構築
                 cell_info = {
                     "coord": cell.coordinate,
@@ -525,6 +540,7 @@ class MetadataExtractor:
                     "style": {
                         "borders": self._get_border_info(cell),
                         "bold": bold,
+                        "italic": italic,
                     },
                 }
                 if isinstance(span, dict):

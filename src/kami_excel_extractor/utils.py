@@ -22,9 +22,18 @@ def clean_kami_text(text: Any) -> Any:
     Excel内のテキストをクリーニングする。
     - 全角スペースを半角スペースに正規化
     - 漢字・ひらがな・カタカナの間に挟まった不自然な空白(1-3個)を削除 (例: "氏  名" -> "氏名")
+    ⚡ Performance: Optimized fast-path for ASCII text to bypass regex.
     """
     if not isinstance(text, str):
         return text
+
+    if not text:
+        return ""
+
+    # ASCII文字のみの場合は、日本語特有のクリーニング（空白除去）が不要なため、
+    # 高速なisascii()を使用して正規表現処理をバイパスする。
+    if text.isascii():
+        return text.strip()
 
     # 全角スペースを半角に
     text = text.replace("\u3000", " ")
