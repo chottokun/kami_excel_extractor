@@ -49,18 +49,21 @@ class MetadataExtractor:
         self._border_cache = {}
         self._bold_cache = {}
 
-    def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
+    def _get_border_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Dict[str, str]:
         """
         セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 事前に取得されたセルのスタイルID（省略可能）。
 
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
+
         if style_id is not None and style_id in self._border_cache:
             return self._border_cache[style_id]
 
@@ -76,7 +79,7 @@ class MetadataExtractor:
             self._border_cache[style_id] = borders
         return borders
 
-    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+    def _get_cell_style_string(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
         ⚡ Performance: Uses caching via cell.style_id.
@@ -85,11 +88,14 @@ class MetadataExtractor:
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 事前に取得されたセルのスタイルID（省略可能）。
 
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
+
         if style_id is not None and style_id in self._style_cache:
             return self._style_cache[style_id]
 
@@ -105,7 +111,7 @@ class MetadataExtractor:
                     styles.append(f"background-color: #{c_idx}")
 
         # 罫線情報をCSSのborder属性に近似
-        border_info = self._get_border_info(cell)
+        border_info = self._get_border_info(cell, style_id=style_id)
         style_map = {
             "medium": "2px solid",
             "thick": "3px solid",
@@ -135,18 +141,21 @@ class MetadataExtractor:
             self._style_cache[style_id] = result
         return result
 
-    def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
+    def _get_unit_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Optional[str]:
         """
         セルの表示形式(Number Format)からデータの単位や型を推測する。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 事前に取得されたセルのスタイルID（省略可能）。
 
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
+
         if style_id is not None and style_id in self._unit_cache:
             return self._unit_cache[style_id]
 
@@ -327,6 +336,7 @@ class MetadataExtractor:
         unit: Optional[str] = None,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -342,7 +352,10 @@ class MetadataExtractor:
                 else ""
             )
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        if coord is None:
+            coord = cell.coordinate
+
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -357,6 +370,9 @@ class MetadataExtractor:
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
+        # unit can be None, but if we want to avoid redundant calls,
+        # we should pass it as an empty string if it's already been calculated as None.
+        # Here we assume if unit is None, it hasn't been calculated.
         if unit is None:
             unit = self._get_unit_info(cell)
         if unit:
@@ -495,9 +511,11 @@ class MetadataExtractor:
                 if span == "skip":
                     continue
 
+                style_id = getattr(cell, "style_id", None)
+                coord = cell.coordinate
                 formula = cell_f.value if cell_f else None
-                style_str = self._get_cell_style_string(cell)
-                unit = self._get_unit_info(cell)
+                style_str = self._get_cell_style_string(cell, style_id=style_id)
+                unit = self._get_unit_info(cell, style_id=style_id)
                 val = cell.value
                 clean_val = (
                     val.isoformat()
@@ -507,7 +525,6 @@ class MetadataExtractor:
                     else ""
                 )
 
-                style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
                 if bold is None:
                     bold = bool(cell.font.b if cell.font else False)
@@ -516,14 +533,14 @@ class MetadataExtractor:
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
                     "unit": unit,
                     "style": {
-                        "borders": self._get_border_info(cell),
+                        "borders": self._get_border_info(cell, style_id=style_id),
                         "bold": bold,
                     },
                 }
@@ -533,7 +550,13 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell,
+                    span,
+                    style_str=style_str,
+                    unit=unit or "",  # Pass empty string if None to avoid redundant calls
+                    clean_val=clean_val,
+                    formula=formula,
+                    coord=coord,
                 )
                 current_row_html.append(td_html)
 
