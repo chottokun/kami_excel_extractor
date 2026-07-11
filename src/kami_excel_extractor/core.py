@@ -552,6 +552,24 @@ class KamiExcelExtractor:
 
         # 1. バリデーションと基本解析
         await self._validate_file_size(excel_path, opts.max_file_size_mb)
+
+        # ------------------- Heuristic Mode -------------------
+        if model == "heuristic":
+            logger.info("Using 100% LLM-free heuristic parser.")
+            from .heuristic_parser import HeuristicExcelParser
+            import openpyxl
+            wb = await asyncio.to_thread(openpyxl.load_workbook, excel_path, data_only=True)
+            parser = HeuristicExcelParser()
+            structured_sheets = {}
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                parsed_data = await asyncio.to_thread(parser.parse_worksheet, ws)
+                structured_sheets[sheet_name] = parsed_data
+
+            final_data = {"sheets": structured_sheets}
+            return self._make_json_serializable(final_data)
+        # ------------------------------------------------------
+
         logger.info(f"Starting extraction for {excel_path.name} (Logic: {opts.include_logic})")
         raw_data = await self._get_raw_extraction_results(
             excel_path, include_logic=opts.include_logic, use_cache=opts.use_cache
