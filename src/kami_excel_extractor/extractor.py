@@ -48,6 +48,7 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._italic_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -127,7 +128,13 @@ class MetadataExtractor:
                     self._bold_cache[style_id] = bold
             if bold:
                 styles.append("font-weight: bold")
-            if cell.font.i:
+
+            italic = self._italic_cache.get(style_id)
+            if italic is None:
+                italic = bool(cell.font.i)
+                if style_id is not None:
+                    self._italic_cache[style_id] = italic
+            if italic:
                 styles.append("font-style: italic")
 
         result = "; ".join(styles)
@@ -513,6 +520,12 @@ class MetadataExtractor:
                     bold = bool(cell.font.b if cell.font else False)
                     if style_id is not None:
                         self._bold_cache[style_id] = bold
+
+                italic = self._italic_cache.get(style_id)
+                if italic is None:
+                    italic = bool(cell.font.i if cell.font else False)
+                    if style_id is not None:
+                        self._italic_cache[style_id] = italic
 
                 # メタデータの構築
                 cell_info = {
