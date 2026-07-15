@@ -22,6 +22,15 @@ MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
+# ⚡ Performance: Constant map for border styles to avoid recreation in loop
+BORDER_STYLE_MAP = {
+    "medium": "2px solid",
+    "thick": "3px solid",
+    "thin": "1px solid",
+    "dashed": "1px dashed",
+    "dotted": "1px dotted",
+}
+
 
 class MetadataExtractor:
     """
@@ -48,19 +57,22 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._italic_cache = {}
 
-    def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
+    def _get_border_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Dict[str, str]:
         """
         セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 既知のstyle_idがあれば指定（最適化用）。
 
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._border_cache:
             return self._border_cache[style_id]
 
@@ -76,7 +88,7 @@ class MetadataExtractor:
             self._border_cache[style_id] = borders
         return borders
 
-    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+    def _get_cell_style_string(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
         ⚡ Performance: Uses caching via cell.style_id.
@@ -85,11 +97,13 @@ class MetadataExtractor:
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 既知のstyle_idがあれば指定（最適化用）。
 
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._style_cache:
             return self._style_cache[style_id]
 
@@ -105,48 +119,49 @@ class MetadataExtractor:
                     styles.append(f"background-color: #{c_idx}")
 
         # 罫線情報をCSSのborder属性に近似
-        border_info = self._get_border_info(cell)
-        style_map = {
-            "medium": "2px solid",
-            "thick": "3px solid",
-            "thin": "1px solid",
-            "dashed": "1px dashed",
-            "dotted": "1px dotted",
-        }
+        border_info = self._get_border_info(cell, style_id=style_id)
 
         for side, style in border_info.items():
-            css_style = style_map.get(style, "1px solid")
+            css_style = BORDER_STYLE_MAP.get(style, "1px solid")
             styles.append(f"border-{side}: {css_style} black")
 
         # フォントウェイト
-        if cell.font:
-            bold = self._bold_cache.get(style_id)
-            if bold is None:
-                bold = bool(cell.font.b)
-                if style_id is not None:
-                    self._bold_cache[style_id] = bold
-            if bold:
-                styles.append("font-weight: bold")
-            if cell.font.i:
-                styles.append("font-style: italic")
+        bold = self._bold_cache.get(style_id)
+        if bold is None:
+            bold = bool(cell.font.b if cell.font else False)
+            if style_id is not None:
+                self._bold_cache[style_id] = bold
+        if bold:
+            styles.append("font-weight: bold")
+
+        # イタリック
+        italic = self._italic_cache.get(style_id)
+        if italic is None:
+            italic = bool(cell.font.i if cell.font else False)
+            if style_id is not None:
+                self._italic_cache[style_id] = italic
+        if italic:
+            styles.append("font-style: italic")
 
         result = "; ".join(styles)
         if style_id is not None:
             self._style_cache[style_id] = result
         return result
 
-    def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
+    def _get_unit_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Optional[str]:
         """
         セルの表示形式(Number Format)からデータの単位や型を推測する。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 既知のstyle_idがあれば指定（最適化用）。
 
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._unit_cache:
             return self._unit_cache[style_id]
 
@@ -327,6 +342,7 @@ class MetadataExtractor:
         unit: Optional[str] = None,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -342,7 +358,10 @@ class MetadataExtractor:
                 else ""
             )
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        if coord is None:
+            coord = cell.coordinate
+
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -482,6 +501,9 @@ class MetadataExtractor:
             ws_formula.iter_rows(min_row=min_r, max_row=max_r, min_col=min_c, max_col=max_c) if ws_formula else None
         )
 
+        # ⚡ Performance: Cache for column letters to avoid redundant get_column_letter() calls
+        col_letter_map = {c: get_column_letter(c) for c in range(min_c, max_c + 1)}
+
         for r_idx, row in enumerate(rows_gen, min_r):
             row_f = next(rows_f_gen) if rows_f_gen else None
             row_html = ["  <tr>"]
@@ -495,10 +517,16 @@ class MetadataExtractor:
                 if span == "skip":
                     continue
 
+                style_id = getattr(cell, "style_id", None)
+                coord = f"{col_letter_map[c_idx]}{r_idx}"
+
                 formula = cell_f.value if cell_f else None
-                style_str = self._get_cell_style_string(cell)
-                unit = self._get_unit_info(cell)
+                # ⚡ Performance: These methods already handle bold/italic caching internally
+                style_str = self._get_cell_style_string(cell, style_id=style_id)
+                unit = self._get_unit_info(cell, style_id=style_id)
                 val = cell.value
+
+                # ⚡ Performance: Explicitly skip cleaning for dates to avoid unnecessary string processing
                 clean_val = (
                     val.isoformat()
                     if isinstance(val, (date, datetime))
@@ -507,23 +535,19 @@ class MetadataExtractor:
                     else ""
                 )
 
-                style_id = getattr(cell, "style_id", None)
-                bold = self._bold_cache.get(style_id)
-                if bold is None:
-                    bold = bool(cell.font.b if cell.font else False)
-                    if style_id is not None:
-                        self._bold_cache[style_id] = bold
+                # Get cached bold status (already filled by _get_cell_style_string)
+                bold = self._bold_cache.get(style_id, False)
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
                     "unit": unit,
                     "style": {
-                        "borders": self._get_border_info(cell),
+                        "borders": self._get_border_info(cell, style_id=style_id),
                         "bold": bold,
                     },
                 }
@@ -533,7 +557,7 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula, coord=coord
                 )
                 current_row_html.append(td_html)
 
