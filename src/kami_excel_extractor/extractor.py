@@ -418,28 +418,46 @@ class MetadataExtractor:
         max_r, max_c = 0, 0
 
         # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-            row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
+        # ⚡ Performance: Use direct ws._cells lookup to avoid iterating over empty cells.
+        # Fallback to iter_rows if _cells is not available (e.g. read_only mode).
+        if hasattr(ws, "_cells") and isinstance(ws._cells, dict):
+            for (r_idx, c_idx), cell in ws._cells.items():
+                if cell.value is not None:
                     if c_idx > max_c:
                         max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
-
-        # フォームラがある範囲も含める
-        if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
+                    if r_idx > max_r:
+                        max_r = r_idx
+        else:
+            for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
                 row_has_data = False
                 for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
+                    if value is not None:
                         row_has_data = True
                         if c_idx > max_c:
                             max_c = c_idx
                 if row_has_data:
                     max_r = max(max_r, r_idx)
+
+        # フォームラがある範囲も含める
+        if ws_formula:
+            if hasattr(ws_formula, "_cells") and isinstance(ws_formula._cells, dict):
+                for (r_idx, c_idx), cell in ws_formula._cells.items():
+                    val = cell.value
+                    if val is not None and str(val).startswith("="):
+                        if c_idx > max_c:
+                            max_c = c_idx
+                        if r_idx > max_r:
+                            max_r = r_idx
+            else:
+                for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
+                    row_has_data = False
+                    for c_idx, value in enumerate(row, 1):
+                        if value is not None and str(value).startswith("="):
+                            row_has_data = True
+                            if c_idx > max_c:
+                                max_c = c_idx
+                    if row_has_data:
+                        max_r = max(max_r, r_idx)
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
