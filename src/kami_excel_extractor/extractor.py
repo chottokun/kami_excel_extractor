@@ -334,13 +334,14 @@ class MetadataExtractor:
         """
         if clean_val is None:
             val = cell.value
-            clean_val = (
-                val.isoformat()
-                if isinstance(val, (date, datetime))
-                else str(clean_kami_text(val))
-                if val is not None
-                else ""
-            )
+            if val is None:
+                clean_val = ""
+            elif isinstance(val, (date, datetime)):
+                clean_val = val.isoformat()
+            elif isinstance(val, str):
+                clean_val = clean_kami_text(val)
+            else:
+                clean_val = str(val)
 
         attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
@@ -418,28 +419,51 @@ class MetadataExtractor:
         max_r, max_c = 0, 0
 
         # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-            row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
-                    if c_idx > max_c:
-                        max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
+        # ⚡ Performance: Directly iterate over ws._cells dictionary keys to avoid O(R*C) grid scans
+        use_fallback = True
+        if hasattr(ws, "_cells") and isinstance(ws._cells, dict):
+            use_fallback = False
+            for (r, c), cell in ws._cells.items():
+                if cell.value is not None:
+                    if r > max_r:
+                        max_r = r
+                    if c > max_c:
+                        max_c = c
 
-        # フォームラがある範囲も含める
-        if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
+        if use_fallback:
+            for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
                 row_has_data = False
                 for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
+                    if value is not None:
                         row_has_data = True
                         if c_idx > max_c:
                             max_c = c_idx
                 if row_has_data:
                     max_r = max(max_r, r_idx)
+
+        # フォームラがある範囲も含める
+        if ws_formula:
+            use_formula_fallback = True
+            if hasattr(ws_formula, "_cells") and isinstance(ws_formula._cells, dict):
+                use_formula_fallback = False
+                for (r, c), cell in ws_formula._cells.items():
+                    val = cell.value
+                    if val is not None and str(val).startswith("="):
+                        if r > max_r:
+                            max_r = r
+                        if c > max_c:
+                            max_c = c
+
+            if use_formula_fallback:
+                for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
+                    row_has_data = False
+                    for c_idx, value in enumerate(row, 1):
+                        if value is not None and str(value).startswith("="):
+                            row_has_data = True
+                            if c_idx > max_c:
+                                max_c = c_idx
+                    if row_has_data:
+                        max_r = max(max_r, r_idx)
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
@@ -499,13 +523,14 @@ class MetadataExtractor:
                 style_str = self._get_cell_style_string(cell)
                 unit = self._get_unit_info(cell)
                 val = cell.value
-                clean_val = (
-                    val.isoformat()
-                    if isinstance(val, (date, datetime))
-                    else str(clean_kami_text(val))
-                    if val is not None
-                    else ""
-                )
+                if val is None:
+                    clean_val = ""
+                elif isinstance(val, (date, datetime)):
+                    clean_val = val.isoformat()
+                elif isinstance(val, str):
+                    clean_val = clean_kami_text(val)
+                else:
+                    clean_val = str(val)
 
                 style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
