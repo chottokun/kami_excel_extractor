@@ -17,6 +17,9 @@ from .utils import clean_kami_text, secure_filename
 
 logger = logging.getLogger(__name__)
 
+# ⚡ Performance: Unique sentinel to avoid redundant default argument checks (e.g. unit calculation)
+_UNSPECIFIED = object()
+
 # セキュリティ設定: 画像の最大ピクセル数と最大バイト数
 MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
@@ -324,7 +327,7 @@ class MetadataExtractor:
         cell: openpyxl.cell.Cell,
         span_info: Union[str, Dict],
         style_str: Optional[str] = None,
-        unit: Optional[str] = None,
+        unit: Any = _UNSPECIFIED,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
     ) -> str:
@@ -357,7 +360,9 @@ class MetadataExtractor:
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        if unit is None:
+        # ⚡ Performance: If unit was not specified, retrieve/compute it.
+        # This avoids redundant _get_unit_info() calls when pre-computed unit is None.
+        if unit is _UNSPECIFIED:
             unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
