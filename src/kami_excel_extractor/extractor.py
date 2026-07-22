@@ -48,6 +48,8 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        # ⚡ Performance: Cache for HTML-escaped representations to avoid redundant html.escape calls
+        self._html_escape_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -327,6 +329,7 @@ class MetadataExtractor:
         unit: Optional[str] = None,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -334,15 +337,20 @@ class MetadataExtractor:
         """
         if clean_val is None:
             val = cell.value
-            clean_val = (
-                val.isoformat()
-                if isinstance(val, (date, datetime))
-                else str(clean_kami_text(val))
-                if val is not None
-                else ""
-            )
+            if isinstance(val, (date, datetime)):
+                clean_val = val.isoformat()
+            elif isinstance(val, str):
+                clean_val = str(clean_kami_text(val))
+            elif val is not None:
+                # ⚡ Performance: skip clean_kami_text for non-string, non-date types (e.g. int, float, bool)
+                clean_val = str(val)
+            else:
+                clean_val = ""
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        if coord is None:
+            coord = cell.coordinate
+
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -363,7 +371,14 @@ class MetadataExtractor:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(clean_val).replace("\n", "<br>")
+
+        # ⚡ Performance: Cache HTML escape results for clean_val
+        if clean_val in self._html_escape_cache:
+            safe_val = self._html_escape_cache[clean_val]
+        else:
+            safe_val = html.escape(clean_val).replace("\n", "<br>")
+            self._html_escape_cache[clean_val] = safe_val
+
         return f"<td{attr_str}>{safe_val}</td>"
 
     def is_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
@@ -498,14 +513,19 @@ class MetadataExtractor:
                 formula = cell_f.value if cell_f else None
                 style_str = self._get_cell_style_string(cell)
                 unit = self._get_unit_info(cell)
+
+                # ⚡ Performance: Cache coordinates and values once per cell
+                coord = cell.coordinate
                 val = cell.value
-                clean_val = (
-                    val.isoformat()
-                    if isinstance(val, (date, datetime))
-                    else str(clean_kami_text(val))
-                    if val is not None
-                    else ""
-                )
+                if isinstance(val, (date, datetime)):
+                    clean_val = val.isoformat()
+                elif isinstance(val, str):
+                    clean_val = str(clean_kami_text(val))
+                elif val is not None:
+                    # ⚡ Performance: skip clean_kami_text for non-string, non-date types (e.g. int, float, bool)
+                    clean_val = str(val)
+                else:
+                    clean_val = ""
 
                 style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
@@ -516,7 +536,7 @@ class MetadataExtractor:
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
@@ -533,7 +553,7 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula, coord=coord
                 )
                 current_row_html.append(td_html)
 
