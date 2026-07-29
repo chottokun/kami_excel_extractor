@@ -22,6 +22,9 @@ MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
+# ⚡ Performance: Custom sentinel object to identify unspecified parameters (e.g. unit)
+_UNSPECIFIED = object()
+
 
 class MetadataExtractor:
     """
@@ -48,6 +51,7 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._html_escape_cache = {}
 
     def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
         """
@@ -324,14 +328,18 @@ class MetadataExtractor:
         cell: openpyxl.cell.Cell,
         span_info: Union[str, Dict],
         style_str: Optional[str] = None,
-        unit: Optional[str] = None,
+        unit: Optional[str] = _UNSPECIFIED,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         ⚡ Performance: Accepts pre-calculated values to avoid redundant work.
         """
+        if coord is None:
+            coord = cell.coordinate
+
         if clean_val is None:
             val = cell.value
             clean_val = (
@@ -342,7 +350,7 @@ class MetadataExtractor:
                 else ""
             )
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -357,13 +365,20 @@ class MetadataExtractor:
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        if unit is None:
+        # ⚡ Performance: Using _UNSPECIFIED sentinel to skip redundant recalculations when unit is None
+        if unit is _UNSPECIFIED:
             unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(clean_val).replace("\n", "<br>")
+
+        # ⚡ Performance: Caching HTML-escaped clean values to bypass expensive string operations
+        try:
+            safe_val = self._html_escape_cache[clean_val]
+        except KeyError:
+            safe_val = self._html_escape_cache[clean_val] = html.escape(clean_val).replace("\n", "<br>")
+
         return f"<td{attr_str}>{safe_val}</td>"
 
     def is_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
@@ -514,9 +529,12 @@ class MetadataExtractor:
                     if style_id is not None:
                         self._bold_cache[style_id] = bold
 
+                # ⚡ Performance: Pre-fetch and reuse cell coordinate to avoid redundant property lookups
+                coord = cell.coordinate
+
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
@@ -533,7 +551,7 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula, coord=coord
                 )
                 current_row_html.append(td_html)
 
