@@ -334,13 +334,15 @@ class MetadataExtractor:
         """
         if clean_val is None:
             val = cell.value
-            clean_val = (
-                val.isoformat()
-                if isinstance(val, (date, datetime))
-                else str(clean_kami_text(val))
-                if val is not None
-                else ""
-            )
+            # ⚡ Performance: Avoid clean_kami_text overhead for non-string values
+            if isinstance(val, (date, datetime)):
+                clean_val = val.isoformat()
+            elif val is None:
+                clean_val = ""
+            elif not isinstance(val, str):
+                clean_val = str(val)
+            else:
+                clean_val = str(clean_kami_text(val))
 
         attrs = [f'data-coord="{cell.coordinate}"']
         if isinstance(span_info, dict):
@@ -499,13 +501,15 @@ class MetadataExtractor:
                 style_str = self._get_cell_style_string(cell)
                 unit = self._get_unit_info(cell)
                 val = cell.value
-                clean_val = (
-                    val.isoformat()
-                    if isinstance(val, (date, datetime))
-                    else str(clean_kami_text(val))
-                    if val is not None
-                    else ""
-                )
+                # ⚡ Performance: Avoid clean_kami_text overhead for non-string values
+                if isinstance(val, (date, datetime)):
+                    clean_val = val.isoformat()
+                elif val is None:
+                    clean_val = ""
+                elif not isinstance(val, str):
+                    clean_val = str(val)
+                else:
+                    clean_val = str(clean_kami_text(val))
 
                 style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
