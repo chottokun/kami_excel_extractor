@@ -26,6 +26,11 @@ def clean_kami_text(text: Any) -> Any:
     if not isinstance(text, str):
         return text
 
+    # ⚡ Performance: Fast-path bypass for pure ASCII/English strings, numbers, dates or IDs.
+    # Since they cannot contain full-width spaces or Japanese characters, we can strip them directly.
+    if text.isascii():
+        return text.strip()
+
     # 全角スペースを半角に
     text = text.replace("\u3000", " ")
 
