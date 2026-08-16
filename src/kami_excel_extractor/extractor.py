@@ -418,28 +418,29 @@ class MetadataExtractor:
         max_r, max_c = 0, 0
 
         # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+        # ⚡ Performance: Combine value and formula row iterations into a single pass and scan right-to-left
+        rows_val = ws.iter_rows(values_only=True)
+        if ws_formula:
+            rows_f = ws_formula.iter_rows(values_only=True)
+            row_pairs = zip(rows_val, rows_f)
+        else:
+            row_pairs = ((r, None) for r in rows_val)
+
+        for r_idx, (row_v, row_f) in enumerate(row_pairs, 1):
+            num_cols = len(row_v)
             row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
+            for c_offset in range(num_cols - 1, -1, -1):
+                val = row_v[c_offset]
+                has_val = val is not None
+                has_f = row_f is not None and row_f[c_offset] is not None and str(row_f[c_offset]).startswith("=")
+                if has_val or has_f:
+                    c_idx = c_offset + 1
                     if c_idx > max_c:
                         max_c = c_idx
+                    row_has_data = True
+                    break  # Early exit: found rightmost non-empty cell in this row
             if row_has_data:
                 max_r = max(max_r, r_idx)
-
-        # フォームラがある範囲も含める
-        if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
-                row_has_data = False
-                for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
-                        row_has_data = True
-                        if c_idx > max_c:
-                            max_c = c_idx
-                if row_has_data:
-                    max_r = max(max_r, r_idx)
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
