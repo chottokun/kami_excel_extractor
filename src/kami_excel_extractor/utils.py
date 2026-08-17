@@ -26,8 +26,13 @@ def clean_kami_text(text: Any) -> Any:
     if not isinstance(text, str):
         return text
 
+    # ⚡ Performance: Fast path for ASCII strings (bypasses Japanese regex & fullwidth space checks)
+    if text.isascii():
+        return text.strip()
+
     # 全角スペースを半角に
-    text = text.replace("\u3000", " ")
+    if "\u3000" in text:
+        text = text.replace("\u3000", " ")
 
     # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
     res = _CLEAN_KAMI_TEXT_RE.sub(r"\1", text)
