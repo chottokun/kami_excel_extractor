@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import re
 import sqlite3
@@ -17,22 +18,31 @@ _CLEAN_KAMI_TEXT_RE = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=16384)
+def _clean_kami_text_cached(text: str) -> str:
+    """⚡ Performance: Cached helper for non-ASCII string cleaning."""
+    # 全角スペースを半角に
+    text = text.replace("\u3000", " ")
+    # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
+    res = _CLEAN_KAMI_TEXT_RE.sub(r"\1", text)
+    return res.strip()
+
+
 def clean_kami_text(text: Any) -> Any:
     """
     Excel内のテキストをクリーニングする。
     - 全角スペースを半角スペースに正規化
     - 漢字・ひらがな・カタカナの間に挟まった不自然な空白(1-3個)を削除 (例: "氏  名" -> "氏名")
+    ⚡ Performance: Fast-path for ASCII strings and LRU caching for non-ASCII text.
     """
     if not isinstance(text, str):
         return text
 
-    # 全角スペースを半角に
-    text = text.replace("\u3000", " ")
+    # ⚡ Fast path: ASCII strings cannot contain \u3000 or Japanese characters
+    if text.isascii():
+        return text.strip()
 
-    # 漢字・ひらがな・カタカナの間に挟まった1〜3つの空白を削除
-    res = _CLEAN_KAMI_TEXT_RE.sub(r"\1", text)
-
-    return res.strip()
+    return _clean_kami_text_cached(text)
 
 
 def secure_filename(filename: str) -> str:
