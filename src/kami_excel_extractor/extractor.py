@@ -6,6 +6,7 @@ import html
 import io
 import logging
 from datetime import date, datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -414,30 +415,41 @@ class MetadataExtractor:
     ) -> Tuple[int, int, int, int]:
         """
         データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
+        ⚡ Performance: Reverse scans each row to locate rightmost data cell early and combines
+        ws and ws_formula iterations into a single pass when ws_formula is provided.
         """
         max_r, max_c = 0, 0
 
-        # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-            row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
-                    if c_idx > max_c:
-                        max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
-
-        # フォームラがある範囲も含める
+        # ⚡ Performance: Single pass over ws (and ws_formula if provided)
         if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
+            rows_iter = ws.iter_rows(values_only=True)
+            rows_f_iter = ws_formula.iter_rows(values_only=True)
+            for r_idx, (row, row_f) in enumerate(zip_longest(rows_iter, rows_f_iter, fillvalue=()), 1):
                 row_has_data = False
-                for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
+                n_cells = len(row)
+                n_cells_f = len(row_f)
+                max_len = max(n_cells, n_cells_f)
+                for c_idx in range(max_len - 1, -1, -1):
+                    val = row[c_idx] if c_idx < n_cells else None
+                    val_f = row_f[c_idx] if c_idx < n_cells_f else None
+                    if val is not None or (val_f is not None and str(val_f).startswith("=")):
                         row_has_data = True
-                        if c_idx > max_c:
-                            max_c = c_idx
+                        col = c_idx + 1
+                        if col > max_c:
+                            max_c = col
+                        break
+                if row_has_data:
+                    max_r = max(max_r, r_idx)
+        else:
+            for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+                row_has_data = False
+                for c_idx in range(len(row) - 1, -1, -1):
+                    if row[c_idx] is not None:
+                        row_has_data = True
+                        col = c_idx + 1
+                        if col > max_c:
+                            max_c = col
+                        break
                 if row_has_data:
                     max_r = max(max_r, r_idx)
 
