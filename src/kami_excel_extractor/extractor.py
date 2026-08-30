@@ -4,6 +4,7 @@ Excelファイルから詳細なメタデータ、視覚スタイル、および
 
 import html
 import io
+import itertools
 import logging
 from datetime import date, datetime
 from pathlib import Path
@@ -414,32 +415,37 @@ class MetadataExtractor:
     ) -> Tuple[int, int, int, int]:
         """
         データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
+        ⚡ Performance: Combined row traversal & right-to-left scan for early loop termination.
         """
         max_r, max_c = 0, 0
 
-        # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+        rows_val = ws.iter_rows(values_only=True)
+        rows_f = ws_formula.iter_rows(values_only=True) if ws_formula else None
+
+        row_pairs = itertools.zip_longest(rows_val, rows_f, fillvalue=None) if rows_f else ((r, None) for r in rows_val)
+
+        for r_idx, (row, row_f) in enumerate(row_pairs, 1):
             row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
+            row_len = len(row) if row else 0
+            row_f_len = len(row_f) if row_f else 0
+            max_len = max(row_len, row_f_len)
+
+            for c_idx_0 in range(max_len - 1, -1, -1):
+                c_idx = c_idx_0 + 1
+                value = row[c_idx_0] if (row and c_idx_0 < row_len) else None
+                f_value = row_f[c_idx_0] if (row_f and c_idx_0 < row_f_len) else None
+
+                has_val = value is not None
+                has_formula = f_value is not None and str(f_value).startswith("=")
+
+                if has_val or has_formula:
                     row_has_data = True
                     if c_idx > max_c:
                         max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
+                    break
 
-        # フォームラがある範囲も含める
-        if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
-                row_has_data = False
-                for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
-                        row_has_data = True
-                        if c_idx > max_c:
-                            max_c = c_idx
-                if row_has_data:
-                    max_r = max(max_r, r_idx)
+            if row_has_data:
+                max_r = r_idx
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
