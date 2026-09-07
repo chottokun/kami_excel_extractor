@@ -17,10 +17,22 @@ from .utils import clean_kami_text, secure_filename
 
 logger = logging.getLogger(__name__)
 
+import itertools
+
 # セキュリティ設定: 画像の最大ピクセル数と最大バイト数
 MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+_UNSPECIFIED = object()
+
+BORDER_STYLE_MAP = {
+    "medium": "2px solid",
+    "thick": "3px solid",
+    "thin": "1px solid",
+    "dashed": "1px dashed",
+    "dotted": "1px dotted",
+}
 
 
 class MetadataExtractor:
@@ -48,19 +60,30 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._val_escape_cache = {}
 
-    def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
+    def _clear_caches(self):
+        """Clears internal caches between extraction runs to prevent memory bloat."""
+        self._style_cache.clear()
+        self._unit_cache.clear()
+        self._border_cache.clear()
+        self._bold_cache.clear()
+        self._val_escape_cache.clear()
+
+    def _get_border_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Dict[str, str]:
         """
         セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 既に取得済みのスタイルID (オプション)。
 
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._border_cache:
             return self._border_cache[style_id]
 
@@ -76,7 +99,7 @@ class MetadataExtractor:
             self._border_cache[style_id] = borders
         return borders
 
-    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+    def _get_cell_style_string(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
         ⚡ Performance: Uses caching via cell.style_id.
@@ -85,11 +108,13 @@ class MetadataExtractor:
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 既に取得済みのスタイルID (オプション)。
 
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._style_cache:
             return self._style_cache[style_id]
 
@@ -105,17 +130,10 @@ class MetadataExtractor:
                     styles.append(f"background-color: #{c_idx}")
 
         # 罫線情報をCSSのborder属性に近似
-        border_info = self._get_border_info(cell)
-        style_map = {
-            "medium": "2px solid",
-            "thick": "3px solid",
-            "thin": "1px solid",
-            "dashed": "1px dashed",
-            "dotted": "1px dotted",
-        }
+        border_info = self._get_border_info(cell, style_id=style_id)
 
         for side, style in border_info.items():
-            css_style = style_map.get(style, "1px solid")
+            css_style = BORDER_STYLE_MAP.get(style, "1px solid")
             styles.append(f"border-{side}: {css_style} black")
 
         # フォントウェイト
@@ -135,18 +153,20 @@ class MetadataExtractor:
             self._style_cache[style_id] = result
         return result
 
-    def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
+    def _get_unit_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Optional[str]:
         """
         セルの表示形式(Number Format)からデータの単位や型を推測する。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: 既に取得済みのスタイルID (オプション)。
 
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._unit_cache:
             return self._unit_cache[style_id]
 
@@ -324,9 +344,11 @@ class MetadataExtractor:
         cell: openpyxl.cell.Cell,
         span_info: Union[str, Dict],
         style_str: Optional[str] = None,
-        unit: Optional[str] = None,
+        unit: Any = _UNSPECIFIED,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
+        style_id: Optional[int] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
@@ -334,15 +356,19 @@ class MetadataExtractor:
         """
         if clean_val is None:
             val = cell.value
-            clean_val = (
-                val.isoformat()
-                if isinstance(val, (date, datetime))
-                else str(clean_kami_text(val))
-                if val is not None
-                else ""
-            )
+            if isinstance(val, (date, datetime)):
+                clean_val = val.isoformat()
+            elif isinstance(val, str):
+                clean_val = str(clean_kami_text(val))
+            elif val is not None:
+                clean_val = str(val)
+            else:
+                clean_val = ""
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        if coord is None:
+            coord = cell.coordinate
+
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -350,20 +376,27 @@ class MetadataExtractor:
                 attrs.append(f'rowspan="{span_info["rowspan"]}"')
 
         if style_str is None:
-            style_str = self._get_cell_style_string(cell)
+            style_str = self._get_cell_style_string(cell, style_id=style_id)
         if style_str:
             attrs.append(f'style="{style_str}"')
 
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        if unit is None:
-            unit = self._get_unit_info(cell)
+        if unit is _UNSPECIFIED:
+            unit = self._get_unit_info(cell, style_id=style_id)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(clean_val).replace("\n", "<br>")
+
+        if clean_val in self._val_escape_cache:
+            safe_val = self._val_escape_cache[clean_val]
+        else:
+            safe_val = html.escape(clean_val).replace("\n", "<br>")
+            if len(clean_val) < 1000:
+                self._val_escape_cache[clean_val] = safe_val
+
         return f"<td{attr_str}>{safe_val}</td>"
 
     def is_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
@@ -414,32 +447,31 @@ class MetadataExtractor:
     ) -> Tuple[int, int, int, int]:
         """
         データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
+        ⚡ Performance: Single-pass scanning from right to left to locate boundaries quickly.
         """
         max_r, max_c = 0, 0
 
-        # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-            row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
+        rows_iter = ws.iter_rows(values_only=True)
+        if ws_formula:
+            f_rows_iter = ws_formula.iter_rows(values_only=True)
+            row_pairs = itertools.zip_longest(rows_iter, f_rows_iter, fillvalue=())
+        else:
+            row_pairs = ((r, ()) for r in rows_iter)
+
+        for r_idx, (row, f_row) in enumerate(row_pairs, 1):
+            max_len = max(len(row), len(f_row))
+            for col_idx in range(max_len - 1, -1, -1):
+                c_idx = col_idx + 1
+                v = row[col_idx] if col_idx < len(row) else None
+                f_v = f_row[col_idx] if col_idx < len(f_row) else None
+
+                has_data = v is not None or (f_v is not None and str(f_v).startswith("="))
+                if has_data:
+                    if r_idx > max_r:
+                        max_r = r_idx
                     if c_idx > max_c:
                         max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
-
-        # フォームラがある範囲も含める
-        if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
-                row_has_data = False
-                for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
-                        row_has_data = True
-                        if c_idx > max_c:
-                            max_c = c_idx
-                if row_has_data:
-                    max_r = max(max_r, r_idx)
+                    break
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
@@ -496,34 +528,39 @@ class MetadataExtractor:
                     continue
 
                 formula = cell_f.value if cell_f else None
-                style_str = self._get_cell_style_string(cell)
-                unit = self._get_unit_info(cell)
-                val = cell.value
-                clean_val = (
-                    val.isoformat()
-                    if isinstance(val, (date, datetime))
-                    else str(clean_kami_text(val))
-                    if val is not None
-                    else ""
-                )
-
                 style_id = getattr(cell, "style_id", None)
+                border_info = self._get_border_info(cell, style_id=style_id)
+                style_str = self._get_cell_style_string(cell, style_id=style_id)
+                unit = self._get_unit_info(cell, style_id=style_id)
+
+                val = cell.value
+                if isinstance(val, (date, datetime)):
+                    clean_val = val.isoformat()
+                elif isinstance(val, str):
+                    clean_val = str(clean_kami_text(val))
+                elif val is not None:
+                    clean_val = str(val)
+                else:
+                    clean_val = ""
+
                 bold = self._bold_cache.get(style_id)
                 if bold is None:
                     bold = bool(cell.font.b if cell.font else False)
                     if style_id is not None:
                         self._bold_cache[style_id] = bold
 
+                coord = cell.coordinate
+
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
                     "unit": unit,
                     "style": {
-                        "borders": self._get_border_info(cell),
+                        "borders": border_info,
                         "bold": bold,
                     },
                 }
@@ -533,7 +570,14 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell,
+                    span,
+                    style_str=style_str,
+                    unit=unit,
+                    clean_val=clean_val,
+                    formula=formula,
+                    coord=coord,
+                    style_id=style_id,
                 )
                 current_row_html.append(td_html)
 
@@ -556,6 +600,7 @@ class MetadataExtractor:
         Returns:
             Dict: 全シートの解析データを含む辞書。
         """
+        self._clear_caches()
         # 値の抽出用に data_only=True でロード
         wb = openpyxl.load_workbook(excel_path, data_only=True)
         wb_formula = openpyxl.load_workbook(excel_path, data_only=False) if include_logic else None
