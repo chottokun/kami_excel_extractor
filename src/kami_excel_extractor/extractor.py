@@ -327,11 +327,14 @@ class MetadataExtractor:
         unit: Optional[str] = None,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         ⚡ Performance: Accepts pre-calculated values to avoid redundant work.
         """
+        cell_coord = coord if coord is not None else cell.coordinate
+
         if clean_val is None:
             val = cell.value
             clean_val = (
@@ -342,7 +345,7 @@ class MetadataExtractor:
                 else ""
             )
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        attrs = [f'data-coord="{cell_coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -495,6 +498,7 @@ class MetadataExtractor:
                 if span == "skip":
                     continue
 
+                coord = cell.coordinate
                 formula = cell_f.value if cell_f else None
                 style_str = self._get_cell_style_string(cell)
                 unit = self._get_unit_info(cell)
@@ -516,7 +520,7 @@ class MetadataExtractor:
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
@@ -533,7 +537,7 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula, coord=coord
                 )
                 current_row_html.append(td_html)
 
