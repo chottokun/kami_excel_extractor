@@ -22,6 +22,9 @@ MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
+# ⚡ Performance: Sentinel object to distinguish explicit None from omitted argument for unit
+_UNSPECIFIED = object()
+
 
 class MetadataExtractor:
     """
@@ -324,13 +327,14 @@ class MetadataExtractor:
         cell: openpyxl.cell.Cell,
         span_info: Union[str, Dict],
         style_str: Optional[str] = None,
-        unit: Optional[str] = None,
+        unit: Union[Optional[str], Any] = _UNSPECIFIED,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         ⚡ Performance: Accepts pre-calculated values to avoid redundant work.
+        Uses _UNSPECIFIED sentinel for unit to prevent re-computing unit when None is explicitly passed.
         """
         if clean_val is None:
             val = cell.value
@@ -357,7 +361,7 @@ class MetadataExtractor:
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        if unit is None:
+        if unit is _UNSPECIFIED:
             unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
