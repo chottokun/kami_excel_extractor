@@ -6,6 +6,7 @@ import html
 import io
 import logging
 from datetime import date, datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -414,32 +415,39 @@ class MetadataExtractor:
     ) -> Tuple[int, int, int, int]:
         """
         データまたは書式が存在する実質的な範囲（最小行、最大行、最小列、最大列）を特定する。
+        ⚡ Performance: Scans right-to-left and combines formula pass to minimize iterations.
         """
         max_r, max_c = 0, 0
 
-        # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-            row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
-                    if c_idx > max_c:
-                        max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
-
-        # フォームラがある範囲も含める
+        # データおよび計算式があるセルの範囲を取得
+        # ⚡ Performance: Combine values and formula iterations and scan right-to-left for early exit
         if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
-                row_has_data = False
-                for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
-                        row_has_data = True
-                        if c_idx > max_c:
-                            max_c = c_idx
-                if row_has_data:
-                    max_r = max(max_r, r_idx)
+            rows_gen = zip_longest(ws.iter_rows(values_only=True), ws_formula.iter_rows(values_only=True), fillvalue=())
+        else:
+            rows_gen = ws.iter_rows(values_only=True)
+
+        for r_idx, row_item in enumerate(rows_gen, 1):
+            if ws_formula:
+                row_val, row_f = row_item
+                len_v = len(row_val) if row_val else 0
+                len_f = len(row_f) if row_f else 0
+                max_len = max(len_v, len_f)
+                for i in range(max_len - 1, -1, -1):
+                    v = row_val[i] if i < len_v else None
+                    vf = row_f[i] if i < len_f else None
+                    if v is not None or (vf is not None and str(vf).startswith("=")):
+                        max_r = r_idx
+                        if i + 1 > max_c:
+                            max_c = i + 1
+                        break
+            else:
+                len_row = len(row_item)
+                for i in range(len_row - 1, -1, -1):
+                    if row_item[i] is not None:
+                        max_r = r_idx
+                        if i + 1 > max_c:
+                            max_c = i + 1
+                        break
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
