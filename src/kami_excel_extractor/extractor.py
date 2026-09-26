@@ -4,6 +4,7 @@ Excelファイルから詳細なメタデータ、視覚スタイル、および
 
 import html
 import io
+import itertools
 import logging
 from datetime import date, datetime
 from pathlib import Path
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+_UNSPECIFIED = object()
 
 
 class MetadataExtractor:
@@ -48,19 +51,22 @@ class MetadataExtractor:
         self._unit_cache = {}
         self._border_cache = {}
         self._bold_cache = {}
+        self._val_escape_cache = {}
 
-    def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
+    def _get_border_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Dict[str, str]:
         """
         セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: オプションでプリフェッチされたcell.style_id。
 
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._border_cache:
             return self._border_cache[style_id]
 
@@ -76,7 +82,12 @@ class MetadataExtractor:
             self._border_cache[style_id] = borders
         return borders
 
-    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+    def _get_cell_style_string(
+        self,
+        cell: openpyxl.cell.Cell,
+        style_id: Optional[int] = None,
+        border_info: Optional[Dict[str, str]] = None,
+    ) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
         ⚡ Performance: Uses caching via cell.style_id.
@@ -85,11 +96,14 @@ class MetadataExtractor:
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: オプションでプリフェッチされたcell.style_id。
+            border_info: オプションで計算済みの罫線情報。
 
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._style_cache:
             return self._style_cache[style_id]
 
@@ -105,7 +119,8 @@ class MetadataExtractor:
                     styles.append(f"background-color: #{c_idx}")
 
         # 罫線情報をCSSのborder属性に近似
-        border_info = self._get_border_info(cell)
+        if border_info is None:
+            border_info = self._get_border_info(cell, style_id=style_id)
         style_map = {
             "medium": "2px solid",
             "thick": "3px solid",
@@ -135,18 +150,20 @@ class MetadataExtractor:
             self._style_cache[style_id] = result
         return result
 
-    def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
+    def _get_unit_info(self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None) -> Optional[str]:
         """
         セルの表示形式(Number Format)からデータの単位や型を推測する。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: オプションでプリフェッチされたcell.style_id。
 
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._unit_cache:
             return self._unit_cache[style_id]
 
@@ -324,14 +341,18 @@ class MetadataExtractor:
         cell: openpyxl.cell.Cell,
         span_info: Union[str, Dict],
         style_str: Optional[str] = None,
-        unit: Optional[str] = None,
+        unit: Union[str, None, object] = _UNSPECIFIED,
         clean_val: Optional[str] = None,
         formula: Optional[str] = None,
+        coord: Optional[str] = None,
     ) -> str:
         """
         単一のセルを、詳細属性付きのHTML <td> タグに変換する。
         ⚡ Performance: Accepts pre-calculated values to avoid redundant work.
         """
+        if coord is None:
+            coord = cell.coordinate
+
         if clean_val is None:
             val = cell.value
             clean_val = (
@@ -342,7 +363,7 @@ class MetadataExtractor:
                 else ""
             )
 
-        attrs = [f'data-coord="{cell.coordinate}"']
+        attrs = [f'data-coord="{coord}"']
         if isinstance(span_info, dict):
             if span_info.get("colspan", 1) > 1:
                 attrs.append(f'colspan="{span_info["colspan"]}"')
@@ -357,13 +378,21 @@ class MetadataExtractor:
         if formula and str(formula).startswith("="):
             attrs.append(f'data-formula="{html.escape(str(formula))}"')
 
-        if unit is None:
+        if unit is _UNSPECIFIED:
             unit = self._get_unit_info(cell)
         if unit:
             attrs.append(f'data-unit="{html.escape(unit)}"')
 
         attr_str = " " + " ".join(attrs) if attrs else ""
-        safe_val = html.escape(clean_val).replace("\n", "<br>")
+
+        if not clean_val:
+            safe_val = ""
+        else:
+            safe_val = self._val_escape_cache.get(clean_val)
+            if safe_val is None:
+                safe_val = html.escape(clean_val).replace("\n", "<br>")
+                self._val_escape_cache[clean_val] = safe_val
+
         return f"<td{attr_str}>{safe_val}</td>"
 
     def is_simple_table(self, ws: openpyxl.worksheet.worksheet.Worksheet) -> bool:
@@ -418,28 +447,34 @@ class MetadataExtractor:
         max_r, max_c = 0, 0
 
         # データがあるセルの範囲を取得
-        # ⚡ Performance: Use iter_rows(values_only=True) to efficiently scan for data
-        for r_idx, row in enumerate(ws.iter_rows(values_only=True), 1):
-            row_has_data = False
-            for c_idx, value in enumerate(row, 1):
-                if value is not None:
-                    row_has_data = True
-                    if c_idx > max_c:
-                        max_c = c_idx
-            if row_has_data:
-                max_r = max(max_r, r_idx)
-
-        # フォームラがある範囲も含める
+        # ⚡ Performance: Combine ws and ws_formula row iteration and scan right-to-left
+        rows_gen = ws.iter_rows(values_only=True)
         if ws_formula:
-            for r_idx, row in enumerate(ws_formula.iter_rows(values_only=True), 1):
-                row_has_data = False
-                for c_idx, value in enumerate(row, 1):
-                    if value is not None and str(value).startswith("="):
-                        row_has_data = True
-                        if c_idx > max_c:
-                            max_c = c_idx
-                if row_has_data:
-                    max_r = max(max_r, r_idx)
+            rows_f_gen = ws_formula.iter_rows(values_only=True)
+            combined = itertools.zip_longest(rows_gen, rows_f_gen, fillvalue=())
+        else:
+            combined = ((r, ()) for r in rows_gen)
+
+        for r_idx, (row, row_f) in enumerate(combined, 1):
+            len_row = len(row)
+            len_row_f = len(row_f)
+            max_len = max(len_row, len_row_f)
+
+            # Right-to-left scan to quickly locate the rightmost non-empty cell in this row
+            for c_offset in range(max_len - 1, -1, -1):
+                val = row[c_offset] if c_offset < len_row else None
+                if val is not None:
+                    max_r = r_idx
+                    if c_offset + 1 > max_c:
+                        max_c = c_offset + 1
+                    break
+
+                val_f = row_f[c_offset] if c_offset < len_row_f else None
+                if val_f is not None and str(val_f).startswith("="):
+                    max_r = r_idx
+                    if c_offset + 1 > max_c:
+                        max_c = c_offset + 1
+                    break
 
         # 結合セルや画像がある範囲も含める
         for m_range in ws.merged_cells.ranges:
@@ -495,9 +530,12 @@ class MetadataExtractor:
                 if span == "skip":
                     continue
 
+                style_id = getattr(cell, "style_id", None)
+                coord = cell.coordinate
+                border_info = self._get_border_info(cell, style_id=style_id)
+                style_str = self._get_cell_style_string(cell, style_id=style_id, border_info=border_info)
+                unit = self._get_unit_info(cell, style_id=style_id)
                 formula = cell_f.value if cell_f else None
-                style_str = self._get_cell_style_string(cell)
-                unit = self._get_unit_info(cell)
                 val = cell.value
                 clean_val = (
                     val.isoformat()
@@ -507,7 +545,6 @@ class MetadataExtractor:
                     else ""
                 )
 
-                style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
                 if bold is None:
                     bold = bool(cell.font.b if cell.font else False)
@@ -516,14 +553,14 @@ class MetadataExtractor:
 
                 # メタデータの構築
                 cell_info = {
-                    "coord": cell.coordinate,
+                    "coord": coord,
                     "row": r_idx,
                     "col": c_idx,
                     "value": clean_val if val is not None else None,
                     "formula": formula if str(formula).startswith("=") else None,
                     "unit": unit,
                     "style": {
-                        "borders": self._get_border_info(cell),
+                        "borders": border_info,
                         "bold": bold,
                     },
                 }
@@ -533,7 +570,13 @@ class MetadataExtractor:
 
                 # HTMLテーブル行の構築
                 td_html = self._cell_to_html_td(
-                    cell, span, style_str=style_str, unit=unit, clean_val=clean_val, formula=formula
+                    cell,
+                    span,
+                    style_str=style_str,
+                    unit=unit,
+                    clean_val=clean_val,
+                    formula=formula,
+                    coord=coord,
                 )
                 current_row_html.append(td_html)
 
