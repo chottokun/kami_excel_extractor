@@ -22,6 +22,15 @@ MAX_IMAGE_PIXELS = 25000000  # 25MP
 MAX_IMAGE_BYTES = 20971520  # 20MB
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
+# ⚡ Performance: Hoisted style map constant to avoid recreating dict on every cell style evaluation
+BORDER_STYLE_MAP = {
+    "medium": "2px solid",
+    "thick": "3px solid",
+    "thin": "1px solid",
+    "dashed": "1px dashed",
+    "dotted": "1px dotted",
+}
+
 
 class MetadataExtractor:
     """
@@ -49,18 +58,22 @@ class MetadataExtractor:
         self._border_cache = {}
         self._bold_cache = {}
 
-    def _get_border_info(self, cell: openpyxl.cell.Cell) -> Dict[str, str]:
+    def _get_border_info(
+        self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None
+    ) -> Dict[str, str]:
         """
         セルの罫線情報を取得し、各辺のスタイルを辞書形式で返す。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: プリフェッチされたstyle_id（オプション）。
 
         Returns:
             Dict[str, str]: {'left': 'thin', 'top': 'thick', ...} 形式の辞書。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._border_cache:
             return self._border_cache[style_id]
 
@@ -76,28 +89,33 @@ class MetadataExtractor:
             self._border_cache[style_id] = borders
         return borders
 
-    def _get_cell_style_string(self, cell: openpyxl.cell.Cell) -> str:
+    def _get_cell_style_string(
+        self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None
+    ) -> str:
         """
         セルの視覚的属性（色、線、フォント）をCSS形式の文字列に変換する。
-        ⚡ Performance: Uses caching via cell.style_id.
+        ⚡ Performance: Uses caching via cell.style_id and accepts pre-fetched style_id.
 
         LLMがテーブルの構造（ヘッダー、セクションの区切り）を理解するための重要なヒントとなる。
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: プリフェッチされたstyle_id（オプション）。
 
         Returns:
             str: "background-color: #FFFFFF; border-top: 1px solid black;" 等のCSS文字列。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._style_cache:
             return self._style_cache[style_id]
 
         styles = []
 
         # 背景色の抽出 (ARGBをRGBに変換)
-        if cell.fill and hasattr(cell.fill, "start_color") and cell.fill.start_color:
-            c_idx = str(cell.fill.start_color.index)
+        fill = cell.fill
+        if fill and hasattr(fill, "start_color") and fill.start_color:
+            c_idx = str(fill.start_color.index)
             if c_idx not in ("00000000", "0"):
                 if len(c_idx) == 8:  # ARGB (Alpha-RGB)
                     c_idx = c_idx[2:]
@@ -105,29 +123,23 @@ class MetadataExtractor:
                     styles.append(f"background-color: #{c_idx}")
 
         # 罫線情報をCSSのborder属性に近似
-        border_info = self._get_border_info(cell)
-        style_map = {
-            "medium": "2px solid",
-            "thick": "3px solid",
-            "thin": "1px solid",
-            "dashed": "1px dashed",
-            "dotted": "1px dotted",
-        }
+        border_info = self._get_border_info(cell, style_id=style_id)
 
         for side, style in border_info.items():
-            css_style = style_map.get(style, "1px solid")
+            css_style = BORDER_STYLE_MAP.get(style, "1px solid")
             styles.append(f"border-{side}: {css_style} black")
 
         # フォントウェイト
-        if cell.font:
+        font = cell.font
+        if font:
             bold = self._bold_cache.get(style_id)
             if bold is None:
-                bold = bool(cell.font.b)
+                bold = bool(font.b)
                 if style_id is not None:
                     self._bold_cache[style_id] = bold
             if bold:
                 styles.append("font-weight: bold")
-            if cell.font.i:
+            if font.i:
                 styles.append("font-style: italic")
 
         result = "; ".join(styles)
@@ -135,18 +147,22 @@ class MetadataExtractor:
             self._style_cache[style_id] = result
         return result
 
-    def _get_unit_info(self, cell: openpyxl.cell.Cell) -> Optional[str]:
+    def _get_unit_info(
+        self, cell: openpyxl.cell.Cell, style_id: Optional[int] = None
+    ) -> Optional[str]:
         """
         セルの表示形式(Number Format)からデータの単位や型を推測する。
         ⚡ Performance: Uses caching via cell.style_id.
 
         Args:
             cell: openpyxlのセルオブジェクト。
+            style_id: プリフェッチされたstyle_id（オプション）。
 
         Returns:
             Optional[str]: 'JPY', 'PERCENT', 'DATE' 等の識別子。
         """
-        style_id = getattr(cell, "style_id", None)
+        if style_id is None:
+            style_id = getattr(cell, "style_id", None)
         if style_id is not None and style_id in self._unit_cache:
             return self._unit_cache[style_id]
 
@@ -495,9 +511,10 @@ class MetadataExtractor:
                 if span == "skip":
                     continue
 
+                style_id = getattr(cell, "style_id", None)
                 formula = cell_f.value if cell_f else None
-                style_str = self._get_cell_style_string(cell)
-                unit = self._get_unit_info(cell)
+                style_str = self._get_cell_style_string(cell, style_id=style_id)
+                unit = self._get_unit_info(cell, style_id=style_id)
                 val = cell.value
                 clean_val = (
                     val.isoformat()
@@ -507,7 +524,6 @@ class MetadataExtractor:
                     else ""
                 )
 
-                style_id = getattr(cell, "style_id", None)
                 bold = self._bold_cache.get(style_id)
                 if bold is None:
                     bold = bool(cell.font.b if cell.font else False)
